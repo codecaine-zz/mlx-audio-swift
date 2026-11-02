@@ -47,12 +47,13 @@ For a complete, step-by-step illustrated walkthrough covering every tab, workflo
 
 ## Prebuilt macOS Release Installation
 
-1. Download **`Codecaine-MLX-Audio-Studio-v1.0.0-macOS-arm64.dmg`** (or `.zip`) from the [**GitHub Releases page**](https://github.com/codecaine-zz/mlx-audio-swift/releases/latest).
-2. Open the `.dmg` and drag **`Codecaine MLX RAD AI Audio Studio.app`** (`VoicesApp.app`) to `/Applications`.
-3. If macOS Gatekeeper prompts on first launch, clear the quarantine attribute:
+1. Download **`Codecaine-MLX-Audio-Studio-v1.0.0-macOS-arm64.dmg`** (or `.zip`) and the **`Codecaine-MLX-Audio-Studio-Complete-Video-Tutorial.mp4`** (AI Phonon MLX narrated 1080p video guide) from the [**GitHub Releases page**](https://github.com/codecaine-zz/mlx-audio-swift/releases/latest).
+2. Open the `.dmg` and drag **`Codecaine MLX RAD AI Audio Studio.app`** to `/Applications`.
+3. **Important Note for Unsigned macOS Apps (Gatekeeper Quarantine)**: Because this open-source release is ad-hoc signed without an Apple Developer ID certificate, macOS Gatekeeper may block the app on first launch (*"damaged and can't be opened"* or *"unidentified developer"*). Run the following command in **Terminal** to remove the macOS quarantine attribute:
    ```bash
-   xattr -cr "/Applications/Codecaine MLX RAD AI Audio Studio.app"
+   xattr -dr com.apple.quarantine "/Applications/Codecaine MLX RAD AI Audio Studio.app"
    ```
+   *(Or if your app bundle is named `VoicesApp.app`: `xattr -dr com.apple.quarantine /Applications/VoicesApp.app`)*
 
 ## Architecture
 

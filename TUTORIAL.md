@@ -86,13 +86,16 @@ flowchart TD
 ### Option A: Download Prebuilt macOS Release (Recommended for Users)
 
 1. Download the latest release archive from the [**GitHub Releases**](https://github.com/codecaine-zz/mlx-audio-swift/releases) page:
-   - `Codecaine-MLX-Audio-Studio-macOS-arm64.dmg` (Drag-and-drop macOS Disk Image)
-   - `Codecaine-MLX-Audio-Studio-macOS-arm64.zip` (Portable zipped application bundle)
-2. Drag **`VoicesApp.app`** (*Codecaine MLX RAD AI Audio Studio*) to `/Applications`.
-3. If macOS Gatekeeper prompts on first launch, run:
+   - `Codecaine-MLX-Audio-Studio-v1.0.0-macOS-arm64.dmg` (Drag-and-drop macOS Disk Image)
+   - `Codecaine-MLX-Audio-Studio-v1.0.0-macOS-arm64.zip` (Portable zipped application bundle)
+   - `Codecaine-MLX-Audio-Studio-Complete-Video-Tutorial.mp4` (1080p HD Video Tutorial narrated by AI Phonon MLX)
+2. Drag **`Codecaine MLX RAD AI Audio Studio.app`** (or `VoicesApp.app`) to `/Applications`.
+3. **Important Note for Unsigned macOS Apps (Gatekeeper Quarantine)**: Because the release binary is ad-hoc signed without a paid Apple Developer ID certificate, macOS Gatekeeper attaches a `com.apple.quarantine` extended attribute to downloaded apps. Before opening the app for the first time, run this command in **Terminal**:
    ```bash
-   xattr -cr /Applications/VoicesApp.app
-   open /Applications/VoicesApp.app
+   xattr -dr com.apple.quarantine "/Applications/Codecaine MLX RAD AI Audio Studio.app"
+   open "/Applications/Codecaine MLX RAD AI Audio Studio.app"
+   ```
+   *(If your bundle is named `VoicesApp.app`, run `xattr -dr com.apple.quarantine /Applications/VoicesApp.app`)*
    ```
 
 ### Option B: Build from Source with Xcode / `xcodebuild`
