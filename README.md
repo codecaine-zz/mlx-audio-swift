@@ -1,12 +1,58 @@
-<a href="https://trendshift.io/repositories/20684" target="_blank"><img src="https://trendshift.io/api/badge/repositories/20684" alt="Blaizzy%2Fmlx-audio-swift | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
+# Codecaine MLX RAD AI Audio Studio
 
-# MLX Audio Swift
+<p align="center">
+  <img src="Examples/VoicesApp/VoicesApp/AppIcon.png" alt="Codecaine MLX RAD AI Audio Studio Icon" width="180" />
+</p>
 
-A modular Swift SDK for audio processing with MLX on Apple Silicon
+**Author:** Codecaine  
+**License:** MIT License
 
-![Platform](https://img.shields.io/badge/platform-macOS%2014%2B%20%7C%20iOS%2017%2B-lightgrey)
-![Swift](https://img.shields.io/badge/Swift-5.9%2B-orange)
+A full-featured macOS Apple Silicon AI Audio Workstation (`Codecaine MLX RAD AI Audio Studio`) and modular Swift SDK for Text-to-Speech (TTS), Zero-Shot Voice Cloning, Live Read-Along Karaoke Teleprompter, Speech-to-Text (ASR), Speech-to-Speech (STS), Source Separation, and Standalone Localhost API emulation (`:8080`, Ollama `:11434`, and LM Studio `:1234`) powered by MLX on Apple Silicon.
+
+![Platform](https://img.shields.io/badge/platform-macOS%2015%2B%20%7C%20iOS%2017%2B-lightgrey)
+![Swift](https://img.shields.io/badge/Swift-6.0%2B-orange)
+![Author](https://img.shields.io/badge/author-Codecaine-purple)
 ![License](https://img.shields.io/badge/license-MIT-blue)
+
+<p align="center">
+  <a href="https://github.com/codecaine-zz/mlx-audio-swift/releases/latest"><strong>⬇️ Download macOS Apple Silicon Release (.DMG / .ZIP)</strong></a>
+  &nbsp;·&nbsp;
+  <a href="TUTORIAL.md"><strong>📘 Read the Complete Illustrated Studio Tutorial & Reference Manual (TUTORIAL.md)</strong></a>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/01_voice_studio_readalong_stage.png" alt="Codecaine MLX RAD AI Audio Studio — Focused Stage Read-Along Karaoke & 2-Second EPUB Synthesis" width="92%" />
+</p>
+
+## Codecaine MLX RAD AI Audio Studio Highlights
+
+- **Phonon MLX Default TTS & 41 Studio Voices + Zero-Shot Voice Cloning**: Defaults to ultra-fast **Phonon MLX** (`gradium/phonon-40m-en` & `gradium/phonon-31m-en`) alongside **Fish Audio S2 Pro** (`41` built-in studio voices across `Conversational`, `Narrator`, `Character`, and `Reference Clones`) plus instant zero-shot voice cloning from any reference audio file or microphone recording with automatic speech recognition and acoustic voice biometrics (`F0` pitch, register, timbre, SNR).
+- **2-Second EPUB Synthesis (`LivePlayableWAVWriter` + `PhononChunkCache`)**: Inspired by the **Codecaine File Manager** architecture, large books and EPUBs split into crisp `520`-character sections and synthesize on-demand in ~2 seconds with in-memory + disk SHA-256 audio caching (`§1 ✓`) and a scope toggle (`⚡ Active Section §N (2s)` vs. `Full Book (All Sections)`).
+- **Direct Silent Export (No Need to Press Generate Speech First)**: Export audio (`.WAV`, `.M4A`, `.FLAC`, `.MP3`, `.AIFF`), subtitles (`.SRT`, `.VTT`, `.ASS`), or `.MP4` Read-Along Videos directly via **`Silent Export ⌄`** in the bottom dock, **`⚡ 2s Export §N`** in the chunk strip, or the top **`Export ⌄`** menu—synthesizing silently in the background (`playAudio: false`) without playing sound out loud and immediately opening the macOS Save dialog.
+- **Focused Stage Read-Along Karaoke & 6 Studio Themes**: Real-time word-by-word highlighting synchronized to acoustic RMS energy (`WordTimingEngine` with `[0.60x...1.65x]` speaking-pace guard), **Focused Stage Mode** (isolates the active section so large EPUBs never jump-scroll), click-any-word audio seeking, and 6 instant studio/reader themes (`Midnight Studio`, `Warm Sepia`, `Daylight Paper`, `Matrix Green`, `High Contrast`, `Arctic Nord`).
+- **Phonon 2.5 ASR & Real Song Lyrics Extractor**: Defaults to **Phonon 2.5 EN** (`FermionResearch/Phonon-2.5-English`) and **Phonon 2.5 Multilingual** (`FermionResearch/Phonon-2.5`) with zero-freeze asynchronous waveform import, automatic 28-second sliding-window chunking for full songs, **Real Embedded Lyrics (`©lyr` / `USLT`) & `.lrc` / `.txt` Companion File Priority** (with `Force AI` override), and 1-click transfer of the entire transcript to Voice Studio.
+- **Real-Time Acoustic Speed & Semitone Pitch Shifting**: Live `AVAudioEngine` + `AVAudioUnitTimePitch` playback rate (`0.5x`–`2.0x`) and semitone pitch shifting (`-6st` to `+6st`) without chipmunk distortion, plus full 32-bit float headroom preservation and anti-buzz de-esser across all 19 TTS model families.
+- **Standalone Localhost AI Audio Server & 70% RAM Hardware Guard**: Built-in HTTP server on `:8080` with automatic drop-in emulation for Ollama (`:11434`) and LM Studio (`:1234`), plus real-time Apple Silicon Metal memory monitoring and 1-click VRAM purge.
+- **One-Click Homebrew & Studio Packages Installer**: Integrated `Packages` tab to bootstrap Homebrew and install/manage `FFmpeg`, `Pandoc`, `Poppler`, `ImageMagick`, `Ghostscript`, `Tesseract OCR`, `qpdf`, `ExifTool`, `7-Zip`, `unar`, `Ollama`, `Calibre`, and `LibreOffice`.
+
+## Studio Tour & Complete Tutorial
+
+For a complete, step-by-step illustrated walkthrough covering every tab, workflow, model, keyboard shortcut, and REST endpoint, read **[`TUTORIAL.md`](TUTORIAL.md)**.
+
+| Voice Studio & Silent Export | Transcribe (`Phonon 2.5` & Real Song Lyrics) |
+| :---: | :---: |
+| ![Large EPUB Direct Silent Export](docs/screenshots/02_large_epub_silent_export.png) | ![Transcribe Studio — Phonon 2.5 Default](docs/screenshots/07_transcribe_phonon_25.png) |
+| **Audio Lab (STS, Separation & Denoising)** | **Localhost API (`:8080` / `:11434` / `:1234`) & Packages** |
+| ![Audio Lab STS](docs/screenshots/09_audio_lab_sts.png) | ![Localhost API Server](docs/screenshots/10_localhost_api_server.png) |
+
+## Prebuilt macOS Release Installation
+
+1. Download **`Codecaine-MLX-Audio-Studio-v1.0.0-macOS-arm64.dmg`** (or `.zip`) from the [**GitHub Releases page**](https://github.com/codecaine-zz/mlx-audio-swift/releases/latest).
+2. Open the `.dmg` and drag **`Codecaine MLX RAD AI Audio Studio.app`** (`VoicesApp.app`) to `/Applications`.
+3. If macOS Gatekeeper prompts on first launch, clear the quarantine attribute:
+   ```bash
+   xattr -cr "/Applications/Codecaine MLX RAD AI Audio Studio.app"
+   ```
 
 ## Architecture
 
@@ -14,19 +60,19 @@ MLXAudio follows a modular design allowing you to import only what you need:
 
 - **MLXAudioCore**: Base types, protocols, and utilities
 - **MLXAudioCodecs**: Audio codec implementations (SNAC, Encodec, Vocos, Mimi, DACVAE, Descript DAC, Fish S1 DAC, S3TokenizerV2, MOSS Audio Tokenizer, Higgs Audio Tokenizer, Step-Audio-2 token-to-wav, MiMo Audio Tokenizer, Nemotron VoiceChat Codec)
-- **MLXAudioTTS**: Text-to-Speech models (Qwen3-TTS, Fish Audio S2 Pro, Soprano, Orpheus, Pocket TTS, and more). [Full TTS model list](#tts-models).
-- **MLXAudioSTT**: Speech-to-Text models (Whisper, Parakeet, Qwen3-ASR, Voxtral Mini, VibeVoice ASR, and more). [Full STT model list](#stt-models).
+- **MLXAudioTTS**: Text-to-Speech models (Phonon, Fish Audio S2 Pro, Qwen3-TTS, Soprano, Orpheus, Pocket TTS, and more). [Full TTS model list](#tts-models).
+- **MLXAudioSTT**: Speech-to-Text models (Phonon 2.5 EN & Multilingual, Whisper, Parakeet, Qwen3-ASR, Voxtral Mini, VibeVoice ASR, and more). [Full STT model list](#stt-models).
 - **MLXAudioVAD**: Voice Activity Detection & Speaker Diarization (Sortformer, SmartTurn, FSMN VAD, Silero VAD)
 - **MLXAudioSTS**: Speech-to-Speech models (LFM2.5-Audio, SAM-Audio, MossFormer2-SE, DeepFilterNet)
 - **MLXAudioUI**: SwiftUI components for audio interfaces
 
-## Installation
+## Swift Package Installation
 
 Add MLXAudio to your project using Swift Package Manager:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/Blaizzy/mlx-audio-swift.git", branch: "main")
+    .package(url: "https://github.com/codecaine-zz/mlx-audio-swift.git", branch: "main")
 ]
 
 // Import only what you need
@@ -282,29 +328,31 @@ let audio = try await model.generate(
 - **Xcode 15+**
 - **Swift 5.9+**
 
-## Examples
+## Studio Application & Examples
+
+The main desktop studio application is located in [`Examples/VoicesApp`](Examples/VoicesApp) (**Codecaine MLX RAD AI Audio Studio**):
+- **Voice Studio**: Multi-engine MLX TTS, 41 built-in studio voices, zero-shot voice cloning, 6-filter speech text cleaner, universal document import, and Live Read-Along Karaoke.
+- **Transcribe**: Real-time and batch Speech-to-Text (`Whisper`, `Parakeet`, `Qwen3-ASR`, `Voxtral`, `GLM-ASR`) with 1-click transfer to Voice Studio.
+- **Audio Lab**: Speech-to-Speech, source separation (`SAM-Audio`), denoising (`MossFormer2-SE`, `DeepFilterNet`), and acoustic description (`LFM2.5-Audio`).
+- **Localhost API**: Built-in `:8080` / `:11434` / `:1234` server and Apple Silicon 70% RAM Guard.
+- **Packages**: One-click Homebrew and studio toolchain installer.
 
 [Phonon Translate](Examples/PhononTranslate) is an XcodeGen example for iOS and
 macOS: type in English, translate into French with a small local language model,
 and listen with Phonon’s English and French voices.
 
-Check out the [Examples/VoicesApp](Examples/VoicesApp) directory for a complete SwiftUI application demonstrating:
-- Loading and running TTS models
-- Playing generated audio
-- UI components for model interaction
-
-Additional usage examples can be found in the test files.
-
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
 
-## Credits
+## Author, Credits & Acknowledgments
 
-- Built on [MLX Swift](https://github.com/ml-explore/mlx-swift)
+- **Author & Lead Developer**: **Codecaine** — *Codecaine MLX RAD AI Audio Studio*
+- **Original Starter Project Credit**: This project builds upon the original open-source starter repository [`Blaizzy/mlx-audio-swift`](https://github.com/Blaizzy/mlx-audio-swift) created by **Prince Canuma** (`@Blaizzy`), originally released under the MIT License. Full credit and appreciation to Prince Canuma and contributors for the foundational MLX Audio Swift SDK starter.
+- Built on [MLX Swift](https://github.com/ml-explore/mlx-swift) by Apple Machine Learning Research
 - Uses [swift-transformers](https://github.com/huggingface/swift-transformers)
 - Inspired by [MLX Audio (Python)](https://github.com/Blaizzy/mlx-audio)
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) file for details.
+Released under the **MIT License** — Copyright (c) 2026 **Codecaine** (with original starter copyright (c) 2025 Prince Canuma preserved). See the [LICENSE](LICENSE) file for full details.

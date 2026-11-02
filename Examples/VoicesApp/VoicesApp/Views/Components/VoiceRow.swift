@@ -7,68 +7,70 @@ struct VoiceRow: View {
     var onTap: (() -> Void)?
 
     var body: some View {
-        Button(action: { onTap?() }) {
-            HStack(spacing: 12) {
-                // Voice avatar with clone indicator
-                ZStack(alignment: .bottomTrailing) {
-                    VoiceAvatar(color: voice.color, size: 44)
-
-                    if voice.isClonedVoice {
-                        Image(systemName: "waveform")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(.white)
-                            .padding(4)
-                            .background(Color.blue)
-                            .clipShape(Circle())
-                            .offset(x: 4, y: 4)
-                    }
-                }
-
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 4) {
-                        Text(voice.name)
-                            .font(.body)
-                            .fontWeight(.medium)
-                            .foregroundStyle(.primary)
+        HStack(spacing: 12) {
+            Button(action: { onTap?() }) {
+                HStack(spacing: 12) {
+                    // Voice avatar with clone indicator
+                    ZStack(alignment: .bottomTrailing) {
+                        VoiceAvatar(color: voice.color, size: 44)
 
                         if voice.isClonedVoice {
-                            Text("Clone")
-                                .font(.caption2)
-                                .fontWeight(.medium)
+                            Image(systemName: "waveform")
+                                .font(.system(size: 10, weight: .bold))
                                 .foregroundStyle(.white)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
+                                .padding(4)
                                 .background(Color.blue)
-                                .clipShape(Capsule())
+                                .clipShape(Circle())
+                                .offset(x: 4, y: 4)
                         }
                     }
 
-                    if !voice.description.isEmpty {
-                        Text(voice.description)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text(voice.language)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                }
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 4) {
+                            Text(voice.name)
+                                .font(.body)
+                                .fontWeight(.medium)
+                                .foregroundStyle(.primary)
 
-                Spacer()
+                            if voice.isClonedVoice {
+                                Text("Clone")
+                                    .font(.caption2)
+                                    .fontWeight(.medium)
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color.blue)
+                                    .clipShape(Capsule())
+                            }
+                        }
 
-                if showDeleteButton {
-                    Button(action: { onDelete?() }) {
-                        Image(systemName: "minus.circle.fill")
-                            .font(.title2)
-                            .foregroundStyle(.secondary)
+                        if !voice.description.isEmpty {
+                            Text(voice.description)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text(voice.language)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
                     }
-                    .buttonStyle(.plain)
+
+                    Spacer()
                 }
+                .contentShape(Rectangle())
             }
-            .padding(.vertical, 4)
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+
+            if showDeleteButton {
+                Button(action: { onDelete?() }) {
+                    Image(systemName: "minus.circle.fill")
+                        .font(.title2)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
         }
-        .buttonStyle(.plain)
+        .padding(.vertical, 4)
     }
 }
 

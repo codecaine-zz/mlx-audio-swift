@@ -10,6 +10,24 @@ public class AudioPlayer: NSObject, ObservableObject {
     @Published public private(set) var currentTime: TimeInterval = 0
     @Published public private(set) var duration: TimeInterval = 0
     @Published public private(set) var currentAudioURL: URL?
+    @Published public var playbackRate: Float = 1.0 {
+        didSet {
+            if isStreaming, isNodeActivelyPlaying, let startWall = currentRunStartWallTime {
+                let elapsed = max(0, (CFAbsoluteTimeGetCurrent() - startWall) * Double(oldValue))
+                currentRunBaseAudioTime = min(duration, currentRunBaseAudioTime + elapsed)
+                currentRunStartWallTime = CFAbsoluteTimeGetCurrent()
+            }
+            player?.enableRate = true
+            player?.rate = playbackRate
+            timePitchNode?.rate = playbackRate
+        }
+    }
+    /// Hardware-accelerated pitch shift in semitones (-12 ... +12) via Apple's AVAudioUnitTimePitch (zero comb-filtering).
+    @Published public var pitchSemitones: Float = 0.0 {
+        didSet {
+            timePitchNode?.pitch = pitchSemitones * 100.0
+        }
+    }
 
     /// Optional callback for speaking-state transitions during playback/streaming.
     public var onSpeakingStateChanged: ((Bool) -> Void)?
@@ -22,10 +40,16 @@ public class AudioPlayer: NSObject, ObservableObject {
     // Streaming playback components
     private var audioEngine: AVAudioEngine?
     private var playerNode: AVAudioPlayerNode?
+    private var timePitchNode: AVAudioUnitTimePitch?
     private var streamingFormat: AVAudioFormat?
     private var isStreaming: Bool = false
     private var scheduledFrames: Int = 0
     private var queuedBuffers: Int = 0
+    private var consumedFramesBeforeCurrentRun: Int = 0
+    private var completedFramesInCurrentRun: Int = 0
+    private var currentRunBaseAudioTime: TimeInterval = 0
+    private var currentRunStartWallTime: CFAbsoluteTime?
+    private var isNodeActivelyPlaying: Bool = false
     private var streamFinished: Bool = false
     private var streamingTask: Task<Void, Never>?
     private var configurationChangeObserver: Task<Void, Never>?
@@ -52,6 +76,8 @@ public class AudioPlayer: NSObject, ObservableObject {
 
             // Create new player
             player = try AVAudioPlayer(contentsOf: url)
+            player?.enableRate = true
+            player?.rate = playbackRate
             player?.delegate = self
             player?.prepareToPlay()
 
@@ -71,6 +97,8 @@ public class AudioPlayer: NSObject, ObservableObject {
     public func play() {
         guard let player = player else { return }
 
+        player.enableRate = true
+        player.rate = playbackRate
         player.play()
         isPlaying = true
         setSpeaking(true)
@@ -79,7 +107,13 @@ public class AudioPlayer: NSObject, ObservableObject {
 
     public func pause() {
         if isStreaming {
+            if isNodeActivelyPlaying, let startWall = currentRunStartWallTime {
+                let elapsed = max(0, (CFAbsoluteTimeGetCurrent() - startWall) * Double(playbackRate))
+                currentRunBaseAudioTime = min(duration, currentRunBaseAudioTime + elapsed)
+            }
+            currentRunStartWallTime = nil
             playerNode?.pause()
+            isNodeActivelyPlaying = false
         } else {
             player?.pause()
         }
@@ -93,10 +127,14 @@ public class AudioPlayer: NSObject, ObservableObject {
             pause()
         } else {
             if isStreaming {
-                playerNode?.play()
-                isPlaying = true
-                setSpeaking(queuedBuffers > 0)
-                startTimer()
+                if queuedBuffers > 0 {
+                    currentRunStartWallTime = CFAbsoluteTimeGetCurrent()
+                    playerNode?.play()
+                    isNodeActivelyPlaying = true
+                    isPlaying = true
+                    setSpeaking(true)
+                    startStreamingTimer()
+                }
             } else {
                 play()
             }
@@ -124,6 +162,13 @@ public class AudioPlayer: NSObject, ObservableObject {
     }
 
     public func seek(to time: TimeInterval) {
+        if isStreaming, let url = currentAudioURL, streamFinished {
+            loadAudio(from: url)
+            player?.currentTime = max(0, min(time, duration))
+            currentTime = player?.currentTime ?? 0
+            play()
+            return
+        }
         guard let player = player else { return }
         player.currentTime = max(0, min(time, duration))
         currentTime = player.currentTime
@@ -204,27 +249,24 @@ public class AudioPlayer: NSObject, ObservableObject {
         finishStreamIfDrained()
     }
 
-    /// Schedule audio samples for streaming playback
+    /// Schedule audio samples for streaming playback with studio-grade raised-cosine edge de-clicking
     public func scheduleAudioChunk(_ samples: [Float], withCrossfade: Bool = true) {
         guard isStreaming,
+              !samples.isEmpty,
               let format = streamingFormat else { return }
 
         var processedSamples = samples
 
-        // Apply fade-in to first chunk, crossfade to subsequent chunks
-        if scheduledFrames == 0 {
-            // Fade in the first chunk (10ms)
-            let fadeInSamples = min(Int(format.sampleRate * 0.01), samples.count)
-            for i in 0..<fadeInSamples {
-                let factor = Float(i) / Float(fadeInSamples)
-                processedSamples[i] *= factor
-            }
-        } else if withCrossfade {
-            // Crossfade: fade in at the start (20ms)
-            let crossfadeSamples = min(Int(format.sampleRate * 0.02), samples.count)
-            for i in 0..<crossfadeSamples {
-                let factor = Float(i) / Float(crossfadeSamples)
-                processedSamples[i] *= factor
+        if withCrossfade && processedSamples.count > 64 {
+            // 4ms raised-cosine (Hann) micro-taper at chunk boundaries prevents DC/phase clicks without ducking syllables
+            let taperSamples = min(Int(format.sampleRate * 0.004), processedSamples.count / 4)
+            if taperSamples > 1 {
+                for i in 0..<taperSamples {
+                    let phase = Double(i) / Double(taperSamples)
+                    let gain = Float(0.5 * (1.0 - cos(Double.pi * phase)))
+                    processedSamples[i] *= gain
+                    processedSamples[processedSamples.count - 1 - i] *= gain
+                }
             }
         }
 
@@ -255,14 +297,20 @@ public class AudioPlayer: NSObject, ObservableObject {
         audioEngine?.stop()
         audioEngine = nil
         playerNode = nil
+        timePitchNode = nil
         streamingFormat = nil
 
         isStreaming = false
         isPlaying = false
+        isNodeActivelyPlaying = false
         setSpeaking(false)
 
         scheduledFrames = 0
         queuedBuffers = 0
+        consumedFramesBeforeCurrentRun = 0
+        completedFramesInCurrentRun = 0
+        currentRunBaseAudioTime = 0
+        currentRunStartWallTime = nil
         streamFinished = false
 
         currentTime = 0
@@ -279,27 +327,28 @@ public class AudioPlayer: NSObject, ObservableObject {
 
     private func startTimer() {
         stopTimer()
-        timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: 0.025, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let player = self?.player else { return }
                 self?.currentTime = player.currentTime
             }
         }
-        timer?.tolerance = 0.05
+        timer?.tolerance = 0.008
     }
 
     private func startStreamingTimer() {
         stopTimer()
-        timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: 0.025, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                guard let node = self?.playerNode,
-                      let nodeTime = node.lastRenderTime,
-                      let playerTime = node.playerTime(forNodeTime: nodeTime) else { return }
-                let time = Double(playerTime.sampleTime) / playerTime.sampleRate
-                self?.currentTime = time
+                guard let self,
+                      self.isNodeActivelyPlaying,
+                      let startWall = self.currentRunStartWallTime else { return }
+                let wallElapsed = max(0, (CFAbsoluteTimeGetCurrent() - startWall) * Double(self.playbackRate))
+                let totalSec = self.currentRunBaseAudioTime + wallElapsed
+                self.currentTime = self.duration > 0 ? min(self.duration, totalSec) : totalSec
             }
         }
-        timer?.tolerance = 0.05
+        timer?.tolerance = 0.008
     }
 
     private func stopTimer() {
@@ -310,25 +359,35 @@ public class AudioPlayer: NSObject, ObservableObject {
     private func startStreamingEngine(connectionFormat: AVAudioFormat?) throws {
         audioEngine = AVAudioEngine()
         playerNode = AVAudioPlayerNode()
+        let pitchNode = AVAudioUnitTimePitch()
+        pitchNode.rate = playbackRate
+        pitchNode.pitch = pitchSemitones * 100.0
+        timePitchNode = pitchNode
 
         guard let engine = audioEngine, let node = playerNode else { return }
 
         engine.attach(node)
-        engine.connect(node, to: engine.mainMixerNode, format: connectionFormat)
+        engine.attach(pitchNode)
+        engine.connect(node, to: pitchNode, format: connectionFormat)
+        engine.connect(pitchNode, to: engine.mainMixerNode, format: connectionFormat)
         engine.prepare()
         try engine.start()
-        node.play()
+        // Do NOT call node.play() until the first buffer is queued in scheduleStreamingBuffer(_:)
 
         isStreaming = true
-        isPlaying = true
+        isPlaying = false
+        isNodeActivelyPlaying = false
         setSpeaking(false)
         scheduledFrames = 0
         queuedBuffers = 0
+        consumedFramesBeforeCurrentRun = 0
+        completedFramesInCurrentRun = 0
+        currentRunBaseAudioTime = 0
+        currentRunStartWallTime = nil
         streamFinished = false
         currentTime = 0
         duration = 0
 
-        startStreamingTimer()
         observeEngineConfigurationChanges()
     }
 
@@ -342,7 +401,7 @@ public class AudioPlayer: NSObject, ObservableObject {
                 if !engine.isRunning {
                     do {
                         try engine.start()
-                        if isPlaying {
+                        if isNodeActivelyPlaying && queuedBuffers > 0 {
                             playerNode?.play()
                         }
                     } catch {
@@ -356,29 +415,60 @@ public class AudioPlayer: NSObject, ObservableObject {
     private func scheduleStreamingBuffer(_ buffer: AVAudioPCMBuffer) {
         guard let node = playerNode else { return }
 
+        let frameCount = Int(buffer.frameLength)
+        let sr = buffer.format.sampleRate
         queuedBuffers += 1
-        scheduledFrames += Int(buffer.frameLength)
-        duration = Double(scheduledFrames) / buffer.format.sampleRate
+        scheduledFrames += frameCount
+        duration = sr > 0 ? Double(scheduledFrames) / sr : duration
 
         let completion: @Sendable (AVAudioPlayerNodeCompletionCallbackType) -> Void = { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.handleScheduledBufferConsumed()
+                self?.handleScheduledBufferConsumed(frameCount: frameCount, sampleRate: sr)
             }
         }
-        node.scheduleBuffer(buffer, completionCallbackType: .dataConsumed, completionHandler: completion)
+        // Use .dataPlayedBack (not .dataConsumed!) so the callback only fires after the audio has actually played through the hardware output
+        node.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack, completionHandler: completion)
 
-        if !isSpeaking {
+        if !isNodeActivelyPlaying {
+            currentRunBaseAudioTime = sr > 0 ? Double(consumedFramesBeforeCurrentRun) / sr : currentTime
+            currentRunStartWallTime = CFAbsoluteTimeGetCurrent()
+            node.play()
+            isNodeActivelyPlaying = true
+            isPlaying = true
+            setSpeaking(true)
+            startStreamingTimer()
+        } else if !isSpeaking {
             setSpeaking(true)
         }
     }
 
-    private func handleScheduledBufferConsumed() {
+    private func handleScheduledBufferConsumed(frameCount: Int, sampleRate: Double) {
+        completedFramesInCurrentRun += frameCount
         queuedBuffers = max(queuedBuffers - 1, 0)
-        finishStreamIfDrained()
+        if queuedBuffers == 0 {
+            if streamFinished {
+                finishStreamIfDrained()
+            } else {
+                // Pause (do not stop!) the hardware node if waiting for the next neural chunk
+                playerNode?.pause()
+                consumedFramesBeforeCurrentRun += completedFramesInCurrentRun
+                completedFramesInCurrentRun = 0
+                isNodeActivelyPlaying = false
+                currentRunStartWallTime = nil
+                if sampleRate > 0 {
+                    let exactCompletedSec = Double(consumedFramesBeforeCurrentRun) / sampleRate
+                    currentRunBaseAudioTime = exactCompletedSec
+                    currentTime = exactCompletedSec
+                }
+                setSpeaking(false)
+                stopTimer()
+            }
+        }
     }
 
     private func finishStreamIfDrained() {
         guard streamFinished, queuedBuffers == 0 else { return }
+        isNodeActivelyPlaying = false
         isPlaying = false
         setSpeaking(false)
         stopTimer()

@@ -10,6 +10,21 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable var viewModel: TTSViewModel
     @FocusState private var focusedField: Field?
+    @State private var modelFilter: String = ""
+    @State private var showCachedOnly: Bool = false
+
+    private var filteredPresets: [(name: String, id: String)] {
+        let base = showCachedOnly
+            ? TTSViewModel.presetModels.filter { ModelCacheHelper.isModelCached($0.id) }
+            : TTSViewModel.presetModels
+        if modelFilter.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return base
+        }
+        return base.filter {
+            $0.name.localizedCaseInsensitiveContains(modelFilter) ||
+            $0.id.localizedCaseInsensitiveContains(modelFilter)
+        }
+    }
 
     private enum Field {
         case modelId
@@ -89,6 +104,96 @@ struct SettingsView: View {
                     .disabled(viewModel.isLoading)
                 }
                 .padding(.top, 4)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("Known Downloadable Models (\(filteredPresets.count)):")
+                            .font(.caption2)
+                            .fontWeight(.medium)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Toggle("Cached Only", isOn: $showCachedOnly)
+                            .toggleStyle(.switch)
+                            .controlSize(.mini)
+                            .font(.caption2)
+                    }
+                    .padding(.top, 6)
+
+                    TextField("Search models (e.g. fish, phonon, kokoro, qwen)...", text: $modelFilter)
+                        .font(.caption)
+                        .textFieldStyle(.plain)
+                        .padding(6)
+                        .background(Color.gray.opacity(0.12))
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(filteredPresets, id: \.id) { preset in
+                                let isCached = ModelCacheHelper.isModelCached(preset.id)
+                                let sizeStr = ModelCacheHelper.cachedModelSizeString(preset.id)
+                                Button {
+                                    viewModel.modelId = preset.id
+                                    Task {
+                                        await viewModel.reloadModel()
+                                    }
+                                } label: {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: viewModel.modelId == preset.id ? "checkmark.circle.fill" : (isCached ? "internaldrive.fill" : "arrow.down.circle"))
+                                            .font(.caption)
+                                            .foregroundStyle(viewModel.modelId == preset.id ? .blue : (isCached ? .green : .secondary))
+                                        Text(preset.name)
+                                            .font(.caption)
+                                            .fontWeight(viewModel.modelId == preset.id ? .semibold : .regular)
+                                            .foregroundStyle(.primary)
+                                        if isCached {
+                                            Text(sizeStr.map { "Cached · \($0)" } ?? "Cached")
+                                                .font(.caption2)
+                                                .foregroundStyle(.green)
+                                                .padding(.horizontal, 5)
+                                                .padding(.vertical, 1)
+                                                .background(Color.green.opacity(0.12))
+                                                .clipShape(Capsule())
+                                        }
+                                        Spacer()
+                                        Text(preset.id)
+                                            .font(.system(.caption2, design: .monospaced))
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                            .truncationMode(.middle)
+                                    }
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 5)
+                                    .background(viewModel.modelId == preset.id ? Color.blue.opacity(0.12) : Color.gray.opacity(0.08))
+                                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(viewModel.isLoading)
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 220)
+
+                    // HuggingFace Token & Cache Management
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("HuggingFace Token (optional, for gated models)")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            #if os(macOS)
+                            Button("Reveal Cache in Finder") {
+                                ModelCacheHelper.revealCacheInFinder()
+                            }
+                            .font(.caption2)
+                            .buttonStyle(.link)
+                            #endif
+                        }
+                        SecureField("hf_...", text: $viewModel.hfToken)
+                            .font(.caption)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                    .padding(.top, 6)
+                }
             }
             .padding(.bottom, sectionSpacing)
 
@@ -136,22 +241,31 @@ struct SettingsView: View {
                             .foregroundStyle(.secondary)
 
                         VStack(alignment: .leading, spacing: 2) {
-                            ModelHintRow(modelId: "mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-bf16")
+                            ModelHintRow(modelId: "mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-bf16") { selected in
+                                viewModel.modelId = selected
+                                Task { await viewModel.reloadModel() }
+                            }
                         }
                     }
 
                     // Example descriptions
                     if viewModel.useVoiceDesign {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("Example Descriptions:")
+                            Text("Example Descriptions (Click to Apply):")
                                 .font(.caption2)
                                 .fontWeight(.medium)
                                 .foregroundStyle(.secondary)
 
                             VStack(alignment: .leading, spacing: 2) {
-                                ExampleDescription(text: "A young woman with a bright, energetic voice")
-                                ExampleDescription(text: "A deep, calm male narrator")
-                                ExampleDescription(text: "An elderly person speaking slowly")
+                                ExampleDescription(text: "A young woman with a bright, energetic voice") {
+                                    viewModel.voiceDescription = $0
+                                }
+                                ExampleDescription(text: "A deep, calm male narrator") {
+                                    viewModel.voiceDescription = $0
+                                }
+                                ExampleDescription(text: "An elderly person speaking slowly") {
+                                    viewModel.voiceDescription = $0
+                                }
                             }
                         }
                     }
@@ -400,8 +514,8 @@ struct SettingsView: View {
                             get: { Double(viewModel.maxChunkLength) },
                             set: { viewModel.maxChunkLength = Int($0) }
                         ),
-                        range: 100...500,
-                        step: 50
+                        range: 180...1200,
+                        step: 30
                     )
                     #else
                     Slider(
@@ -409,8 +523,8 @@ struct SettingsView: View {
                             get: { Double(viewModel.maxChunkLength) },
                             set: { viewModel.maxChunkLength = Int($0) }
                         ),
-                        in: 100...500,
-                        step: 50
+                        in: 180...1200,
+                        step: 30
                     )
                     .tint(.blue)
                     #endif
@@ -449,47 +563,50 @@ struct SettingsView: View {
 
 struct ModelHintRow: View {
     let modelId: String
+    var onSelect: ((String) -> Void)? = nil
 
     var body: some View {
-        HStack(spacing: 4) {
-            Image(systemName: "arrow.forward.circle.fill")
-                .font(.caption2)
-                .foregroundStyle(.blue.opacity(0.6))
+        Button {
+            onSelect?(modelId)
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "arrow.forward.circle.fill")
+                    .font(.caption2)
+                    .foregroundStyle(.blue.opacity(0.6))
 
-            Text(modelId)
-                .font(.system(.caption2, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                #if os(macOS)
-                .textSelection(.enabled)
-                .help("Click to select and copy")
-                #endif
-                #if os(iOS)
-                .contextMenu {
-                    Button("Copy Model ID") {
-                        UIPasteboard.general.string = modelId
-                    }
-                }
-                #endif
+                Text(modelId)
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
         }
+        .buttonStyle(.plain)
+        .help("Click to select and load \(modelId)")
     }
 }
 
 struct ExampleDescription: View {
     let text: String
+    var onSelect: ((String) -> Void)? = nil
 
     var body: some View {
-        HStack(spacing: 4) {
-            Image(systemName: "quote.bubble.fill")
-                .font(.caption2)
-                .foregroundStyle(.blue.opacity(0.4))
+        Button {
+            onSelect?(text)
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "quote.bubble.fill")
+                    .font(.caption2)
+                    .foregroundStyle(.blue.opacity(0.4))
 
-            Text(text)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .italic()
+                Text(text)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .italic()
+            }
         }
+        .buttonStyle(.plain)
+        .help("Click to use this VoiceDesign description")
     }
 }
 

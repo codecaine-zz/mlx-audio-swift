@@ -495,6 +495,8 @@ public final class FishSpeechModel: Module, SpeechGenerationModel, @unchecked Se
     var tokenizer: FishSpeechTokenizer?
     var codec: FishS1DAC?
     var semanticLogitBias: MLXArray?
+    private var cachedRefCacheKey: String?
+    private var cachedRefPromptTokens: MLXArray?
 
     public var sampleRate: Int {
         config.sampleRate
@@ -579,7 +581,7 @@ public final class FishSpeechModel: Module, SpeechGenerationModel, @unchecked Se
             refText: refText,
             language: language,
             generationParameters: generationParameters,
-            streamingInterval: 2.0
+            streamingInterval: 30.0
         )
     }
 
@@ -773,13 +775,7 @@ public final class FishSpeechModel: Module, SpeechGenerationModel, @unchecked Se
             topP: topP,
             topK: topK
         )
-        let highTemperature = fishSpeechSampleToken(
-            logits: biasedLogits,
-            temperature: fishSpeechRASHighTemperature,
-            topP: fishSpeechRASHighTopP,
-            topK: topK
-        )
-        eval(normal, highTemperature)
+        eval(normal)
 
         let tokenValue = Int(normal.item(Int32.self))
         let shouldUseHighTemperature =
@@ -787,7 +783,18 @@ public final class FishSpeechModel: Module, SpeechGenerationModel, @unchecked Se
             && tokenValue >= config.semanticStartTokenID
             && tokenValue <= config.semanticEndTokenID
 
-        return shouldUseHighTemperature ? highTemperature : normal
+        guard shouldUseHighTemperature else {
+            return normal
+        }
+
+        let highTemperature = fishSpeechSampleToken(
+            logits: biasedLogits,
+            temperature: fishSpeechRASHighTemperature,
+            topP: fishSpeechRASHighTopP,
+            topK: topK
+        )
+        eval(highTemperature)
+        return highTemperature
     }
 
     private func generateCodesForBatch(
@@ -957,11 +964,21 @@ public final class FishSpeechModel: Module, SpeechGenerationModel, @unchecked Se
         var promptTokens: [MLXArray] = []
         var promptTexts: [String] = []
         if let refAudio {
-            let audio = prepareReferencePromptAudio(refAudio)
-            let (indices, featureLengths) = codec.encode(audio)
-            let promptLength = Int(featureLengths.item(Int32.self))
-            promptTokens.append(indices[0, 0..., 0..<promptLength])
-            promptTexts.append(refText ?? "")
+            let refKey = "\(refAudio.shape)|\(refText ?? "")"
+            if cachedRefCacheKey == refKey, let cachedTokens = cachedRefPromptTokens {
+                promptTokens.append(cachedTokens)
+                promptTexts.append(refText ?? "")
+            } else {
+                let audio = prepareReferencePromptAudio(refAudio)
+                let (indices, featureLengths) = codec.encode(audio)
+                let promptLength = Int(featureLengths.item(Int32.self))
+                let encodedTokens = indices[0, 0..., 0..<promptLength]
+                eval(encodedTokens)
+                cachedRefCacheKey = refKey
+                cachedRefPromptTokens = encodedTokens
+                promptTokens.append(encodedTokens)
+                promptTexts.append(refText ?? "")
+            }
         }
 
         let baseConversation = buildConversation(promptTexts: promptTexts, promptTokens: promptTokens)

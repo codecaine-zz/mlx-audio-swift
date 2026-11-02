@@ -19,12 +19,20 @@ struct VoiceCollectionCard: View {
                 .frame(width: 140, height: 160)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
 
-                // Title
-                VStack(alignment: .leading) {
+                // Title & Description
+                VStack(alignment: .leading, spacing: 6) {
                     Text(collection.name)
                         .font(.headline)
                         .foregroundStyle(.primary)
                         .multilineTextAlignment(.leading)
+
+                    if !collection.description.isEmpty {
+                        Text(collection.description)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.leading)
+                            .lineLimit(3)
+                    }
                 }
                 .padding()
                 .frame(maxWidth: .infinity, alignment: .leading)

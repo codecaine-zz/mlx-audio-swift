@@ -31,6 +31,7 @@ class AudioRecorderManager: NSObject {
 
         try capture.start()
 
+        timer?.invalidate()
         isRecording = true
         recordingStartTime = Date()
         recordingDuration = 0
@@ -141,9 +142,19 @@ final class AudioCaptureEngine: @unchecked Sendable {
     }
 
     func start() throws {
+        stop()
+        reset()
+
         let engine = AVAudioEngine()
         let inputNode = engine.inputNode
         let nativeFormat = inputNode.outputFormat(forBus: 0)
+        guard nativeFormat.sampleRate > 0 && nativeFormat.channelCount > 0 else {
+            throw NSError(
+                domain: "AudioCapture",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "No active audio input device detected"]
+            )
+        }
 
         let sampleRate = targetSampleRate
         guard let targetFormat = AVAudioFormat(
@@ -172,8 +183,8 @@ final class AudioCaptureEngine: @unchecked Sendable {
             let floats: [Float]
             if let converter {
                 let frameCapacity = AVAudioFrameCount(
-                    Double(buffer.frameLength) * sampleRate / nativeSampleRate
-                )
+                    ceil(Double(buffer.frameLength) * sampleRate / nativeSampleRate)
+                ) + 16
                 guard let converted = AVAudioPCMBuffer(
                     pcmFormat: targetFormat, frameCapacity: frameCapacity
                 ) else { return }

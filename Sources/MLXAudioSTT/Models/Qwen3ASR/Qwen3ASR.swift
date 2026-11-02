@@ -1296,13 +1296,13 @@ public class Qwen3ASRModel: Module {
             }
             generatedTokens.append(prevTokenInt)
 
-            // Backstop for greedy callers (penalty == 1.0): if last 24 tokens have
-            // <=3 unique IDs, force-stop to prevent multi-GB KV cache growth and
-            // minutes-long stalls. Disabled when caller opts into repetitionPenalty
-            // (the proper fix) to avoid truncating legitimately repetitive speech.
-            if repetitionPenalty == 1.0 && generatedTokens.count >= 24 {
-                let tail = generatedTokens.suffix(24)
-                if Set(tail).count <= 3 {
+            // Backstop for greedy callers (penalty == 1.0): only stop on true
+            // degenerate single/dual-token loops (>=80 tokens with <=2 unique IDs
+            // in the last 64 tokens) so repeated song choruses or vocal riffs are
+            // never truncated.
+            if repetitionPenalty == 1.0 && generatedTokens.count >= 80 {
+                let tail = generatedTokens.suffix(64)
+                if Set(tail).count <= 2 {
                     break
                 }
             }
@@ -1467,18 +1467,22 @@ public class Qwen3ASRModel: Module {
 
                     var totalPromptTokens = 0
                     var totalGenerationTokens = 0
-                    var allGeneratedTokens: [Int] = []
-                    var resolvedLanguage = language
+                    var allTexts: [String] = []
+                    var segments: [[String: Any]] = []
+                    let forcedLanguage = model.normalizeLanguageName(language)
+                    var resolvedLanguage = forcedLanguage
 
-                    for (chunkAudio, _) in chunks {
+                    for (chunkIndex, (chunkAudio, offsetSec)) in chunks.enumerated() {
                         try Task.checkCancellation()
+                        let actualChunkDuration = Float(chunkAudio.dim(0)) / Float(model.sampleRate)
+                        var chunkLanguage = forcedLanguage ?? resolvedLanguage
 
                         // Preprocess this chunk
                         let (inputFeatures, featureAttentionMask, numAudioTokens) = model.preprocessAudio(chunkAudio)
                         let inputIds = model.buildPrompt(
                             numAudioTokens: numAudioTokens,
                             context: context,
-                            language: resolvedLanguage
+                            language: chunkLanguage
                         )
                         let promptTokenCount = inputIds.dim(1)
                         totalPromptTokens += promptTokenCount
@@ -1506,6 +1510,7 @@ public class Qwen3ASRModel: Module {
 
                         var chunkTokens: [Int] = []
                         var languagePrefixBuffer = ""
+                        var streamedAnyTokenInChunk = false
 
                         for _ in 0..<maxTokens {
                             try Task.checkCancellation()
@@ -1537,30 +1542,45 @@ public class Qwen3ASRModel: Module {
                             }
 
                             chunkTokens.append(nextToken)
-                            allGeneratedTokens.append(nextToken)
 
-                            // Backstop for greedy callers (penalty == 1.0): same contract
-                            // as generateSingleChunk. Disabled when penalty is set so legit
-                            // repetitive speech is not truncated.
-                            if repetitionPenalty == 1.0 && chunkTokens.count >= 24 {
-                                let tail = chunkTokens.suffix(24)
-                                if Set(tail).count <= 3 {
+                            // Backstop for greedy callers (penalty == 1.0): only break on
+                            // true degenerate single/dual-token loops so song choruses and
+                            // repeated vocal hooks are never cut short.
+                            if repetitionPenalty == 1.0 && chunkTokens.count >= 80 {
+                                let tail = chunkTokens.suffix(64)
+                                if Set(tail).count <= 2 {
                                     break
                                 }
                             }
 
                             let tokenText = tokenizer.decode(tokens: [nextToken])
-                            if resolvedLanguage == nil {
+                            if chunkLanguage == nil {
                                 languagePrefixBuffer += tokenText
                                 let parsed = model.extractLanguage(from: languagePrefixBuffer)
                                 if let detectedLanguage = parsed.language {
-                                    resolvedLanguage = detectedLanguage
+                                    // Never lock "None" (instrumental/non-speech chunk) across subsequent chunks of a song
+                                    if detectedLanguage.lowercased() != "none" {
+                                        chunkLanguage = model.normalizeLanguageName(detectedLanguage) ?? detectedLanguage
+                                        if resolvedLanguage == nil {
+                                            resolvedLanguage = chunkLanguage
+                                        }
+                                    } else {
+                                        chunkLanguage = "None"
+                                    }
                                     if !parsed.text.isEmpty {
+                                        if chunkIndex > 0 && !streamedAnyTokenInChunk && !allTexts.isEmpty {
+                                            continuation.yield(.token("\n"))
+                                        }
                                         continuation.yield(.token(parsed.text))
+                                        streamedAnyTokenInChunk = true
                                     }
                                 }
                             } else {
+                                if chunkIndex > 0 && !streamedAnyTokenInChunk && !allTexts.isEmpty && !tokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                    continuation.yield(.token("\n"))
+                                }
                                 continuation.yield(.token(tokenText))
+                                streamedAnyTokenInChunk = true
                             }
 
                             let nextTokenArray = MLXArray([Int32(nextToken)]).expandedDimensions(axis: 0)
@@ -1570,8 +1590,24 @@ public class Qwen3ASRModel: Module {
 
                         totalGenerationTokens += chunkTokens.count
 
-                        if resolvedLanguage == nil && !languagePrefixBuffer.isEmpty {
+                        if chunkLanguage == nil && !languagePrefixBuffer.isEmpty {
                             continuation.yield(.token(languagePrefixBuffer))
+                        }
+
+                        let chunkDecoded = tokenizer.decode(tokens: chunkTokens)
+                        let parsedChunk = model.parseGeneratedChunk(chunkDecoded, forcedLanguage: forcedLanguage ?? (chunkLanguage == "None" ? nil : chunkLanguage))
+                        let cleanChunkText = parsedChunk.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !cleanChunkText.isEmpty {
+                            allTexts.append(cleanChunkText)
+                            var seg: [String: Any] = [
+                                "text": cleanChunkText,
+                                "start": Double(offsetSec),
+                                "end": Double(offsetSec + actualChunkDuration),
+                            ]
+                            if let lang = parsedChunk.language, lang.lowercased() != "none" {
+                                seg["language"] = lang
+                            }
+                            segments.append(seg)
                         }
 
                         Memory.clearCache()
@@ -1593,13 +1629,12 @@ public class Qwen3ASRModel: Module {
                     )
                     continuation.yield(.info(info))
 
-                    // Emit final result
-                    let decodedText = tokenizer.decode(tokens: allGeneratedTokens)
-                    let parsed = model.extractLanguage(from: decodedText)
-                    let outputLanguage = resolvedLanguage ?? parsed.language
-                    let text = language == nil ? parsed.text : decodedText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    // Emit final result with all chunks and segments intact
+                    let text = allTexts.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+                    let outputLanguage = resolvedLanguage ?? forcedLanguage
                     let output = STTOutput(
                         text: text,
+                        segments: segments.isEmpty ? nil : segments,
                         language: outputLanguage,
                         promptTokens: totalPromptTokens,
                         generationTokens: totalGenerationTokens,

@@ -1,6 +1,8 @@
 // Shared settings for all builds.
-APP_BUNDLE_ID = com.example.VoicesApp
+APP_BUNDLE_ID = com.codecaine.mlx-rad-ai-audio-studio
 PRODUCT_BUNDLE_IDENTIFIER = $(APP_BUNDLE_ID)
+INFOPLIST_KEY_CFBundleDisplayName = Codecaine MLX RAD AI Audio Studio
+INFOPLIST_KEY_CFBundleName = Codecaine MLX RAD AI Audio Studio
 
 // Keep empty so Xcode prompts when needed.
 DEVELOPMENT_TEAM =

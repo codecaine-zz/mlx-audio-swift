@@ -185,10 +185,12 @@ public final class WhisperModel: Module, STTGenerationModel {
             transcript.generationTokens += window.tokens.count
             if transcript.language == nil { transcript.language = window.language }
 
+            let isFinalWindow = (seek + segmentFrames) >= contentFrames
             let split = Self.splitWindow(
                 tokens: window.tokens,
                 timestampBegin: tokenizer.timestampBeginId,
-                segmentFrames: segmentFrames
+                segmentFrames: segmentFrames,
+                isFinalWindow: isFinalWindow
             )
             // transcribeChunk already streamed every segment closed by a timestamp; a window
             // without timestamp pairs is one segment that has not been streamed yet.
@@ -208,7 +210,7 @@ public final class WhisperModel: Module, STTGenerationModel {
     /// Cut a timestamped window after each timestamp pair (times from the window start). Unless it
     /// ends on a single timestamp, drop the unfinished tail and seek to the last closed timestamp.
     static func splitWindow(
-        tokens: [Int], timestampBegin: Int, segmentFrames: Int
+        tokens: [Int], timestampBegin: Int, segmentFrames: Int, isFinalWindow: Bool = false
     ) -> (segments: [(start: Double, end: Double, tokens: [Int])], seekFrames: Int) {
         let isTimestamp = tokens.map { $0 >= timestampBegin }
         let singleTimestampEnding = tokens.count >= 2 && !isTimestamp[tokens.count - 2] && isTimestamp[tokens.count - 1]
@@ -239,6 +241,16 @@ public final class WhisperModel: Module, STTGenerationModel {
             return (segments, segmentFrames)
         }
         let seekFrames = (tokens[lastCut - 1] - timestampBegin) * inputStride
+        if (seekFrames <= 0 || isFinalWindow) && lastCut < tokens.count {
+            let tailSlice = Array(tokens[lastCut ..< tokens.count])
+            if tailSlice.contains(where: { $0 < timestampBegin }) {
+                let tailStart = tailSlice[0] >= timestampBegin
+                    ? Double(tailSlice[0] - timestampBegin) * timePrecision
+                    : Double(tokens[lastCut - 1] - timestampBegin) * timePrecision
+                segments.append((tailStart, max(tailStart, windowSeconds), tailSlice))
+                return (segments, segmentFrames)
+            }
+        }
         return (segments, seekFrames > 0 ? seekFrames : segmentFrames)
     }
 

@@ -13,6 +13,9 @@
 		332425792F4BBFB6002EBAE4 /* Lily.wav in Resources */ = {isa = PBXBuildFile; fileRef = 332425772F4BBFB6002EBAE4 /* Lily.wav */; };
 		3324257B2F4BC0D5002EBAE4 /* James.wav in Resources */ = {isa = PBXBuildFile; fileRef = 3324257A2F4BC0D5002EBAE4 /* James.wav */; };
 		3324257D2F4BC1A9002EBAE4 /* Sophie.wav in Resources */ = {isa = PBXBuildFile; fileRef = 3324257C2F4BC1A9002EBAE4 /* Sophie.wav */; };
+		AST001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FIL_AST001 /* Assets.xcassets */; };
+		ICN001 /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = FIL_ICN001 /* AppIcon.icns */; };
+		ICN002 /* AppIcon.png in Resources */ = {isa = PBXBuildFile; fileRef = FIL_ICN002 /* AppIcon.png */; };
 		APP001 /* VoicesApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = SRC001 /* VoicesApp.swift */; };
 		APP002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = SRC002 /* ContentView.swift */; };
 		APP003 /* Voice.swift in Sources */ = {isa = PBXBuildFile; fileRef = SRC003 /* Voice.swift */; };
@@ -39,6 +42,9 @@
 		332425772F4BBFB6002EBAE4 /* Lily.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = Lily.wav; sourceTree = "<group>"; };
 		3324257A2F4BC0D5002EBAE4 /* James.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = James.wav; sourceTree = "<group>"; };
 		3324257C2F4BC1A9002EBAE4 /* Sophie.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = Sophie.wav; sourceTree = "<group>"; };
+		FIL_AST001 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		FIL_ICN001 /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
+		FIL_ICN002 /* AppIcon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = AppIcon.png; sourceTree = "<group>"; };
 		C9383F152F4F820A00F82F53 /* STSView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = STSView.swift; sourceTree = "<group>"; };
 		C9383F172F4F822500F82F53 /* STSViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = STSViewModel.swift; sourceTree = "<group>"; };
 		CONF001 /* Base.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Base.xcconfig; sourceTree = "<group>"; };
@@ -102,6 +108,9 @@
 		GRP002 /* VoicesApp */ = {
 			isa = PBXGroup;
 			children = (
+				FIL_AST001 /* Assets.xcassets */,
+				FIL_ICN001 /* AppIcon.icns */,
+				FIL_ICN002 /* AppIcon.png */,
 				GRP009 /* Helpers */,
 				GRP003 /* Models */,
 				SRC0A0 /* STTView.swift */,
@@ -252,6 +261,9 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AST001 /* Assets.xcassets in Resources */,
+				ICN001 /* AppIcon.icns in Resources */,
+				ICN002 /* AppIcon.png in Resources */,
 				3324257D2F4BC1A9002EBAE4 /* Sophie.wav in Resources */,
 				332425792F4BBFB6002EBAE4 /* Lily.wav in Resources */,
 				3324257B2F4BC0D5002EBAE4 /* James.wav in Resources */,
@@ -405,9 +417,11 @@
 				DEAD_CODE_STRIPPING = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_CFBundleDisplayName = "Codecaine MLX RAD AI Audio Studio";
+				INFOPLIST_KEY_CFBundleName = "Codecaine MLX RAD AI Audio Studio";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 Codecaine. MIT License.";
 				INFOPLIST_KEY_NSMainStoryboardFile = "";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "VoicesApp needs microphone access to record audio for transcription.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Codecaine MLX RAD AI Audio Studio needs microphone access to record audio for transcription and voice cloning.";
 				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
@@ -439,9 +453,11 @@
 				DEAD_CODE_STRIPPING = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_CFBundleDisplayName = "Codecaine MLX RAD AI Audio Studio";
+				INFOPLIST_KEY_CFBundleName = "Codecaine MLX RAD AI Audio Studio";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 Codecaine. MIT License.";
 				INFOPLIST_KEY_NSMainStoryboardFile = "";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "VoicesApp needs microphone access to record audio for transcription.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Codecaine MLX RAD AI Audio Studio needs microphone access to record audio for transcription and voice cloning.";
 				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;

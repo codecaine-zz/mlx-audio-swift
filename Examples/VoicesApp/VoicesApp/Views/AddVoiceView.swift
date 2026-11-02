@@ -1,6 +1,8 @@
 import SwiftUI
 import UniformTypeIdentifiers
 import AVFoundation
+import MLX
+import MLXAudioCore
 
 struct AddVoiceView: View {
     @Environment(\.dismiss) private var dismiss
@@ -12,11 +14,28 @@ struct AddVoiceView: View {
 
     // Voice cloning
     @State private var audioFileURL: URL?
-    @State private var transcription = ""
+    @State private var transcription = "When the sunlight strikes raindrops in the air, they act like a prism and form a rainbow. The rainbow is a division of white light into many beautiful colors."
     @State private var showFilePicker = false
     @State private var audioDuration: TimeInterval = 0
     @State private var isPlayingPreview = false
     @State private var audioPlayer: AVAudioPlayer?
+    @State private var recorder = AudioRecorderManager()
+    @State private var biometrics: VoiceBiometricsProfile? = nil
+
+    private let calibrationScripts: [(title: String, text: String)] = [
+        (
+            "1. The Rainbow Passage (Phonetic Balance)",
+            "When the sunlight strikes raindrops in the air, they act like a prism and form a rainbow. The rainbow is a division of white light into many beautiful colors. These take the shape of a long round arch, with its path high above, and its two ends apparently beyond the horizon."
+        ),
+        (
+            "2. Dramatic Storyteller (Expressive Range)",
+            "Wait — did you hear that? Beneath the ancient stone library, a golden clockwork engine began to hum! \"Quickly!\" whispered Elena, her voice trembling with wonder. \"Before the midnight bell strikes twelve, open the starlight vault!\""
+        ),
+        (
+            "3. Technical & AI Pitch (Clear Articulation)",
+            "Welcome to Codecaine Studio. Today we are synthesizing twenty-four kilohertz neural speech directly on local hardware, with zero cloud latency, automatic word alignment, and instant multi-format audio export."
+        ),
+    ]
 
     let languages = ["English", "Spanish", "French", "German", "Italian", "Portuguese", "Japanese", "Chinese"]
     let colorOptions: [Color] = [
@@ -41,56 +60,174 @@ struct AddVoiceView: View {
 
                 // Voice Cloning Section
                 Section {
-                    // Audio file picker
-                    Button(action: { showFilePicker = true }) {
+                    // Guided Calibration Script selector (from Codecaine File Manager)
+                    Menu {
+                        ForEach(calibrationScripts, id: \.title) { script in
+                            Button(script.title) {
+                                transcription = script.text
+                            }
+                        }
+                    } label: {
                         HStack {
-                            Image(systemName: audioFileURL != nil ? "waveform" : "plus.circle")
-                                .foregroundStyle(audioFileURL != nil ? .green : .blue)
-                            if let url = audioFileURL {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(url.lastPathComponent)
-                                        .foregroundStyle(.primary)
-                                        .lineLimit(1)
-                                    Text(formatDuration(audioDuration))
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                            } else {
-                                Text("Select audio file")
-                                    .foregroundStyle(.primary)
-                            }
+                            Image(systemName: "text.quote")
+                                .foregroundStyle(.purple)
+                            Text("Load Guided Calibration Script...")
                             Spacer()
-                            if audioFileURL != nil {
-                                Button(action: { playPreview() }) {
-                                    Image(systemName: isPlayingPreview ? "stop.circle.fill" : "play.circle.fill")
-                                        .font(.title2)
-                                        .foregroundStyle(.blue)
-                                }
-                                .buttonStyle(.plain)
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
 
-                                Button(action: { clearAudio() }) {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .font(.title2)
-                                        .foregroundStyle(.secondary)
+                    TextField("Calibration / Reference Script (read this aloud)", text: $transcription, axis: .vertical)
+                        .lineLimit(3...6)
+
+                    // Live Microphone Recorder button
+                    Button {
+                        if recorder.isRecording {
+                            if let audioArray = recorder.stopRecording() {
+                                let samples = audioArray.asArray(Float.self)
+                                let tempURL = FileManager.default.temporaryDirectory
+                                    .appendingPathComponent("recorded_voice_\(UUID().uuidString).wav")
+                                if let writer = try? StreamingWAVWriter(url: tempURL, sampleRate: 16_000) {
+                                    try? writer.writeChunk(samples)
+                                    let finalURL = writer.finalize()
+                                    audioFileURL = finalURL
+                                    audioDuration = Double(samples.count) / 16_000.0
+                                    let bio = VoiceBiometricsAnalyzer.analyzeAudio(url: finalURL)
+                                    biometrics = bio
+                                    if voiceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let bio {
+                                        voiceName = "My \(bio.voiceRegister) Clone"
+                                    }
+                                    if voiceDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let bio {
+                                        voiceDescription = "\(bio.timbreLabel) · \(Int(bio.medianF0Hz)) Hz"
+                                    }
                                 }
-                                .buttonStyle(.plain)
                             }
+                        } else {
+                            Task {
+                                try? await recorder.startRecording()
+                            }
+                        }
+                    } label: {
+                        HStack {
+                            Image(systemName: recorder.isRecording ? "stop.circle.fill" : "mic.circle.fill")
+                                .font(.title3)
+                                .foregroundStyle(recorder.isRecording ? .red : .pink)
+                            Text(recorder.isRecording
+                                 ? String(format: "Recording Live... %.1fs (Click to Stop)", recorder.recordingDuration)
+                                 : "Record Voice Sample from Microphone")
+                                .fontWeight(.medium)
+                                .foregroundStyle(recorder.isRecording ? .red : .primary)
+                            Spacer()
                         }
                     }
                     .buttonStyle(.plain)
 
-                    if audioFileURL != nil {
-                        TextField("Transcription (what is said in the audio)", text: $transcription, axis: .vertical)
-                            .lineLimit(3...6)
+                    // Audio file picker (un-nested from Play/Clear buttons)
+                    HStack {
+                        Button(action: { showFilePicker = true }) {
+                            HStack {
+                                Image(systemName: audioFileURL != nil ? "waveform" : "plus.circle")
+                                    .foregroundStyle(audioFileURL != nil ? .green : .blue)
+                                if let url = audioFileURL {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(url.lastPathComponent)
+                                            .foregroundStyle(.primary)
+                                            .lineLimit(1)
+                                        Text(formatDuration(audioDuration))
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                } else {
+                                    Text("Or select existing audio file (.wav / .mp3 / .aiff)")
+                                        .foregroundStyle(.primary)
+                                }
+                                Spacer()
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+
+                        if audioFileURL != nil {
+                            Button(action: { playPreview() }) {
+                                Image(systemName: isPlayingPreview ? "stop.circle.fill" : "play.circle.fill")
+                                    .font(.title2)
+                                    .foregroundStyle(.blue)
+                            }
+                            .buttonStyle(.plain)
+                            .help(isPlayingPreview ? "Stop preview" : "Play recorded/selected voice sample")
+
+                            Button(action: { clearAudio() }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.title2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Clear audio sample")
+                        }
+                    }
+
+                    // Acoustic Voice Biometrics Profile Card (from Codecaine File Manager)
+                    if let bio = biometrics {
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Label("Acoustic Voice Biometrics Profile", systemImage: "waveform.path.ecg")
+                                    .font(.caption.weight(.bold))
+                                    .foregroundStyle(.cyan)
+                                Spacer()
+                                Text("Matched Base: \(bio.recommendedBaseVoice)")
+                                    .font(.caption2.weight(.semibold))
+                                    .padding(.horizontal, 7)
+                                    .padding(.vertical, 2)
+                                    .background(Color.cyan.opacity(0.16), in: Capsule())
+                            }
+
+                            HStack(spacing: 12) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("F₀ PITCH")
+                                        .font(.system(size: 9, weight: .bold))
+                                        .foregroundStyle(.secondary)
+                                    Text(String(format: "%.0f Hz", bio.medianF0Hz))
+                                        .font(.caption.weight(.bold).monospacedDigit())
+                                }
+                                Divider().frame(height: 22)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("REGISTER")
+                                        .font(.system(size: 9, weight: .bold))
+                                        .foregroundStyle(.secondary)
+                                    Text(bio.voiceRegister)
+                                        .font(.caption.weight(.semibold))
+                                }
+                                Divider().frame(height: 22)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("TIMBRE")
+                                        .font(.system(size: 9, weight: .bold))
+                                        .foregroundStyle(.secondary)
+                                    Text(bio.timbreLabel)
+                                        .font(.caption.weight(.semibold))
+                                }
+                                Divider().frame(height: 22)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("SNR QUALITY")
+                                        .font(.system(size: 9, weight: .bold))
+                                        .foregroundStyle(.secondary)
+                                    Text(String(format: "%.1f dB", bio.snrDb))
+                                        .font(.caption.weight(.bold).monospacedDigit())
+                                        .foregroundStyle(.green)
+                                }
+                            }
+                        }
+                        .padding(.vertical, 6)
                     }
                 } header: {
-                    Text("Voice Cloning (Optional)")
+                    Text("Zero-Shot Voice Cloning & Calibration Recorder")
                 } footer: {
                     if audioFileURL != nil && transcription.isEmpty {
                         Text("Enter the exact text spoken in the audio file for best results.")
                             .foregroundStyle(.orange)
                     } else if audioFileURL == nil {
-                        Text("Upload a 5-15 second audio sample to clone a voice. The model will attempt to match the voice characteristics.")
+                        Text("Pick a calibration script above and record 5–15 seconds on your mic, or upload an existing audio sample to clone any voice.")
                     }
                 }
 
@@ -170,7 +307,7 @@ struct AddVoiceView: View {
                     Button("Save") {
                         saveVoice()
                     }
-                    .disabled(voiceName.isEmpty || (audioFileURL != nil && transcription.isEmpty))
+                    .disabled(voiceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || audioFileURL == nil || transcription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
             .fileImporter(
@@ -182,19 +319,27 @@ struct AddVoiceView: View {
             }
             .onDisappear {
                 audioPlayer?.stop()
+                if recorder.isRecording {
+                    _ = recorder.stopRecording()
+                }
             }
         }
+        #if os(macOS)
+        .frame(minWidth: 540, minHeight: 620)
+        #endif
     }
 
     private func saveVoice() {
         // Copy audio file to app's documents directory if provided
         var savedAudioURL: URL? = nil
         if let sourceURL = audioFileURL {
-            savedAudioURL = copyAudioToDocuments(sourceURL)
+            savedAudioURL = copyAudioToDocuments(sourceURL) ?? sourceURL
         }
 
+        let trimmedName = voiceName.trimmingCharacters(in: .whitespacesAndNewlines)
         let newVoice = Voice(
-            name: voiceName,
+            name: trimmedName,
+            voiceId: biometrics?.recommendedBaseVoice ?? "1001",
             description: voiceDescription.isEmpty ? (isVoiceCloning ? "Cloned Voice" : "") : voiceDescription,
             language: selectedLanguage,
             color: selectedColor.opacity(0.3),
@@ -218,11 +363,8 @@ struct AddVoiceView: View {
         let destURL = voicesDir.appendingPathComponent("\(UUID().uuidString)_\(sourceURL.lastPathComponent)")
 
         do {
-            // Start accessing security-scoped resource
-            guard sourceURL.startAccessingSecurityScopedResource() else {
-                return nil
-            }
-            defer { sourceURL.stopAccessingSecurityScopedResource() }
+            let scoped = sourceURL.startAccessingSecurityScopedResource()
+            defer { if scoped { sourceURL.stopAccessingSecurityScopedResource() } }
 
             try fileManager.copyItem(at: sourceURL, to: destURL)
             return destURL
@@ -237,12 +379,20 @@ struct AddVoiceView: View {
         case .success(let urls):
             guard let url = urls.first else { return }
 
-            // Start accessing security-scoped resource
-            guard url.startAccessingSecurityScopedResource() else { return }
-            defer { url.stopAccessingSecurityScopedResource() }
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
 
-            audioFileURL = url
-            loadAudioDuration(from: url)
+            let localCopy = copyAudioToDocuments(url) ?? url
+            audioFileURL = localCopy
+            loadAudioDuration(from: localCopy)
+            let bio = VoiceBiometricsAnalyzer.analyzeAudio(url: localCopy)
+            biometrics = bio
+            if voiceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                voiceName = url.deletingPathExtension().lastPathComponent
+            }
+            if voiceDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let bio {
+                voiceDescription = "\(bio.timbreLabel) · \(Int(bio.medianF0Hz)) Hz"
+            }
 
         case .failure(let error):
             print("File selection error: \(error)")
@@ -250,8 +400,8 @@ struct AddVoiceView: View {
     }
 
     private func loadAudioDuration(from url: URL) {
-        guard url.startAccessingSecurityScopedResource() else { return }
-        defer { url.stopAccessingSecurityScopedResource() }
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
 
         do {
             let player = try AVAudioPlayer(contentsOf: url)
@@ -271,7 +421,7 @@ struct AddVoiceView: View {
 
         guard let url = audioFileURL else { return }
 
-        guard url.startAccessingSecurityScopedResource() else { return }
+        let scoped = url.startAccessingSecurityScopedResource()
 
         do {
             audioPlayer = try AVAudioPlayer(contentsOf: url)
@@ -279,19 +429,24 @@ struct AddVoiceView: View {
             isPlayingPreview = true
 
             // Stop after playback
-            DispatchQueue.main.asyncAfter(deadline: .now() + audioDuration + 0.1) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + max(0.5, audioDuration) + 0.1) {
                 self.isPlayingPreview = false
-                url.stopAccessingSecurityScopedResource()
+                if scoped {
+                    url.stopAccessingSecurityScopedResource()
+                }
             }
         } catch {
             print("Failed to play audio: \(error)")
-            url.stopAccessingSecurityScopedResource()
+            if scoped {
+                url.stopAccessingSecurityScopedResource()
+            }
         }
     }
 
     private func clearAudio() {
         audioPlayer?.stop()
         audioFileURL = nil
+        biometrics = nil
         transcription = ""
         audioDuration = 0
         isPlayingPreview = false

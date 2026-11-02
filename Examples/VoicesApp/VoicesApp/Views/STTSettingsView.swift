@@ -3,6 +3,21 @@ import SwiftUI
 struct STTSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable var viewModel: STTViewModel
+    @State private var modelFilter: String = ""
+    @State private var showCachedOnly: Bool = false
+
+    private var filteredPresets: [(name: String, id: String)] {
+        let base = showCachedOnly
+            ? STTViewModel.presetModels.filter { ModelCacheHelper.isModelCached($0.id) }
+            : STTViewModel.presetModels
+        if modelFilter.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return base
+        }
+        return base.filter {
+            $0.name.localizedCaseInsensitiveContains(modelFilter) ||
+            $0.id.localizedCaseInsensitiveContains(modelFilter)
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -70,6 +85,90 @@ struct STTSettingsView: View {
                     .disabled(viewModel.isLoading)
                 }
                 .padding(.top, 4)
+
+                if viewModel.isLoading {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text(viewModel.generationProgress.isEmpty ? "Loading model…" : viewModel.generationProgress)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.top, 4)
+                } else if let err = viewModel.errorMessage {
+                    Text(err)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .padding(.top, 4)
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("Known Downloadable STT Models (\(filteredPresets.count)):")
+                            .font(.caption2)
+                            .fontWeight(.medium)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Toggle("Cached Only", isOn: $showCachedOnly)
+                            .toggleStyle(.switch)
+                            .controlSize(.mini)
+                            .font(.caption2)
+                    }
+                    .padding(.top, 6)
+
+                    TextField("Search STT models (e.g. phonon, whisper, parakeet, qwen)...", text: $modelFilter)
+                        .font(.caption)
+                        .textFieldStyle(.plain)
+                        .padding(6)
+                        .background(Color.gray.opacity(0.12))
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(filteredPresets, id: \.id) { preset in
+                                let isCached = ModelCacheHelper.isModelCached(preset.id)
+                                let sizeStr = ModelCacheHelper.cachedModelSizeString(preset.id)
+                                Button {
+                                    viewModel.modelId = preset.id
+                                    Task {
+                                        await viewModel.reloadModel()
+                                    }
+                                } label: {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: viewModel.modelId == preset.id ? "checkmark.circle.fill" : (isCached ? "internaldrive.fill" : "arrow.down.circle"))
+                                            .font(.caption)
+                                            .foregroundStyle(viewModel.modelId == preset.id ? .blue : (isCached ? .green : .secondary))
+                                        Text(preset.name)
+                                            .font(.caption)
+                                            .fontWeight(viewModel.modelId == preset.id ? .semibold : .regular)
+                                            .foregroundStyle(.primary)
+                                        if isCached {
+                                            Text(sizeStr.map { "Cached · \($0)" } ?? "Cached")
+                                                .font(.caption2)
+                                                .foregroundStyle(.green)
+                                                .padding(.horizontal, 5)
+                                                .padding(.vertical, 1)
+                                                .background(Color.green.opacity(0.12))
+                                                .clipShape(Capsule())
+                                        }
+                                        Spacer()
+                                        Text(preset.id)
+                                            .font(.system(.caption2, design: .monospaced))
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                            .truncationMode(.middle)
+                                    }
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 5)
+                                    .background(viewModel.modelId == preset.id ? Color.blue.opacity(0.12) : Color.gray.opacity(0.08))
+                                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(viewModel.isLoading)
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 220)
+                }
             }
             .padding(.bottom, sectionSpacing)
 
@@ -238,10 +337,28 @@ struct STTSettingsView: View {
             .padding(.bottom, sectionSpacing)
 
             // Language Section
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 6) {
                 Text("Language")
                     .font(labelFont)
                     .foregroundStyle(.secondary)
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(["Auto", "English", "Chinese", "Japanese", "Spanish", "French", "German"], id: \.self) { lang in
+                            let val = (lang == "Auto") ? "" : lang
+                            let isSelected = (lang == "Auto" && viewModel.language.trimmingCharacters(in: .whitespaces).isEmpty) || viewModel.language.caseInsensitiveCompare(lang) == .orderedSame
+                            Button(lang) {
+                                viewModel.language = val
+                            }
+                            .font(.caption.weight(isSelected ? .semibold : .regular))
+                            .foregroundStyle(isSelected ? .white : .primary)
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 4)
+                            .background(isSelected ? Color.blue : Color.gray.opacity(0.15), in: Capsule())
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
 
                 TextField("Auto", text: $viewModel.language)
                     .font(textFont)
@@ -249,7 +366,7 @@ struct STTSettingsView: View {
                     .padding(8)
                     .background(Color.gray.opacity(0.15))
                     .clipShape(RoundedRectangle(cornerRadius: 6))
-                    .padding(.top, 4)
+                    .padding(.top, 2)
 
                 Text("Leave empty for model default/auto, or enter e.g. English, Chinese, Japanese, Korean")
                     .font(.caption2)

@@ -1,103 +1,387 @@
 import SwiftUI
+import AVFoundation
 
 struct VoicesView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var searchText = ""
+    @State private var selectedCategory: String = "All"
     @State private var showAddVoice = false
     @State private var selectedVoice: Voice?
+    @State private var previewingVoiceId: UUID? = nil
+    @State private var previewPlayer: AVAudioPlayer? = nil
 
+    var modelId: String = ""
+    var builtInVoices: [Voice] = []
+    var activeVoice: Voice? = nil
     @Binding var recentlyUsed: [Voice]
     @Binding var customVoices: [Voice]
     var onVoiceSelected: ((Voice) -> Void)?
 
-    var filteredRecentlyUsed: [Voice] {
-        if searchText.isEmpty {
-            return recentlyUsed
-        }
-        return recentlyUsed.filter {
-            $0.name.localizedCaseInsensitiveContains(searchText) ||
-            $0.description.localizedCaseInsensitiveContains(searchText)
+    private var shortModelName: String {
+        modelId.split(separator: "/").last.map(String.init) ?? modelId
+    }
+
+    private var availableCategories: [(name: String, count: Int)] {
+        let conversationalCount = builtInVoices.filter { $0.category == "Conversational" }.count
+        let narratorCount = builtInVoices.filter { $0.category == "Narrator" }.count
+        let characterCount = builtInVoices.filter { $0.category == "Character" }.count
+        let cloneCount = builtInVoices.filter { $0.category == "Reference Clones" }.count
+        let studioCount = builtInVoices.filter { $0.category == "Studio Voices" }.count
+        var items: [(String, Int)] = [("All", builtInVoices.count + customVoices.count)]
+        if conversationalCount > 0 { items.append(("Conversational", conversationalCount)) }
+        if narratorCount > 0 { items.append(("Narrator", narratorCount)) }
+        if characterCount > 0 { items.append(("Character", characterCount)) }
+        if cloneCount > 0 { items.append(("Reference Clones", cloneCount)) }
+        if studioCount > 0 { items.append(("Studio Voices", studioCount)) }
+        if !customVoices.isEmpty { items.append(("Custom", customVoices.count)) }
+        return items
+    }
+
+    var filteredBuiltInVoices: [Voice] {
+        builtInVoices.filter { voice in
+            let matchesCategory = (selectedCategory == "All") || (voice.category == selectedCategory)
+            let matchesSearch = searchText.isEmpty ||
+                voice.name.localizedCaseInsensitiveContains(searchText) ||
+                voice.description.localizedCaseInsensitiveContains(searchText) ||
+                voice.category.localizedCaseInsensitiveContains(searchText)
+            return matchesCategory && matchesSearch
         }
     }
 
     var filteredCustomVoices: [Voice] {
-        if searchText.isEmpty {
-            return customVoices
-        }
-        return customVoices.filter {
+        customVoices.filter {
+            searchText.isEmpty ||
             $0.name.localizedCaseInsensitiveContains(searchText) ||
             $0.description.localizedCaseInsensitiveContains(searchText)
         }
     }
 
-    #if os(iOS)
-    private let sectionSpacing: CGFloat = 16
-    #else
-    private let sectionSpacing: CGFloat = 24
-    #endif
+    private let gridColumns = [
+        GridItem(.flexible(), spacing: 10),
+        GridItem(.flexible(), spacing: 10)
+    ]
 
     var body: some View {
-        NavigationStack {
+        VStack(spacing: 0) {
+            // Top Apple Studio Sheet Header
+            HStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [Color.blue.opacity(0.28), Color.indigo.opacity(0.20)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(width: 38, height: 38)
+                    Image(systemName: "person.2.wave.2.fill")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.blue)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 8) {
+                        Text("Studio Voice Browser")
+                            .font(.system(size: 16, weight: .bold))
+                        Text("\(builtInVoices.count) Built-In Voices")
+                            .font(.system(size: 10.5, weight: .bold))
+                            .foregroundStyle(.blue)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 2.5)
+                            .background(Color.blue.opacity(0.15), in: Capsule())
+                    }
+                    Text("Built-in voices & zero-shot reference clones for \(shortModelName.isEmpty ? "Fish S2 Pro" : shortModelName)")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Button {
+                    showAddVoice = true
+                } label: {
+                    Label("Clone New Voice", systemImage: "plus.circle.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(
+                            LinearGradient(colors: [Color.blue, Color.indigo], startPoint: .topLeading, endPoint: .bottomTrailing),
+                            in: Capsule()
+                        )
+                }
+                .buttonStyle(.plain)
+
+                Button(action: { dismiss() }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 20))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+            .background(.ultraThinMaterial)
+
+            Divider().opacity(0.25)
+
+            // Search + Category Filter Ribbon
+            VStack(spacing: 10) {
+                SearchBar(text: $searchText, totalCount: builtInVoices.count + customVoices.count)
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(availableCategories, id: \.name) { item in
+                            let isSelected = selectedCategory == item.name
+                            Button {
+                                withAnimation(.spring(response: 0.24, dampingFraction: 0.82)) {
+                                    selectedCategory = item.name
+                                }
+                            } label: {
+                                HStack(spacing: 5) {
+                                    Text(item.name)
+                                        .font(.system(size: 12, weight: isSelected ? .semibold : .medium))
+                                    Text("\(item.count)")
+                                        .font(.system(size: 10.5, weight: .bold, design: .monospaced))
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 1.5)
+                                        .background(
+                                            isSelected ? Color.white.opacity(0.22) : Color.white.opacity(0.08),
+                                            in: Capsule()
+                                        )
+                                }
+                                .foregroundStyle(isSelected ? .white : .primary.opacity(0.85))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(
+                                    Capsule()
+                                        .fill(isSelected ? Color.blue.opacity(0.38) : Color.white.opacity(0.05))
+                                        .overlay(
+                                            Capsule()
+                                                .strokeBorder(isSelected ? Color.blue.opacity(0.85) : Color.white.opacity(0.10), lineWidth: 0.9)
+                                        )
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+
+            Divider().opacity(0.2)
+
+            // 2-Column Bento Grid of Built-In & Custom Voices
             ScrollView {
-                VStack(alignment: .leading, spacing: sectionSpacing) {
-                    // Search bar
-                    SearchBar(text: $searchText)
-                        .padding(.horizontal)
-
-                    // Add new voice button
-                    AddVoiceButton {
-                        showAddVoice = true
-                    }
-                    .padding(.horizontal)
-
-                    // Recently used section
-                    if !filteredRecentlyUsed.isEmpty {
-                        RecentlyUsedSection(
-                            voices: filteredRecentlyUsed,
-                            onVoiceTap: { voice in
-                                selectedVoice = voice
-                                onVoiceSelected?(voice)
+                VStack(alignment: .leading, spacing: 18) {
+                    if (selectedCategory != "Custom" && filteredBuiltInVoices.isEmpty) &&
+                       ((selectedCategory != "All" && selectedCategory != "Custom") || filteredCustomVoices.isEmpty) {
+                        VStack(spacing: 12) {
+                            Image(systemName: "magnifyingglass")
+                                .font(.system(size: 36))
+                                .foregroundStyle(.tertiary)
+                            Text("No voices matching \"\(searchText)\"")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                            Button("Clear Search & Filters") {
+                                searchText = ""
+                                selectedCategory = "All"
                             }
-                        )
-                        .padding(.horizontal)
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 48)
                     }
 
-                    // Your voices section
-                    if !filteredCustomVoices.isEmpty {
-                        YourVoicesSection(
-                            voices: filteredCustomVoices,
-                            onVoiceTap: { voice in
-                                selectedVoice = voice
-                                onVoiceSelected?(voice)
-                            },
-                            onDelete: { voice in
-                                customVoices.removeAll { $0.id == voice.id }
+                    if selectedCategory != "Custom" && !filteredBuiltInVoices.isEmpty {
+                        LazyVGrid(columns: gridColumns, spacing: 10) {
+                            ForEach(filteredBuiltInVoices) { voice in
+                                let isActive = (activeVoice?.name == voice.name && activeVoice?.voiceId == voice.voiceId)
+                                StudioVoiceBentoCard(
+                                    voice: voice,
+                                    isSelected: isActive,
+                                    isPreviewing: previewingVoiceId == voice.id,
+                                    onPreview: { togglePreview(for: voice) },
+                                    onTap: {
+                                        previewPlayer?.stop()
+                                        previewingVoiceId = nil
+                                        selectedVoice = voice
+                                        onVoiceSelected?(voice)
+                                    }
+                                )
                             }
-                        )
-                        .padding(.horizontal)
+                        }
+                    }
+
+                    if (selectedCategory == "All" || selectedCategory == "Custom") && !filteredCustomVoices.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("CUSTOM & RECORDED VOICES (\(filteredCustomVoices.count))")
+                                .font(.system(size: 11, weight: .bold, design: .rounded))
+                                .foregroundStyle(.secondary)
+
+                            LazyVGrid(columns: gridColumns, spacing: 10) {
+                                ForEach(filteredCustomVoices) { voice in
+                                    let isActive = (activeVoice?.name == voice.name && activeVoice?.voiceId == voice.voiceId)
+                                    StudioVoiceBentoCard(
+                                        voice: voice,
+                                        isSelected: isActive,
+                                        isPreviewing: previewingVoiceId == voice.id,
+                                        showDelete: true,
+                                        onPreview: { togglePreview(for: voice) },
+                                        onDelete: {
+                                            customVoices.removeAll { $0.id == voice.id }
+                                        },
+                                        onTap: {
+                                            previewPlayer?.stop()
+                                            previewingVoiceId = nil
+                                            selectedVoice = voice
+                                            onVoiceSelected?(voice)
+                                        }
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
-                .padding(.vertical, 8)
+                .padding(20)
             }
-            .navigationTitle("Voices")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(action: { dismiss() }) {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.body)
-                            .foregroundStyle(.secondary)
-                    }
-                }
+        }
+        #if os(macOS)
+        .frame(minWidth: 780, minHeight: 580)
+        #endif
+        .onDisappear {
+            previewPlayer?.stop()
+            previewingVoiceId = nil
+        }
+        .sheet(isPresented: $showAddVoice) {
+            AddVoiceView { newVoice in
+                customVoices.append(newVoice)
             }
-            .sheet(isPresented: $showAddVoice) {
-                AddVoiceView { newVoice in
-                    customVoices.append(newVoice)
+        }
+    }
+
+    private func togglePreview(for voice: Voice) {
+        if previewingVoiceId == voice.id {
+            previewPlayer?.stop()
+            previewingVoiceId = nil
+            return
+        }
+        previewPlayer?.stop()
+        guard let url = Voice.previewAudioURL(for: voice) else { return }
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        if let player = try? AVAudioPlayer(contentsOf: url) {
+            previewPlayer = player
+            previewingVoiceId = voice.id
+            player.play()
+            let duration = max(0.5, min(player.duration, 10.0))
+            let targetId = voice.id
+            DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
+                if self.previewingVoiceId == targetId {
+                    self.previewPlayer?.stop()
+                    self.previewingVoiceId = nil
                 }
             }
         }
+    }
+}
+
+struct StudioVoiceBentoCard: View {
+    let voice: Voice
+    var isSelected: Bool = false
+    var isPreviewing: Bool = false
+    var showDelete: Bool = false
+    var onPreview: (() -> Void)? = nil
+    var onDelete: (() -> Void)? = nil
+    var onTap: () -> Void
+
+    private var categoryColor: Color {
+        switch voice.category {
+        case "Conversational": return .blue
+        case "Narrator": return .purple
+        case "Character": return .orange
+        case "Reference Clones": return .green
+        default: return .teal
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Button(action: onTap) {
+                HStack(spacing: 12) {
+                    VoiceAvatar(color: voice.color, size: 36)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 6) {
+                            Text(voice.name)
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+
+                            if isSelected {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.blue)
+                            }
+
+                            Text(voice.category)
+                                .font(.system(size: 9.5, weight: .bold))
+                                .foregroundStyle(categoryColor)
+                                .lineLimit(1)
+                                .fixedSize(horizontal: true, vertical: false)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(categoryColor.opacity(0.14), in: Capsule())
+                        }
+
+                        Text(voice.description)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+
+                    Spacer(minLength: 4)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if let onPreview, Voice.previewAudioURL(for: voice) != nil {
+                Button(action: onPreview) {
+                    Image(systemName: isPreviewing ? "stop.circle.fill" : "speaker.wave.2.circle.fill")
+                        .font(.system(size: 20))
+                        .foregroundStyle(isPreviewing ? .orange : .blue.opacity(0.85))
+                }
+                .buttonStyle(.plain)
+                .help(isPreviewing ? "Stop voice preview" : "Audition voice sample")
+            }
+
+            if showDelete, let onDelete {
+                Button(action: onDelete) {
+                    Image(systemName: "trash")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.red.opacity(0.8))
+                }
+                .buttonStyle(.plain)
+                .help("Delete custom voice")
+            } else {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary.opacity(0.6))
+            }
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .fill(isSelected ? Color.blue.opacity(0.14) : Color.white.opacity(0.04))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 13, style: .continuous)
+                        .strokeBorder(isSelected ? Color.blue.opacity(0.75) : Color.white.opacity(0.09), lineWidth: isSelected ? 1.2 : 0.8)
+                )
+        )
     }
 }
 
@@ -105,171 +389,44 @@ struct VoicesView: View {
 
 struct SearchBar: View {
     @Binding var text: String
-
-    #if os(iOS)
-    private let padding: CGFloat = 10
-    private let cornerRadius: CGFloat = 10
-    #else
-    private let padding: CGFloat = 12
-    private let cornerRadius: CGFloat = 12
-    #endif
+    var totalCount: Int = 41
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
-                .font(.footnote)
+                .font(.system(size: 13))
                 .foregroundStyle(.secondary)
 
-            TextField("Search", text: $text)
-                .font(.footnote)
+            TextField("Search \(totalCount) voices by name, style, or category (Conversational, Narrator, Character)...", text: $text)
+                .font(.system(size: 12.5))
                 .textFieldStyle(.plain)
 
             if !text.isEmpty {
                 Button(action: { text = "" }) {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.footnote)
+                        .font(.system(size: 13))
                         .foregroundStyle(.secondary)
                 }
+                .buttonStyle(.plain)
             }
         }
-        .padding(padding)
-        .background(Color.gray.opacity(0.15))
-        .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
-    }
-}
-
-// MARK: - Add Voice Button
-
-struct AddVoiceButton: View {
-    var action: () -> Void
-
-    #if os(iOS)
-    private let circleSize: CGFloat = 36
-    private let iconFont: Font = .callout
-    private let titleFont: Font = .footnote
-    private let subtitleFont: Font = .caption
-    #else
-    private let circleSize: CGFloat = 50
-    private let iconFont: Font = .title2
-    private let titleFont: Font = .body
-    private let subtitleFont: Font = .subheadline
-    #endif
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 10) {
-                ZStack {
-                    Circle()
-                        .fill(Color.black)
-                        .frame(width: circleSize, height: circleSize)
-
-                    Image(systemName: "plus")
-                        .font(iconFont)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(.white)
-                }
-
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Add a new voice")
-                        .font(titleFont)
-                        .fontWeight(.medium)
-                        .foregroundStyle(.primary)
-
-                    Text("Create or clone a voice")
-                        .font(subtitleFont)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer()
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-// MARK: - Recently Used Section
-
-struct RecentlyUsedSection: View {
-    let voices: [Voice]
-    var onVoiceTap: ((Voice) -> Void)?
-
-    #if os(iOS)
-    private let titleFont: Font = .subheadline
-    private let subtitleFont: Font = .caption
-    #else
-    private let titleFont: Font = .title2
-    private let subtitleFont: Font = .subheadline
-    #endif
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Recently used")
-                    .font(titleFont)
-                    .fontWeight(.bold)
-
-                Text("Voices you've used recently")
-                    .font(subtitleFont)
-                    .foregroundStyle(.secondary)
-            }
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(voices) { voice in
-                        VoiceChip(voice: voice) {
-                            onVoiceTap?(voice)
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-// MARK: - Your Voices Section
-
-struct YourVoicesSection: View {
-    let voices: [Voice]
-    var onVoiceTap: ((Voice) -> Void)?
-    var onDelete: ((Voice) -> Void)?
-
-    #if os(iOS)
-    private let titleFont: Font = .subheadline
-    private let subtitleFont: Font = .caption
-    #else
-    private let titleFont: Font = .title2
-    private let subtitleFont: Font = .subheadline
-    #endif
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Your Voices")
-                    .font(titleFont)
-                    .fontWeight(.bold)
-
-                Text("Voices you've created")
-                    .font(subtitleFont)
-                    .foregroundStyle(.secondary)
-            }
-
-            VStack(spacing: 6) {
-                ForEach(voices) { voice in
-                    VoiceRow(
-                        voice: voice,
-                        showDeleteButton: true,
-                        onDelete: { onDelete?(voice) },
-                        onTap: { onVoiceTap?(voice) }
-                    )
-                }
-            }
-        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.white.opacity(0.05))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.09), lineWidth: 0.8)
+                )
+        )
     }
 }
 
 #Preview {
     VoicesView(
+        modelId: "mlx-community/fish-audio-s2-pro-bf16",
+        builtInVoices: Voice.builtInVoices(for: "mlx-community/fish-audio-s2-pro-bf16"),
         recentlyUsed: .constant(Voice.samples),
         customVoices: .constant(Voice.customVoices)
     )
