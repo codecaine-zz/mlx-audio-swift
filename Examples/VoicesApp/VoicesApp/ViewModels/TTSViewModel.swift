@@ -469,6 +469,18 @@ class TTSViewModel {
         }
         setupAudioPlayerObservers()
         refreshVoicesForCurrentModel(forceSelectFirst: true)
+        NotificationCenter.default.publisher(for: .modelCacheDidChange)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] note in
+                guard let self,
+                      let deletedId = note.userInfo?["deletedModelId"] as? String else { return }
+                if self.loadedModelId == deletedId {
+                    self.model = nil
+                    self.loadedModelId = nil
+                    Memory.clearCache()
+                }
+            }
+            .store(in: &cancellables)
     }
 
     func refreshVoicesForCurrentModel(forceSelectFirst: Bool = false) {
@@ -550,6 +562,7 @@ class TTSViewModel {
             model = loadedModel
             defaultGenerationParameters = loadedModel.defaultGenerationParameters
             loadedModelId = modelId
+            DownloadedModelsManager.shared.refresh()
             refreshVoicesForCurrentModel(forceSelectFirst: false)
             generationProgress = "" // Clear progress on success
         } catch {

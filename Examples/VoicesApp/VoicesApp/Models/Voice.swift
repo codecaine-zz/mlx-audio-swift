@@ -16,6 +16,9 @@ import Vision
 
 enum ModelCacheHelper {
     private static let hfTokenStorageKey = "VoicesApp.HuggingFaceToken"
+    private static let weightExtensions: Set<String> = [
+        "safetensors", "npz", "bin", "gguf", "pt", "onnx", "zst", "fermion", "fsq"
+    ]
 
     static var hfToken: String {
         get {
@@ -43,23 +46,62 @@ enum ModelCacheHelper {
             .appendingPathComponent(".cache/huggingface/hub")
     }
 
-    static func modelDirectory(for repoId: String) -> URL? {
+    static func mlxModelDirectory(for repoId: String) -> URL {
         let subdir = repoId.replacingOccurrences(of: "/", with: "_")
-        let mlxDir = mlxAudioCacheRoot.appendingPathComponent(subdir)
+        return mlxAudioCacheRoot.appendingPathComponent(subdir)
+    }
+
+    static func hubModelDirectory(for repoId: String) -> URL {
+        let hubSubdir = "models--" + repoId.replacingOccurrences(of: "/", with: "--")
+        return hubCacheRoot.appendingPathComponent(hubSubdir)
+    }
+
+    static func phonon2UnpackedDirectories(for repoId: String) -> [URL] {
+        let mlxDir = mlxModelDirectory(for: repoId)
+        let hubDir = hubModelDirectory(for: repoId)
+        var candidateConfigs: [URL] = [mlxDir.appendingPathComponent("config.json")]
+        let snapshotsDir = hubDir.appendingPathComponent("snapshots")
+        if let snaps = try? FileManager.default.contentsOfDirectory(at: snapshotsDir, includingPropertiesForKeys: nil) {
+            for snap in snaps {
+                candidateConfigs.append(snap.appendingPathComponent("config.json"))
+            }
+        }
+        var digests = Set<String>()
+        for configURL in candidateConfigs {
+            guard let data = try? Data(contentsOf: configURL),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+            if let artifact = json["artifact"] as? [String: Any],
+               let sha = artifact["sha256"] as? String, !sha.isEmpty,
+               !sha.contains("/"), !sha.contains("..") {
+                digests.insert(sha)
+            }
+            if let fermion = json["fermion"] as? [String: Any],
+               let sha = fermion["container_sha256"] as? String, !sha.isEmpty,
+               !sha.contains("/"), !sha.contains("..") {
+                digests.insert(sha)
+            }
+        }
+        let phonon2Root = mlxAudioCacheRoot.appendingPathComponent("phonon2")
+        return digests.compactMap { digest in
+            let url = phonon2Root.appendingPathComponent(digest)
+            return FileManager.default.fileExists(atPath: url.path) ? url : nil
+        }
+    }
+
+    static func modelDirectory(for repoId: String) -> URL? {
+        let mlxDir = mlxModelDirectory(for: repoId)
         if directoryHasWeights(mlxDir) {
             return mlxDir
         }
-        let hubSubdir = "models--" + repoId.replacingOccurrences(of: "/", with: "--")
-        let hubSnapshotsDir = hubCacheRoot.appendingPathComponent(hubSubdir).appendingPathComponent("snapshots")
+        let hubSnapshotsDir = hubModelDirectory(for: repoId).appendingPathComponent("snapshots")
         if let snapshots = try? FileManager.default.contentsOfDirectory(at: hubSnapshotsDir, includingPropertiesForKeys: nil),
-           let first = snapshots.first,
-           directoryHasWeights(first) {
+           let first = snapshots.first(where: { directoryHasWeights($0) }) {
             return first
         }
         return nil
     }
 
-    private static func directoryHasWeights(_ dir: URL) -> Bool {
+    static func directoryHasWeights(_ dir: URL) -> Bool {
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: dir.path, isDirectory: &isDir), isDir.boolValue else {
             return false
@@ -72,7 +114,7 @@ enum ModelCacheHelper {
 
         for case let fileURL as URL in enumerator {
             let ext = fileURL.pathExtension.lowercased()
-            if ["safetensors", "npz", "bin", "gguf", "pt", "onnx"].contains(ext) {
+            if weightExtensions.contains(ext) {
                 let size = (try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
                 if size > 0 { return true }
             }
@@ -84,22 +126,34 @@ enum ModelCacheHelper {
         modelDirectory(for: repoId) != nil
     }
 
+    static func cachedModelSizeBytes(_ repoId: String) -> UInt64 {
+        let mlxBytes = directoryByteSize(mlxModelDirectory(for: repoId))
+        let hubBytes = directoryByteSize(hubModelDirectory(for: repoId))
+        let phonon2Bytes = phonon2UnpackedDirectories(for: repoId).reduce(0) { $0 + directoryByteSize($1) }
+        return max(mlxBytes, hubBytes) + phonon2Bytes
+    }
+
     static func cachedModelSizeString(_ repoId: String) -> String? {
-        guard let dir = modelDirectory(for: repoId) else { return nil }
-        let bytes = directoryByteSize(dir)
+        guard isModelCached(repoId) else { return nil }
+        let bytes = cachedModelSizeBytes(repoId)
         guard bytes > 0 else { return nil }
         return ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
     }
 
     static func directoryByteSize(_ dir: URL) -> UInt64 {
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: dir.path, isDirectory: &isDir), isDir.boolValue else {
+            return 0
+        }
         guard let enumerator = FileManager.default.enumerator(
             at: dir,
-            includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey],
+            includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey, .isSymbolicLinkKey],
             options: []
         ) else { return 0 }
         var total: UInt64 = 0
         for case let fileURL as URL in enumerator {
-            if let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+            if let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]),
+               values.isSymbolicLink != true,
                values.isRegularFile == true,
                let size = values.fileSize {
                 total += UInt64(max(size, 0))
@@ -108,11 +162,347 @@ enum ModelCacheHelper {
         return total
     }
 
+    /// Deletes a cached model from both the mlx-audio snapshot directory and the HuggingFace Hub cache,
+    /// including any unpacked Phonon 2.5 container cache and lock/metadata directories.
+    /// - Returns: The number of logical bytes freed.
+    @discardableResult
+    static func deleteModel(_ repoId: String) -> UInt64 {
+        let fm = FileManager.default
+        let freedBytes = cachedModelSizeBytes(repoId)
+        let mlxDir = mlxModelDirectory(for: repoId)
+        let hubDir = hubModelDirectory(for: repoId)
+        let hubSubdir = hubDir.lastPathComponent
+        let metadataDir = hubCacheRoot.appendingPathComponent(".metadata").appendingPathComponent(hubSubdir)
+        let locksDir = hubCacheRoot.appendingPathComponent(".locks").appendingPathComponent(hubSubdir)
+
+        for unpacked in phonon2UnpackedDirectories(for: repoId) {
+            try? fm.removeItem(at: unpacked)
+        }
+        for target in [mlxDir, hubDir, metadataDir, locksDir] {
+            if fm.fileExists(atPath: target.path) {
+                try? fm.removeItem(at: target)
+            }
+        }
+
+        NotificationCenter.default.post(
+            name: .modelCacheDidChange,
+            object: nil,
+            userInfo: ["deletedModelId": repoId, "freedBytes": freedBytes]
+        )
+        return freedBytes
+    }
+
+    static func revealModelInFinder(_ repoId: String) {
+        #if os(macOS)
+        let mlxDir = mlxModelDirectory(for: repoId)
+        let hubDir = hubModelDirectory(for: repoId)
+        if FileManager.default.fileExists(atPath: mlxDir.path) {
+            NSWorkspace.shared.activateFileViewerSelecting([mlxDir])
+        } else if FileManager.default.fileExists(atPath: hubDir.path) {
+            NSWorkspace.shared.activateFileViewerSelecting([hubDir])
+        } else {
+            revealCacheInFinder()
+        }
+        #endif
+    }
+
     static func revealCacheInFinder() {
         #if os(macOS)
         let target = FileManager.default.fileExists(atPath: mlxAudioCacheRoot.path) ? mlxAudioCacheRoot : hubCacheRoot
         NSWorkspace.shared.open(target)
         #endif
+    }
+}
+
+// MARK: - Downloaded AI Models Cache Manager
+
+enum DownloadedModelCategory: String, CaseIterable, Identifiable {
+    case all = "All"
+    case tts = "TTS / Voice"
+    case stt = "STT / ASR"
+    case audioLab = "Audio Lab"
+    case codecHelper = "Codecs & Helpers"
+    case incomplete = "Incomplete"
+
+    var id: String { rawValue }
+
+    var icon: String {
+        switch self {
+        case .all: return "internaldrive.fill"
+        case .tts: return "waveform"
+        case .stt: return "mic.fill"
+        case .audioLab: return "tuningfork"
+        case .codecHelper: return "puzzlepiece.extension.fill"
+        case .incomplete: return "exclamationmark.triangle.fill"
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .all: return .blue
+        case .tts: return .blue
+        case .stt: return .purple
+        case .audioLab: return .teal
+        case .codecHelper: return .indigo
+        case .incomplete: return .orange
+        }
+    }
+}
+
+struct DownloadedModelItem: Identifiable, Hashable {
+    var id: String { repoId }
+    let repoId: String
+    let displayName: String
+    let category: DownloadedModelCategory
+    let sizeBytes: UInt64
+    let hasWeights: Bool
+    let modifiedDate: Date?
+    let primaryDirectory: URL
+
+    var sizeString: String {
+        ByteCountFormatter.string(fromByteCount: Int64(sizeBytes), countStyle: .file)
+    }
+}
+
+@MainActor
+@Observable
+final class DownloadedModelsManager {
+    static let shared = DownloadedModelsManager()
+
+    var items: [DownloadedModelItem] = []
+    var cacheRevision: Int = 0
+    var statusBanner: String? = nil
+
+    var totalBytes: UInt64 {
+        items.reduce(0) { $0 + $1.sizeBytes }
+    }
+
+    var totalSizeString: String {
+        ByteCountFormatter.string(fromByteCount: Int64(totalBytes), countStyle: .file)
+    }
+
+    var completeModelsCount: Int {
+        items.filter(\.hasWeights).count
+    }
+
+    var incompleteModelsCount: Int {
+        items.filter { !$0.hasWeights }.count
+    }
+
+    private init() {
+        refresh()
+        NotificationCenter.default.addObserver(
+            forName: .modelCacheDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.refresh()
+            }
+        }
+    }
+
+    func isModelCached(_ repoId: String) -> Bool {
+        _ = cacheRevision
+        return ModelCacheHelper.isModelCached(repoId)
+    }
+
+    func cachedModelSizeString(_ repoId: String) -> String? {
+        _ = cacheRevision
+        return ModelCacheHelper.cachedModelSizeString(repoId)
+    }
+
+    @discardableResult
+    func deleteModel(_ repoId: String, displayName: String? = nil) -> UInt64 {
+        let label = displayName ?? items.first(where: { $0.repoId == repoId })?.displayName ?? repoId
+        let freed = ModelCacheHelper.deleteModel(repoId)
+        let freedStr = ByteCountFormatter.string(fromByteCount: Int64(max(freed, 1)), countStyle: .file)
+        refresh()
+        flashBanner("Deleted \(label) — Freed \(freedStr)")
+        return freed
+    }
+
+    func cleanIncompleteDownloads() {
+        let incomplete = items.filter { !$0.hasWeights }
+        guard !incomplete.isEmpty else { return }
+        var totalFreed: UInt64 = 0
+        for item in incomplete {
+            totalFreed += ModelCacheHelper.deleteModel(item.repoId)
+        }
+        // Also clean any malformed double-prefix directories in .locks / .metadata / hub
+        let fm = FileManager.default
+        for root in [
+            ModelCacheHelper.hubCacheRoot,
+            ModelCacheHelper.hubCacheRoot.appendingPathComponent(".locks"),
+            ModelCacheHelper.hubCacheRoot.appendingPathComponent(".metadata")
+        ] {
+            if let entries = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) {
+                for entry in entries where entry.lastPathComponent.hasPrefix("models--mlx-community--mlx-community--") {
+                    try? fm.removeItem(at: entry)
+                }
+            }
+        }
+        refresh()
+        let freedStr = ByteCountFormatter.string(fromByteCount: Int64(max(totalFreed, 1)), countStyle: .file)
+        flashBanner("Cleaned \(incomplete.count) incomplete download\(incomplete.count == 1 ? "" : "s") (\(freedStr))")
+    }
+
+    func refresh() {
+        let fm = FileManager.default
+        var catalog: [String: (name: String, category: DownloadedModelCategory)] = [
+            "nativ-community/phonon": ("Phonon TTS 40M (Default)", .tts),
+            "gradium/phonon-40m-multilingual": ("Gradium Phonon 40M Multilingual", .tts),
+            "beshkenadze/kitten-tts-g2p": ("KittenTTS G2P Phonemizer", .codecHelper),
+            "kyutai/moshiko-pytorch-bf16": ("Kyutai Moshiko / Mimi Backbone (BF16)", .codecHelper),
+            "kyutai/mimi": ("Kyutai Mimi Neural Audio Codec", .codecHelper),
+            "mlx-community/snac_24khz": ("SNAC 24kHz Neural Audio Codec", .codecHelper),
+            "lucasnewman/vocos-mel-24khz": ("Vocos Mel 24kHz Vocoder", .codecHelper),
+            "lucasnewman/f5-tts-mlx": ("F5-TTS MLX", .tts),
+            "openai/whisper-tiny.en": ("Whisper Tiny English", .stt),
+        ]
+        for preset in TTSViewModel.presetModels {
+            catalog[preset.id] = (preset.name, .tts)
+        }
+        for preset in STTViewModel.presetModels {
+            catalog[preset.id] = (preset.name, .stt)
+        }
+        for preset in STSViewModel.presetModels {
+            catalog[preset.id] = (preset.name, .audioLab)
+        }
+
+        var underscoreToRepoId: [String: String] = [:]
+        for repoId in catalog.keys {
+            underscoreToRepoId[repoId.replacingOccurrences(of: "/", with: "_")] = repoId
+        }
+
+        var discoveredRepoIds = Set<String>()
+
+        // 1. Scan ~/.cache/huggingface/hub/models--*
+        if let hubEntries = try? fm.contentsOfDirectory(
+            at: ModelCacheHelper.hubCacheRoot,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) {
+            for entry in hubEntries {
+                let name = entry.lastPathComponent
+                guard name.hasPrefix("models--") else { continue }
+                let stripped = String(name.dropFirst("models--".count))
+                let parts = stripped.components(separatedBy: "--")
+                guard parts.count >= 2 else { continue }
+                let org = parts[0]
+                let repo = parts.dropFirst().joined(separator: "--")
+                let repoId = "\(org)/\(repo)"
+                discoveredRepoIds.insert(repoId)
+                underscoreToRepoId[repoId.replacingOccurrences(of: "/", with: "_")] = repoId
+            }
+        }
+
+        // 2. Scan ~/.cache/huggingface/hub/mlx-audio/*
+        if let mlxEntries = try? fm.contentsOfDirectory(
+            at: ModelCacheHelper.mlxAudioCacheRoot,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) {
+            for entry in mlxEntries {
+                let name = entry.lastPathComponent
+                if name == "phonon2" { continue }
+                if let mapped = underscoreToRepoId[name] {
+                    discoveredRepoIds.insert(mapped)
+                    continue
+                }
+                // Check config.json for model_id
+                let cfgURL = entry.appendingPathComponent("config.json")
+                if let data = try? Data(contentsOf: cfgURL),
+                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let modelId = json["model_id"] as? String,
+                   modelId.contains("/") {
+                    discoveredRepoIds.insert(modelId)
+                    continue
+                }
+                if let firstUnderscore = name.firstIndex(of: "_") {
+                    let org = String(name[..<firstUnderscore])
+                    let repo = String(name[name.index(after: firstUnderscore)...])
+                    if !org.isEmpty && !repo.isEmpty {
+                        discoveredRepoIds.insert("\(org)/\(repo)")
+                    }
+                }
+            }
+        }
+
+        var builtItems: [DownloadedModelItem] = []
+        for repoId in discoveredRepoIds {
+            let mlxDir = ModelCacheHelper.mlxModelDirectory(for: repoId)
+            let hubDir = ModelCacheHelper.hubModelDirectory(for: repoId)
+            let mlxExists = fm.fileExists(atPath: mlxDir.path)
+            let hubExists = fm.fileExists(atPath: hubDir.path)
+            guard mlxExists || hubExists else { continue }
+
+            let hasWeights = ModelCacheHelper.isModelCached(repoId)
+            let sizeBytes = ModelCacheHelper.cachedModelSizeBytes(repoId)
+            guard hasWeights || sizeBytes > 0 else { continue }
+
+            let primaryDir = mlxExists ? mlxDir : hubDir
+            let modDate = (try? primaryDir.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate)
+
+            let known = catalog[repoId]
+            let displayName = known?.name ?? (repoId.split(separator: "/").last.map(String.init) ?? repoId)
+            let category: DownloadedModelCategory
+            if !hasWeights {
+                category = .incomplete
+            } else if let knownCat = known?.category {
+                category = knownCat
+            } else {
+                let lower = repoId.lowercased()
+                if lower.contains("asr") || lower.contains("whisper") || lower.contains("transcribe")
+                    || lower.contains("parakeet") || lower.contains("canary") || lower.contains("sensevoice")
+                    || lower.contains("moonshine") {
+                    category = .stt
+                } else if lower.contains("sam-audio") || lower.contains("mossformer")
+                    || lower.contains("deepfilter") || lower.contains("voxlingua") || lower.contains("mms-lid") {
+                    category = .audioLab
+                } else if lower.contains("snac") || lower.contains("vocos") || lower.contains("mimi")
+                    || lower.contains("moshiko") || lower.contains("g2p") || lower.contains("codec") {
+                    category = .codecHelper
+                } else {
+                    category = .tts
+                }
+            }
+
+            builtItems.append(
+                DownloadedModelItem(
+                    repoId: repoId,
+                    displayName: displayName,
+                    category: category,
+                    sizeBytes: sizeBytes,
+                    hasWeights: hasWeights,
+                    modifiedDate: modDate,
+                    primaryDirectory: primaryDir
+                )
+            )
+        }
+
+        builtItems.sort { a, b in
+            if a.hasWeights != b.hasWeights {
+                return a.hasWeights && !b.hasWeights
+            }
+            if a.sizeBytes != b.sizeBytes {
+                return a.sizeBytes > b.sizeBytes
+            }
+            return a.displayName.localizedCaseInsensitiveCompare(b.displayName) == .orderedAscending
+        }
+
+        items = builtItems
+        cacheRevision &+= 1
+    }
+
+    private func flashBanner(_ text: String) {
+        statusBanner = text
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(3.5))
+            if self.statusBanner == text {
+                self.statusBanner = nil
+            }
+        }
     }
 }
 
@@ -869,6 +1259,8 @@ extension VoiceCollection {
 
 extension Notification.Name {
     static let sendTranscriptToVoiceStudio = Notification.Name("VoicesApp.SendTranscriptToVoiceStudio")
+    static let modelCacheDidChange = Notification.Name("VoicesApp.ModelCacheDidChange")
+    static let openDownloadedModelsManager = Notification.Name("VoicesApp.OpenDownloadedModelsManager")
 }
 
 // MARK: - Smart Speech Text Cleaner & Universal Document Extractor (from bun_rad_studio fmPhonon.ts)
@@ -3468,6 +3860,36 @@ final class LocalhostServerManager {
                 responseData = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted])
                 logSummary = "Generated SRT/VTT/ASS subtitles (\(timings.count) words)"
 
+            case ("DELETE", "/api/delete"), ("POST", "/api/delete"), ("DELETE", "/v1/models"), ("POST", "/v1/models/delete"):
+                let json = (try? JSONSerialization.jsonObject(with: body) as? [String: Any]) ?? [:]
+                let rawTarget = ((json["name"] as? String) ?? (json["model"] as? String) ?? (json["id"] as? String) ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !rawTarget.isEmpty else {
+                    status = 400
+                    responseData = try JSONSerialization.data(withJSONObject: ["error": "Missing 'model' or 'name' parameter to delete"])
+                    logSummary = "400 Missing model to delete"
+                    break
+                }
+                if cachedTTSModelId == rawTarget {
+                    cachedTTSModel = nil
+                    cachedTTSModelId = nil
+                    Memory.clearCache()
+                }
+                if cachedSTTModelId == rawTarget {
+                    cachedSTTModel = nil
+                    cachedSTTModelId = nil
+                    Memory.clearCache()
+                }
+                let freedBytes = DownloadedModelsManager.shared.deleteModel(rawTarget)
+                let freedFormatted = ByteCountFormatter.string(fromByteCount: Int64(freedBytes), countStyle: .file)
+                responseData = try JSONSerialization.data(withJSONObject: [
+                    "deleted": true,
+                    "model": rawTarget,
+                    "freed_bytes": freedBytes,
+                    "freed_formatted": freedFormatted
+                ], options: [.prettyPrinted])
+                logSummary = "Deleted model \(rawTarget) (\(freedFormatted))"
+
             case ("POST", "/api/generate"), ("POST", "/api/chat"), ("POST", "/v1/chat/completions"):
                 let json = (try? JSONSerialization.jsonObject(with: body) as? [String: Any]) ?? [:]
                 if let keepAlive = json["keep_alive"] as? Int, keepAlive == 0 {
@@ -3498,6 +3920,7 @@ final class LocalhostServerManager {
                         "GET /api/tags",
                         "GET /api/ps",
                         "POST /api/show",
+                        "DELETE /api/delete",
                         "POST /v1/audio/speech",
                         "POST /v1/audio/transcriptions",
                         "POST /v1/audio/clean",

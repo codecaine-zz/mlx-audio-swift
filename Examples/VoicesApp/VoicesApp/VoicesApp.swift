@@ -328,7 +328,7 @@ struct AppleStudioShellView: View {
         StudioWorkspaceTab(id: 1, title: "Transcribe", subtitle: "Speech to Text", icon: "mic.fill"),
         StudioWorkspaceTab(id: 2, title: "Audio Lab", subtitle: "Stems & Denoise", icon: "tuningfork"),
         StudioWorkspaceTab(id: 3, title: "Localhost API", subtitle: "Ollama & LM Studio", icon: "server.rack"),
-        StudioWorkspaceTab(id: 4, title: "Packages", subtitle: "Homebrew & Tools", icon: "shippingbox.fill")
+        StudioWorkspaceTab(id: 4, title: "Packages", subtitle: "Models & Tools", icon: "shippingbox.fill")
     ]
 
     var body: some View {
@@ -1233,6 +1233,7 @@ struct PackagesInstallerView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
+                DownloadedModelsCardView()
                 homebrewHeroCard
                 if let msg = copiedMessage {
                     HStack(spacing: 8) {
@@ -1254,10 +1255,12 @@ struct PackagesInstallerView: View {
         }
         .onAppear {
             manager.refreshStatus()
+            DownloadedModelsManager.shared.refresh()
         }
         #if os(macOS)
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             manager.refreshStatus()
+            DownloadedModelsManager.shared.refresh()
         }
         #endif
     }
@@ -1722,6 +1725,374 @@ struct StudioPackageTileView: View {
                     .help("Run '\(item.installCommand)' interactively in macOS Terminal.app")
                 }
             }
+        }
+    }
+}
+
+// MARK: - Downloaded AI Models Manager Card & Sheet
+
+struct DownloadedModelsSheetView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                DownloadedModelsCardView(isSheet: true)
+                    .padding(18)
+            }
+            .navigationTitle("Downloaded AI Models")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        #if os(macOS)
+        .frame(minWidth: 720, minHeight: 580)
+        #endif
+    }
+}
+
+struct DownloadedModelsCardView: View {
+    var isSheet: Bool = false
+    @State private var manager = DownloadedModelsManager.shared
+    @State private var selectedCategory: DownloadedModelCategory = .all
+    @State private var searchQuery: String = ""
+    @State private var pendingDeleteItem: DownloadedModelItem? = nil
+
+    private var filteredItems: [DownloadedModelItem] {
+        manager.items.filter { item in
+            let matchesCat: Bool
+            switch selectedCategory {
+            case .all:
+                matchesCat = true
+            case .incomplete:
+                matchesCat = !item.hasWeights
+            default:
+                matchesCat = item.hasWeights && item.category == selectedCategory
+            }
+            guard matchesCat else { return false }
+            let q = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard !q.isEmpty else { return true }
+            return item.displayName.lowercased().contains(q)
+                || item.repoId.lowercased().contains(q)
+                || item.category.rawValue.lowercased().contains(q)
+        }
+    }
+
+    private func categoryCount(_ cat: DownloadedModelCategory) -> Int {
+        switch cat {
+        case .all:
+            return manager.items.count
+        case .incomplete:
+            return manager.incompleteModelsCount
+        default:
+            return manager.items.filter { $0.hasWeights && $0.category == cat }.count
+        }
+    }
+
+    var body: some View {
+        AppleBentoCard(padding: 20) {
+            VStack(alignment: .leading, spacing: 14) {
+                // Header Row
+                HStack(alignment: .center, spacing: 14) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(
+                                LinearGradient(
+                                    colors: [Color.blue.opacity(0.32), Color.purple.opacity(0.24)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .frame(width: 48, height: 48)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
+                            )
+
+                        Image(systemName: "internaldrive.fill")
+                            .font(.system(size: 21, weight: .semibold))
+                            .foregroundStyle(.blue)
+                    }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 8) {
+                            Text("Downloaded MLX AI Models")
+                                .font(.system(size: 17.5, weight: .semibold))
+
+                            Text("\(manager.completeModelsCount) MODELS · \(manager.totalSizeString) ON DISK")
+                                .font(.system(size: 10, weight: .bold, design: .rounded))
+                                .foregroundStyle(.green)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(Color.green.opacity(0.16), in: Capsule())
+
+                            if manager.incompleteModelsCount > 0 {
+                                Text("\(manager.incompleteModelsCount) PARTIAL")
+                                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                                    .foregroundStyle(.orange)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 3)
+                                    .background(Color.orange.opacity(0.16), in: Capsule())
+                            }
+                        }
+
+                        Text("Inspect and delete downloaded TTS, STT, Audio Lab, and Codec models stored in ~/.cache/huggingface/hub to reclaim Mac SSD storage.")
+                            .font(.system(size: 12.5))
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    HStack(spacing: 8) {
+                        if manager.incompleteModelsCount > 0 {
+                            Button {
+                                manager.cleanIncompleteDownloads()
+                            } label: {
+                                Label("Clean Incomplete (\(manager.incompleteModelsCount))", systemImage: "sparkles")
+                                    .font(.system(size: 11.5, weight: .semibold))
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 7)
+                                    .background(Color.orange.opacity(0.22), in: Capsule())
+                                    .foregroundStyle(.orange)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Remove incomplete or failed partial model downloads")
+                        }
+
+                        #if os(macOS)
+                        Button {
+                            ModelCacheHelper.revealCacheInFinder()
+                        } label: {
+                            Label("Reveal in Finder", systemImage: "folder")
+                                .font(.system(size: 11.5, weight: .medium))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 7)
+                                .background(Color.white.opacity(0.08), in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        #endif
+
+                        Button {
+                            manager.refresh()
+                        } label: {
+                            Label("Rescan", systemImage: "arrow.clockwise")
+                                .font(.system(size: 11.5, weight: .medium))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 7)
+                                .background(Color.white.opacity(0.08), in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+
+                if let banner = manager.statusBanner {
+                    HStack(spacing: 8) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                        Text(banner)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.green)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(Color.green.opacity(0.14), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
+
+                // Category Filter Bar + Search
+                HStack(spacing: 8) {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(DownloadedModelCategory.allCases) { cat in
+                                let count = categoryCount(cat)
+                                if cat == .all || count > 0 {
+                                    let active = selectedCategory == cat
+                                    Button {
+                                        selectedCategory = cat
+                                    } label: {
+                                        HStack(spacing: 5) {
+                                            Image(systemName: cat.icon)
+                                                .font(.system(size: 10.5, weight: .semibold))
+                                                .foregroundStyle(active ? .white : cat.tint)
+                                            Text(cat.rawValue)
+                                                .font(.system(size: 11.5, weight: active ? .semibold : .medium))
+                                            Text("\(count)")
+                                                .font(.system(size: 9.5, weight: .bold, design: .rounded))
+                                                .padding(.horizontal, 5.5)
+                                                .padding(.vertical, 1)
+                                                .background(active ? Color.white.opacity(0.22) : Color.white.opacity(0.07), in: Capsule())
+                                        }
+                                        .padding(.horizontal, 11)
+                                        .padding(.vertical, 5.5)
+                                        .background(
+                                            Capsule()
+                                                .fill(active ? Color.blue.opacity(0.32) : Color.white.opacity(0.045))
+                                                .overlay(
+                                                    Capsule()
+                                                        .strokeBorder(active ? Color.blue.opacity(0.8) : Color.white.opacity(0.08), lineWidth: 0.8)
+                                                )
+                                        )
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer()
+
+                    HStack(spacing: 6) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                        TextField("Filter downloaded models…", text: $searchQuery)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 12))
+                            .frame(width: 200)
+                        if !searchQuery.isEmpty {
+                            Button {
+                                searchQuery = ""
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5.5)
+                    .background(
+                        Capsule()
+                            .fill(Color.white.opacity(0.05))
+                            .overlay(
+                                Capsule()
+                                    .strokeBorder(Color.white.opacity(0.10), lineWidth: 0.8)
+                            )
+                    )
+                }
+
+                // Models List
+                if filteredItems.isEmpty {
+                    VStack(spacing: 8) {
+                        Image(systemName: "internaldrive")
+                            .font(.system(size: 26))
+                            .foregroundStyle(.tertiary)
+                        Text(manager.items.isEmpty ? "No downloaded models found in cache" : "No downloaded models match the current filter")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 20)
+                } else {
+                    VStack(spacing: 7) {
+                        ForEach(filteredItems) { item in
+                            HStack(spacing: 10) {
+                                Image(systemName: item.category.icon)
+                                    .font(.system(size: 12.5, weight: .semibold))
+                                    .foregroundStyle(item.category.tint)
+                                    .frame(width: 28, height: 28)
+                                    .background(item.category.tint.opacity(0.15), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    HStack(spacing: 6) {
+                                        Text(item.displayName)
+                                            .font(.system(size: 13, weight: .semibold))
+                                            .lineLimit(1)
+
+                                        Text(item.category.rawValue.uppercased())
+                                            .font(.system(size: 9, weight: .bold, design: .rounded))
+                                            .foregroundStyle(item.category.tint)
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 1.5)
+                                            .background(item.category.tint.opacity(0.14), in: Capsule())
+                                    }
+
+                                    Text(item.repoId)
+                                        .font(.system(size: 11, design: .monospaced))
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+
+                                Spacer()
+
+                                Text(item.sizeString)
+                                    .font(.system(size: 11.5, weight: .bold, design: .rounded))
+                                    .foregroundStyle(item.hasWeights ? .green : .orange)
+                                    .padding(.horizontal, 9)
+                                    .padding(.vertical, 4)
+                                    .background((item.hasWeights ? Color.green : Color.orange).opacity(0.14), in: Capsule())
+
+                                #if os(macOS)
+                                Button {
+                                    ModelCacheHelper.revealModelInFinder(item.repoId)
+                                } label: {
+                                    Image(systemName: "folder")
+                                        .font(.system(size: 11.5, weight: .medium))
+                                        .padding(6.5)
+                                        .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                                }
+                                .buttonStyle(.plain)
+                                .help("Reveal \(item.repoId) in Finder")
+                                #endif
+
+                                Button {
+                                    #if os(macOS)
+                                    if NSEvent.modifierFlags.contains(.option) {
+                                        manager.deleteModel(item.repoId, displayName: item.displayName)
+                                        return
+                                    }
+                                    #endif
+                                    pendingDeleteItem = item
+                                } label: {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "trash.fill")
+                                            .font(.system(size: 10.5))
+                                        Text("Delete")
+                                            .font(.system(size: 11.5, weight: .semibold))
+                                    }
+                                    .foregroundStyle(.red)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 5.5)
+                                    .background(Color.red.opacity(0.16), in: Capsule())
+                                }
+                                .buttonStyle(.plain)
+                                .help("Delete \(item.displayName) (\(item.sizeString)) from disk (Option-click to delete immediately)")
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(
+                                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                                    .fill(Color.black.opacity(0.22))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 11, style: .continuous)
+                                            .strokeBorder(Color.white.opacity(0.07), lineWidth: 0.8)
+                                    )
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        .alert(
+            "Delete Downloaded Model?",
+            isPresented: Binding(
+                get: { pendingDeleteItem != nil },
+                set: { if !$0 { pendingDeleteItem = nil } }
+            ),
+            presenting: pendingDeleteItem
+        ) { target in
+            Button("Delete Model (\(target.sizeString))", role: .destructive) {
+                manager.deleteModel(target.repoId, displayName: target.displayName)
+                pendingDeleteItem = nil
+            }
+            Button("Cancel", role: .cancel) {
+                pendingDeleteItem = nil
+            }
+        } message: { target in
+            Text("Remove '\(target.displayName)' (\(target.repoId)) from your local HuggingFace cache and free \(target.sizeString) of disk space? You can re-download it at any time.")
         }
     }
 }

@@ -10,9 +10,12 @@ import UniformTypeIdentifiers
 
 struct STSView: View {
     @State private var viewModel = STSViewModel()
+    @State private var modelsManager = DownloadedModelsManager.shared
     @State private var isFilePickerPresented = false
     @State private var selectedInputURL: URL?
     @State private var isDraggingOver = false
+    @State private var pendingDeleteModel: (name: String, id: String, size: String)? = nil
+    @State private var showDownloadedModelsSheet = false
 
     var body: some View {
         ScrollView {
@@ -144,6 +147,27 @@ struct STSView: View {
             }
             .padding(22)
         }
+        .sheet(isPresented: $showDownloadedModelsSheet) {
+            DownloadedModelsSheetView()
+        }
+        .alert(
+            "Delete Downloaded Model?",
+            isPresented: Binding(
+                get: { pendingDeleteModel != nil },
+                set: { if !$0 { pendingDeleteModel = nil } }
+            ),
+            presenting: pendingDeleteModel
+        ) { target in
+            Button("Delete Model (\(target.size))", role: .destructive) {
+                modelsManager.deleteModel(target.id, displayName: target.name)
+                pendingDeleteModel = nil
+            }
+            Button("Cancel", role: .cancel) {
+                pendingDeleteModel = nil
+            }
+        } message: { target in
+            Text("Remove '\(target.name)' (\(target.id)) from your local HuggingFace cache and free \(target.size) of disk space? You can re-download it at any time.")
+        }
         .task {
             if ModelCacheHelper.isModelCached(viewModel.modelId) {
                 await viewModel.loadModel()
@@ -168,20 +192,58 @@ struct STSView: View {
     // MARK: - Model Section
 
     private var modelSection: some View {
-        AppleBentoCard {
+        let _ = modelsManager.cacheRevision
+        let isActiveCached = modelsManager.isModelCached(viewModel.modelId)
+        let activeSize = modelsManager.cachedModelSizeString(viewModel.modelId)
+        return AppleBentoCard {
             VStack(alignment: .leading, spacing: 14) {
-                HStack {
+                HStack(spacing: 8) {
                     Label("Neural Audio Engine", systemImage: "cpu.fill")
                         .font(.system(size: 14, weight: .semibold))
-                    if ModelCacheHelper.isModelCached(viewModel.modelId) {
-                        Text("✓ Cached")
+                    if isActiveCached {
+                        Text(activeSize.map { "✓ Cached · \($0)" } ?? "✓ Cached")
                             .font(.system(size: 10.5, weight: .semibold))
                             .foregroundStyle(.green)
                             .padding(.horizontal, 7)
                             .padding(.vertical, 2)
                             .background(Color.green.opacity(0.14), in: Capsule())
+
+                        Button {
+                            let name = STSViewModel.presetModels.first(where: { $0.id == viewModel.modelId })?.name ?? viewModel.modelId
+                            pendingDeleteModel = (name: name, id: viewModel.modelId, size: activeSize ?? "Cached")
+                        } label: {
+                            HStack(spacing: 3) {
+                                Image(systemName: "trash")
+                                    .font(.system(size: 9.5, weight: .semibold))
+                                Text("Delete")
+                                    .font(.system(size: 10, weight: .semibold))
+                            }
+                            .foregroundStyle(.red)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 2.5)
+                            .background(Color.red.opacity(0.14), in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .help("Delete cached weights for \(viewModel.modelId)")
                     }
                     Spacer()
+                    Button {
+                        modelsManager.refresh()
+                        showDownloadedModelsSheet = true
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "internaldrive.fill")
+                                .font(.system(size: 10))
+                            Text("Models")
+                                .font(.system(size: 10.5, weight: .semibold))
+                        }
+                        .foregroundStyle(.blue)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Color.blue.opacity(0.14), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Manage all downloaded AI models on disk")
                     modelStatusBadge
                 }
 
@@ -189,7 +251,8 @@ struct STSView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
                         ForEach(modeFilteredPresets, id: \.id) { preset in
-                            let cached = ModelCacheHelper.isModelCached(preset.id)
+                            let cached = modelsManager.isModelCached(preset.id)
+                            let sizeStr = modelsManager.cachedModelSizeString(preset.id)
                             let isSelected = viewModel.modelId == preset.id
                             Button {
                                 viewModel.modelId = preset.id
@@ -203,6 +266,11 @@ struct STSView: View {
                                     }
                                     Text(preset.name)
                                         .font(.system(size: 11.5, weight: isSelected ? .semibold : .medium))
+                                    if let sizeStr, cached {
+                                        Text(sizeStr)
+                                            .font(.system(size: 9.5, weight: .semibold))
+                                            .foregroundStyle(.green.opacity(0.9))
+                                    }
                                 }
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 6)
@@ -217,6 +285,26 @@ struct STSView: View {
                             }
                             .buttonStyle(.plain)
                             .disabled(viewModel.isLoading || viewModel.isGenerating)
+                            .contextMenu {
+                                if cached {
+                                    #if os(macOS)
+                                    Button {
+                                        ModelCacheHelper.revealModelInFinder(preset.id)
+                                    } label: {
+                                        Label("Reveal in Finder", systemImage: "folder")
+                                    }
+                                    #endif
+                                    Button(role: .destructive) {
+                                        pendingDeleteModel = (
+                                            name: preset.name,
+                                            id: preset.id,
+                                            size: sizeStr ?? "Cached"
+                                        )
+                                    } label: {
+                                        Label("Delete Downloaded Model (\(sizeStr ?? "Cached"))…", systemImage: "trash")
+                                    }
+                                }
+                            }
                         }
                     }
                 }

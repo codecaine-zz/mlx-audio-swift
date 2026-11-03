@@ -5,10 +5,14 @@ struct STTSettingsView: View {
     @Bindable var viewModel: STTViewModel
     @State private var modelFilter: String = ""
     @State private var showCachedOnly: Bool = false
+    @State private var modelsManager = DownloadedModelsManager.shared
+    @State private var pendingDeleteModel: (name: String, id: String, size: String)? = nil
+    @State private var showDownloadedModelsSheet: Bool = false
 
     private var filteredPresets: [(name: String, id: String)] {
+        _ = modelsManager.cacheRevision
         let base = showCachedOnly
-            ? STTViewModel.presetModels.filter { ModelCacheHelper.isModelCached($0.id) }
+            ? STTViewModel.presetModels.filter { modelsManager.isModelCached($0.id) }
             : STTViewModel.presetModels
         if modelFilter.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return base
@@ -35,8 +39,29 @@ struct STTSettingsView: View {
             }
         }
         #if os(macOS)
-        .frame(minWidth: 450, minHeight: 600)
+        .frame(minWidth: 500, minHeight: 620)
         #endif
+        .sheet(isPresented: $showDownloadedModelsSheet) {
+            DownloadedModelsSheetView()
+        }
+        .alert(
+            "Delete Downloaded Model?",
+            isPresented: Binding(
+                get: { pendingDeleteModel != nil },
+                set: { if !$0 { pendingDeleteModel = nil } }
+            ),
+            presenting: pendingDeleteModel
+        ) { target in
+            Button("Delete Model (\(target.size))", role: .destructive) {
+                modelsManager.deleteModel(target.id, displayName: target.name)
+                pendingDeleteModel = nil
+            }
+            Button("Cancel", role: .cancel) {
+                pendingDeleteModel = nil
+            }
+        } message: { target in
+            Text("Remove '\(target.name)' (\(target.id)) from your local HuggingFace cache and free \(target.size) of disk space? You can re-download it at any time.")
+        }
     }
 
     #if os(iOS)
@@ -55,9 +80,44 @@ struct STTSettingsView: View {
         VStack(alignment: .leading, spacing: 0) {
             // Model Section
             VStack(alignment: .leading, spacing: 2) {
-                Text("Model")
-                    .font(labelFont)
-                    .foregroundStyle(.secondary)
+                HStack {
+                    Text("Model")
+                        .font(labelFont)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button {
+                        modelsManager.refresh()
+                        showDownloadedModelsSheet = true
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "internaldrive.fill")
+                                .font(.caption2)
+                            Text("Manage Downloaded Models (\(modelsManager.completeModelsCount) · \(modelsManager.totalSizeString))")
+                                .font(.caption2.weight(.semibold))
+                        }
+                        .foregroundStyle(.blue)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Color.blue.opacity(0.12), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                if let banner = modelsManager.statusBanner {
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.green)
+                        Text(banner)
+                            .font(.caption)
+                            .foregroundStyle(.green)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color.green.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
+                    .padding(.top, 4)
+                }
 
                 HStack(spacing: 6) {
                     TextField("Model ID", text: $viewModel.modelId)
@@ -83,6 +143,29 @@ struct STTSettingsView: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(viewModel.isLoading)
+
+                    if modelsManager.isModelCached(viewModel.modelId) {
+                        let activeSize = modelsManager.cachedModelSizeString(viewModel.modelId) ?? "Cached"
+                        Button {
+                            let name = STTViewModel.presetModels.first(where: { $0.id == viewModel.modelId })?.name ?? viewModel.modelId
+                            pendingDeleteModel = (name: name, id: viewModel.modelId, size: activeSize)
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "trash")
+                                    .font(.caption)
+                                Text("Delete")
+                                    .font(.caption.weight(.medium))
+                            }
+                            .foregroundStyle(.red)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 8)
+                            .background(Color.red.opacity(0.14))
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(viewModel.isLoading)
+                        .help("Delete cached weights for \(viewModel.modelId) (\(activeSize))")
+                    }
                 }
                 .padding(.top, 4)
 
@@ -125,49 +208,102 @@ struct STTSettingsView: View {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 4) {
                             ForEach(filteredPresets, id: \.id) { preset in
-                                let isCached = ModelCacheHelper.isModelCached(preset.id)
-                                let sizeStr = ModelCacheHelper.cachedModelSizeString(preset.id)
-                                Button {
-                                    viewModel.modelId = preset.id
-                                    Task {
-                                        await viewModel.reloadModel()
-                                    }
-                                } label: {
-                                    HStack(spacing: 6) {
-                                        Image(systemName: viewModel.modelId == preset.id ? "checkmark.circle.fill" : (isCached ? "internaldrive.fill" : "arrow.down.circle"))
-                                            .font(.caption)
-                                            .foregroundStyle(viewModel.modelId == preset.id ? .blue : (isCached ? .green : .secondary))
-                                        Text(preset.name)
-                                            .font(.caption)
-                                            .fontWeight(viewModel.modelId == preset.id ? .semibold : .regular)
-                                            .foregroundStyle(.primary)
-                                        if isCached {
-                                            Text(sizeStr.map { "Cached · \($0)" } ?? "Cached")
-                                                .font(.caption2)
-                                                .foregroundStyle(.green)
-                                                .padding(.horizontal, 5)
-                                                .padding(.vertical, 1)
-                                                .background(Color.green.opacity(0.12))
-                                                .clipShape(Capsule())
+                                let isCached = modelsManager.isModelCached(preset.id)
+                                let sizeStr = modelsManager.cachedModelSizeString(preset.id)
+                                HStack(spacing: 6) {
+                                    Button {
+                                        viewModel.modelId = preset.id
+                                        Task {
+                                            await viewModel.reloadModel()
                                         }
-                                        Spacer()
-                                        Text(preset.id)
-                                            .font(.system(.caption2, design: .monospaced))
-                                            .foregroundStyle(.secondary)
-                                            .lineLimit(1)
-                                            .truncationMode(.middle)
+                                    } label: {
+                                        HStack(spacing: 6) {
+                                            Image(systemName: viewModel.modelId == preset.id ? "checkmark.circle.fill" : (isCached ? "internaldrive.fill" : "arrow.down.circle"))
+                                                .font(.caption)
+                                                .foregroundStyle(viewModel.modelId == preset.id ? .blue : (isCached ? .green : .secondary))
+                                            Text(preset.name)
+                                                .font(.caption)
+                                                .fontWeight(viewModel.modelId == preset.id ? .semibold : .regular)
+                                                .foregroundStyle(.primary)
+                                            if isCached {
+                                                Text(sizeStr.map { "Cached · \($0)" } ?? "Cached")
+                                                    .font(.caption2)
+                                                    .foregroundStyle(.green)
+                                                    .padding(.horizontal, 5)
+                                                    .padding(.vertical, 1)
+                                                    .background(Color.green.opacity(0.12))
+                                                    .clipShape(Capsule())
+                                            }
+                                            Spacer()
+                                            Text(preset.id)
+                                                .font(.system(.caption2, design: .monospaced))
+                                                .foregroundStyle(.secondary)
+                                                .lineLimit(1)
+                                                .truncationMode(.middle)
+                                        }
+                                        .contentShape(Rectangle())
                                     }
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 5)
-                                    .background(viewModel.modelId == preset.id ? Color.blue.opacity(0.12) : Color.gray.opacity(0.08))
-                                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                                    .buttonStyle(.plain)
+                                    .disabled(viewModel.isLoading)
+
+                                    if isCached {
+                                        #if os(macOS)
+                                        Button {
+                                            ModelCacheHelper.revealModelInFinder(preset.id)
+                                        } label: {
+                                            Image(systemName: "folder")
+                                                .font(.caption2)
+                                                .foregroundStyle(.secondary)
+                                                .padding(4)
+                                                .background(Color.gray.opacity(0.14), in: RoundedRectangle(cornerRadius: 4))
+                                        }
+                                        .buttonStyle(.plain)
+                                        .help("Reveal \(preset.name) in Finder")
+                                        #endif
+
+                                        Button {
+                                            pendingDeleteModel = (
+                                                name: preset.name,
+                                                id: preset.id,
+                                                size: sizeStr ?? "Cached"
+                                            )
+                                        } label: {
+                                            HStack(spacing: 3) {
+                                                Image(systemName: "trash")
+                                                    .font(.caption2)
+                                                Text("Delete")
+                                                    .font(.caption2.weight(.medium))
+                                            }
+                                            .foregroundStyle(.red)
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 3)
+                                            .background(Color.red.opacity(0.14), in: Capsule())
+                                        }
+                                        .buttonStyle(.plain)
+                                        .disabled(viewModel.isLoading)
+                                        .help("Delete downloaded model \(preset.name) (\(sizeStr ?? "Cached"))")
+                                    }
                                 }
-                                .buttonStyle(.plain)
-                                .disabled(viewModel.isLoading)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 5)
+                                .background(viewModel.modelId == preset.id ? Color.blue.opacity(0.12) : Color.gray.opacity(0.08))
+                                .clipShape(RoundedRectangle(cornerRadius: 6))
                             }
                         }
                     }
                     .frame(maxHeight: 220)
+
+                    #if os(macOS)
+                    HStack {
+                        Spacer()
+                        Button("Reveal Cache in Finder") {
+                            ModelCacheHelper.revealCacheInFinder()
+                        }
+                        .font(.caption2)
+                        .buttonStyle(.link)
+                    }
+                    .padding(.top, 2)
+                    #endif
                 }
             }
             .padding(.bottom, sectionSpacing)

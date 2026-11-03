@@ -158,6 +158,22 @@ class STSViewModel {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] value in self?.duration = value }
             .store(in: &cancellables)
+
+        NotificationCenter.default.publisher(for: .modelCacheDidChange)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] note in
+                guard let self,
+                      let deletedId = note.userInfo?["deletedModelId"] as? String else { return }
+                if self.loadedModelId == deletedId {
+                    self.model = nil
+                    self.loadedSTS = nil
+                    self.loadedEcapaLID = nil
+                    self.loadedWav2VecLID = nil
+                    self.loadedModelId = nil
+                    Memory.clearCache()
+                }
+            }
+            .store(in: &cancellables)
     }
 
     // MARK: - Model Loading
@@ -200,6 +216,7 @@ class STSViewModel {
                 loadedWav2VecLID = nil
             }
             loadedModelId = modelId
+            DownloadedModelsManager.shared.refresh()
             generationProgress = ""
         } catch {
             errorMessage = "Failed to load model: \(error.localizedDescription)"

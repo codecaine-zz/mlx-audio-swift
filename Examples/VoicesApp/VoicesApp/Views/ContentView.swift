@@ -104,6 +104,9 @@ struct ContentView: View {
     }()
     @State private var showVoices = ProcessInfo.processInfo.arguments.contains("--open-voices")
     @State private var showSettings = false
+    @State private var showDownloadedModelsSheet = false
+    @State private var pendingDeleteModel: (name: String, id: String, size: String)? = nil
+    @State private var modelsManager = DownloadedModelsManager.shared
     @State private var showHistory = false
     @State private var showDocImporter = false
     @State private var showTeleprompter = ProcessInfo.processInfo.arguments.contains("--read-along")
@@ -284,17 +287,32 @@ struct ContentView: View {
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(.primary.opacity(0.92))
 
-                    if ModelCacheHelper.isModelCached(viewModel.modelId) {
+                    if modelsManager.isModelCached(viewModel.modelId) {
+                        let activeSize = modelsManager.cachedModelSizeString(viewModel.modelId)
                         HStack(spacing: 3) {
                             Image(systemName: "checkmark.seal.fill")
                                 .font(.system(size: 10))
-                            Text("Cached")
+                            Text(activeSize.map { "Cached · \($0)" } ?? "Cached")
                                 .font(.system(size: 10.5, weight: .semibold))
                         }
                         .foregroundStyle(.green)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 2.5)
                         .background(Color.green.opacity(0.14), in: Capsule())
+                        .contextMenu {
+                            Button {
+                                modelsManager.refresh()
+                                showDownloadedModelsSheet = true
+                            } label: {
+                                Label("Manage Downloaded Models…", systemImage: "internaldrive.fill")
+                            }
+                            Button(role: .destructive) {
+                                let name = TTSViewModel.presetModels.first(where: { $0.id == viewModel.modelId })?.name ?? viewModel.modelId
+                                pendingDeleteModel = (name: name, id: viewModel.modelId, size: activeSize ?? "Cached")
+                            } label: {
+                                Label("Delete Cached Model (\(activeSize ?? "Cached"))…", systemImage: "trash")
+                            }
+                        }
                     }
 
                     if viewModel.isModelLoaded {
@@ -1669,8 +1687,11 @@ struct ContentView: View {
                     Menu {
                         Section("Select MLX TTS Engine (\(TTSViewModel.presetModels.count) Models)") {
                             ForEach(TTSViewModel.presetModels, id: \.id) { preset in
-                                let cached = ModelCacheHelper.isModelCached(preset.id)
-                                let labelText = cached ? "✓ \(preset.name) [Cached]" : "\(preset.name) (\(preset.id))"
+                                let cached = modelsManager.isModelCached(preset.id)
+                                let sizeStr = modelsManager.cachedModelSizeString(preset.id)
+                                let labelText = cached
+                                    ? "✓ \(preset.name) [Cached\(sizeStr.map { " · \($0)" } ?? "")]"
+                                    : "\(preset.name) (\(preset.id))"
                                 Button {
                                     viewModel.modelId = preset.id
                                     Task {
@@ -1686,6 +1707,21 @@ struct ContentView: View {
                             }
                         }
                         Divider()
+                        if modelsManager.isModelCached(viewModel.modelId) {
+                            let activeSize = modelsManager.cachedModelSizeString(viewModel.modelId) ?? "Cached"
+                            let activeName = TTSViewModel.presetModels.first(where: { $0.id == viewModel.modelId })?.name ?? viewModel.modelId
+                            Button(role: .destructive) {
+                                pendingDeleteModel = (name: activeName, id: viewModel.modelId, size: activeSize)
+                            } label: {
+                                Label("Delete Cached \(activeName) (\(activeSize))…", systemImage: "trash")
+                            }
+                        }
+                        Button {
+                            modelsManager.refresh()
+                            showDownloadedModelsSheet = true
+                        } label: {
+                            Label("Manage Downloaded Models (\(modelsManager.completeModelsCount) · \(modelsManager.totalSizeString))…", systemImage: "internaldrive.fill")
+                        }
                         Button {
                             showSettings = true
                         } label: {
@@ -1965,6 +2001,27 @@ struct ContentView: View {
             SettingsView(viewModel: viewModel)
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showDownloadedModelsSheet) {
+            DownloadedModelsSheetView()
+        }
+        .alert(
+            "Delete Downloaded Model?",
+            isPresented: Binding(
+                get: { pendingDeleteModel != nil },
+                set: { if !$0 { pendingDeleteModel = nil } }
+            ),
+            presenting: pendingDeleteModel
+        ) { target in
+            Button("Delete Model (\(target.size))", role: .destructive) {
+                modelsManager.deleteModel(target.id, displayName: target.name)
+                pendingDeleteModel = nil
+            }
+            Button("Cancel", role: .cancel) {
+                pendingDeleteModel = nil
+            }
+        } message: { target in
+            Text("Remove '\(target.name)' (\(target.id)) from your local HuggingFace cache and free \(target.size) of disk space? You can re-download it at any time.")
         }
         .sheet(isPresented: $showHistory) {
             TakesHistorySheet(viewModel: viewModel) { selectedTake in

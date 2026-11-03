@@ -5,8 +5,11 @@ import Foundation
 struct STTView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var viewModel = STTViewModel()
+    @State private var modelsManager = DownloadedModelsManager.shared
     @State private var showFileImporter = false
     @State private var showSettings = false
+    @State private var showDownloadedModelsSheet = false
+    @State private var pendingDeleteModel: (name: String, id: String, size: String)? = nil
     @State private var isAudioHovering = false
     @State private var isDropTargeted = false
     @State private var transcriptSearch = ""
@@ -41,17 +44,32 @@ struct STTView: View {
                     Text(viewModel.isModelLoaded ? "ASR Engine Ready" : (viewModel.isLoading ? "Loading ASR Model…" : "ASR Idle"))
                         .font(.system(size: 12, weight: .semibold))
 
-                    if ModelCacheHelper.isModelCached(viewModel.modelId) {
+                    if modelsManager.isModelCached(viewModel.modelId) {
+                        let activeSize = modelsManager.cachedModelSizeString(viewModel.modelId)
                         HStack(spacing: 3) {
                             Image(systemName: "checkmark.seal.fill")
                                 .font(.system(size: 10))
-                            Text("Cached")
+                            Text(activeSize.map { "Cached · \($0)" } ?? "Cached")
                                 .font(.system(size: 10.5, weight: .semibold))
                         }
                         .foregroundStyle(.green)
                         .padding(.horizontal, 7)
                         .padding(.vertical, 2.5)
                         .background(Color.green.opacity(0.14), in: Capsule())
+                        .contextMenu {
+                            Button {
+                                modelsManager.refresh()
+                                showDownloadedModelsSheet = true
+                            } label: {
+                                Label("Manage Downloaded Models…", systemImage: "internaldrive.fill")
+                            }
+                            Button(role: .destructive) {
+                                let name = STTViewModel.presetModels.first(where: { $0.id == viewModel.modelId })?.name ?? viewModel.modelId
+                                pendingDeleteModel = (name: name, id: viewModel.modelId, size: activeSize ?? "Cached")
+                            } label: {
+                                Label("Delete Cached Model (\(activeSize ?? "Cached"))…", systemImage: "trash")
+                            }
+                        }
                     }
                 }
                 .padding(.horizontal, 12)
@@ -548,8 +566,11 @@ struct STTView: View {
                         Menu {
                             Section("Select MLX ASR Model (\(STTViewModel.presetModels.count) Models)") {
                                 ForEach(STTViewModel.presetModels, id: \.id) { preset in
-                                    let cached = ModelCacheHelper.isModelCached(preset.id)
-                                    let labelText = cached ? "✓ \(preset.name) [Cached]" : "\(preset.name) (\(preset.id))"
+                                    let cached = modelsManager.isModelCached(preset.id)
+                                    let sizeStr = modelsManager.cachedModelSizeString(preset.id)
+                                    let labelText = cached
+                                        ? "✓ \(preset.name) [Cached\(sizeStr.map { " · \($0)" } ?? "")]"
+                                        : "\(preset.name) (\(preset.id))"
                                     Button {
                                         viewModel.modelId = preset.id
                                         Task { await viewModel.reloadModel() }
@@ -563,6 +584,21 @@ struct STTView: View {
                                 }
                             }
                             Divider()
+                            if modelsManager.isModelCached(viewModel.modelId) {
+                                let activeSize = modelsManager.cachedModelSizeString(viewModel.modelId) ?? "Cached"
+                                let activeName = STTViewModel.presetModels.first(where: { $0.id == viewModel.modelId })?.name ?? viewModel.modelId
+                                Button(role: .destructive) {
+                                    pendingDeleteModel = (name: activeName, id: viewModel.modelId, size: activeSize)
+                                } label: {
+                                    Label("Delete Cached \(activeName) (\(activeSize))…", systemImage: "trash")
+                                }
+                            }
+                            Button {
+                                modelsManager.refresh()
+                                showDownloadedModelsSheet = true
+                            } label: {
+                                Label("Manage Downloaded Models (\(modelsManager.completeModelsCount) · \(modelsManager.totalSizeString))…", systemImage: "internaldrive.fill")
+                            }
                             Button {
                                 showSettings = true
                             } label: {
@@ -792,6 +828,27 @@ struct STTView: View {
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
                 #endif
+        }
+        .sheet(isPresented: $showDownloadedModelsSheet) {
+            DownloadedModelsSheetView()
+        }
+        .alert(
+            "Delete Downloaded Model?",
+            isPresented: Binding(
+                get: { pendingDeleteModel != nil },
+                set: { if !$0 { pendingDeleteModel = nil } }
+            ),
+            presenting: pendingDeleteModel
+        ) { target in
+            Button("Delete Model (\(target.size))", role: .destructive) {
+                modelsManager.deleteModel(target.id, displayName: target.name)
+                pendingDeleteModel = nil
+            }
+            Button("Cancel", role: .cancel) {
+                pendingDeleteModel = nil
+            }
+        } message: { target in
+            Text("Remove '\(target.name)' (\(target.id)) from your local HuggingFace cache and free \(target.size) of disk space? You can re-download it at any time.")
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {

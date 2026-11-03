@@ -263,4 +263,29 @@ struct ModelUtilsCacheTests {
         }
     }
 
+    @Test func deleteCachedModelRemovesSnapshotHubAndPhonon2UnpackedCaches() throws {
+        let digest = String(repeating: "b", count: 64)
+        let config = Data(#"{"model_type":"parakeet_tdt_five_value","artifact":{"sha256":"\#(digest)"}}"#.utf8)
+        let fixture = try ModelCacheFixture(baseFiles: ["config.json": config, "model.safetensors": Data([1])])
+        defer { fixture.cleanUp() }
+
+        let unpackedDir = fixture.root.appendingPathComponent("mlx-audio/phonon2/\(digest)")
+        try FileManager.default.createDirectory(at: unpackedDir, withIntermediateDirectories: true)
+        try Data([1, 2, 3]).write(to: unpackedDir.appendingPathComponent("model.safetensors"))
+
+        let hubRepoDir = fixture.cache.repoDirectory(repo: fixture.repoID, kind: .model)
+        #expect(FileManager.default.fileExists(atPath: fixture.modelDir.path))
+        #expect(FileManager.default.fileExists(atPath: hubRepoDir.path))
+        #expect(FileManager.default.fileExists(atPath: unpackedDir.path))
+
+        let deleted = ModelUtils.deleteCachedModel(repoID: fixture.repoID, cache: fixture.cache)
+        #expect(deleted == true)
+        #expect(!FileManager.default.fileExists(atPath: fixture.modelDir.path))
+        #expect(!FileManager.default.fileExists(atPath: hubRepoDir.path))
+        #expect(!FileManager.default.fileExists(atPath: unpackedDir.path))
+
+        let deletedAgain = ModelUtils.deleteCachedModel(repoID: fixture.repoID, cache: fixture.cache)
+        #expect(deletedAgain == false)
+    }
+
 }

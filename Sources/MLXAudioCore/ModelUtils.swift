@@ -238,13 +238,78 @@ public enum ModelUtils {
         }
     }
 
-    private static func clearCaches(modelDir: URL, repoID: Repo.ID, hubCache: HubCache) {
-        try? FileManager.default.removeItem(at: modelDir)
-        let hubRepoDir = hubCache.repoDirectory(repo: repoID, kind: .model)
-        if FileManager.default.fileExists(atPath: hubRepoDir.path) {
-            print("Clearing Hub cache at: \(hubRepoDir.path)")
-            try? FileManager.default.removeItem(at: hubRepoDir)
+    /// Deletes a cached model snapshot and its HuggingFace Hub cache entries from disk.
+    /// - Parameters:
+    ///   - repoID: The repository ID of the model to delete.
+    ///   - cache: The HuggingFace HubCache instance (defaults to `.default`).
+    /// - Returns: `true` if any cached files or directories existed and were removed.
+    @discardableResult
+    public static func deleteCachedModel(
+        repoID: Repo.ID,
+        cache: HubCache = .default
+    ) -> Bool {
+        let fm = FileManager.default
+        let modelSubdir = repoID.description.replacingOccurrences(of: "/", with: "_")
+        let modelDir = cache.cacheDirectory
+            .appendingPathComponent("mlx-audio")
+            .appendingPathComponent(modelSubdir)
+        let hubRepoDir = cache.repoDirectory(repo: repoID, kind: .model)
+        let hubRepoName = hubRepoDir.lastPathComponent
+        let metadataDir = cache.cacheDirectory.appendingPathComponent(".metadata").appendingPathComponent(hubRepoName)
+        let locksDir = cache.cacheDirectory.appendingPathComponent(".locks").appendingPathComponent(hubRepoName)
+
+        var removedAny = false
+
+        // Remove any unpacked Phonon 2.5 container directory referenced by config.json
+        for digest in phonon2ContainerDigests(modelDir: modelDir, hubRepoDir: hubRepoDir) {
+            let unpackedDir = cache.cacheDirectory
+                .appendingPathComponent("mlx-audio/phonon2")
+                .appendingPathComponent(digest)
+            if fm.fileExists(atPath: unpackedDir.path) {
+                if (try? fm.removeItem(at: unpackedDir)) != nil {
+                    removedAny = true
+                }
+            }
         }
+
+        for dir in [modelDir, hubRepoDir, metadataDir, locksDir] {
+            if fm.fileExists(atPath: dir.path) {
+                if (try? fm.removeItem(at: dir)) != nil {
+                    removedAny = true
+                }
+            }
+        }
+        return removedAny
+    }
+
+    private static func phonon2ContainerDigests(modelDir: URL, hubRepoDir: URL) -> Set<String> {
+        var digests = Set<String>()
+        var candidateConfigs: [URL] = [modelDir.appendingPathComponent("config.json")]
+        let snapshotsDir = hubRepoDir.appendingPathComponent("snapshots")
+        if let snaps = try? FileManager.default.contentsOfDirectory(at: snapshotsDir, includingPropertiesForKeys: nil) {
+            for snap in snaps {
+                candidateConfigs.append(snap.appendingPathComponent("config.json"))
+            }
+        }
+        for configURL in candidateConfigs {
+            guard let data = try? Data(contentsOf: configURL),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+            if let artifact = json["artifact"] as? [String: Any],
+               let sha = artifact["sha256"] as? String, !sha.isEmpty,
+               !sha.contains("/"), !sha.contains("..") {
+                digests.insert(sha)
+            }
+            if let fermion = json["fermion"] as? [String: Any],
+               let sha = fermion["container_sha256"] as? String, !sha.isEmpty,
+               !sha.contains("/"), !sha.contains("..") {
+                digests.insert(sha)
+            }
+        }
+        return digests
+    }
+
+    private static func clearCaches(modelDir: URL, repoID: Repo.ID, hubCache: HubCache) {
+        _ = deleteCachedModel(repoID: repoID, cache: hubCache)
     }
 }
 
