@@ -244,7 +244,7 @@ extension TokenLattice {
                 for lnode in endNodes[offset] {
                     let score = lnode.backtraceScore + rnode.score
                     if bestNode == nil || score > bestScore {
-                        bestNode = lnode.clone()
+                        bestNode = lnode
                         bestScore = score
                     }
                 }
@@ -262,10 +262,11 @@ extension TokenLattice {
         var result: [TokenLatticeNode] = []
         var node = prev
         while node.prev != nil {
-            result.append(node.clone())
+            result.append(node)
             node = node.prev!
         }
-        return result.reversed()
+        result.reverse()
+        return result
     }
 
     func piece(_ node: TokenLatticeNode) -> any StringProtocol {
@@ -313,26 +314,35 @@ final class TokenLatticeNode {
 final class TrieNode {
     var children: [Unicode.Scalar: TrieNode] = [:]
     var isEnd = false
+    var tokenId: Int = -1
+    var scalarCount: Int = 0
 }
 
 final class Trie {
     private let root = TrieNode()
 
     func append(contentsOf tokens: [String]) {
-        for token in tokens {
-            insert(token)
+        for (idx, token) in tokens.enumerated() {
+            insert(token, tokenId: idx)
         }
     }
 
-    func insert(_ token: String) {
+    func insert(_ token: String, tokenId: Int = -1) {
         var node = root
+        var count = 0
         for ch in token.unicodeScalars {
-            if node.children[ch] == nil {
-                node.children[ch] = TrieNode()
+            count += 1
+            if let existing = node.children[ch] {
+                node = existing
+            } else {
+                let created = TrieNode()
+                node.children[ch] = created
+                node = created
             }
-            node = node.children[ch]!
         }
         node.isEnd = true
+        node.tokenId = tokenId
+        node.scalarCount = count
     }
 
     func commonPrefixSearchIterator(_ substring: ArraySlice<Unicode.Scalar>) -> [String] {
@@ -348,6 +358,17 @@ final class Trie {
             }
         }
         return results
+    }
+
+    func forEachCommonPrefix(in substring: ArraySlice<Unicode.Scalar>, body: (Int, Int) -> Void) {
+        var node = root
+        for ch in substring {
+            guard let next = node.children[ch] else { break }
+            node = next
+            if node.isEnd, node.tokenId >= 0 {
+                body(node.tokenId, node.scalarCount)
+            }
+        }
     }
 }
 
@@ -490,11 +511,10 @@ public final class SentencePieceTokenizer {
             let mblen = 1
             var hasSingleNode = false
 
-            for token in trie.commonPrefixSearchIterator(sentence[beginPos...]) {
-                guard let tokenId = tokensToIds[Data(token.utf8)] else { continue }
+            trie.forEachCommonPrefix(in: sentence[beginPos...]) { tokenId, scalarLen in
                 let tokenScore = vocab[tokenId].score
-                lattice.insert(startOffset: beginPos, length: token.unicodeScalars.count, score: tokenScore, tokenId: tokenId)
-                if !hasSingleNode, token.unicodeScalars.count == mblen {
+                lattice.insert(startOffset: beginPos, length: scalarLen, score: tokenScore, tokenId: tokenId)
+                if !hasSingleNode, scalarLen == mblen {
                     hasSingleNode = true
                 }
             }

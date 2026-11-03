@@ -4,6 +4,7 @@ import Foundation
 
 struct STTView: View {
     @Environment(\.scenePhase) private var scenePhase
+    @AppStorage("VoicesApp.TTSViewModel.readAlongTheme") private var rawStudioTheme: String = ReadAlongTheme.midnight.rawValue
     @State private var viewModel = STTViewModel()
     @State private var modelsManager = DownloadedModelsManager.shared
     @State private var showFileImporter = false
@@ -15,6 +16,10 @@ struct STTView: View {
     @State private var transcriptSearch = ""
     @State private var copiedRecently = false
     @State private var autoSyncToVoiceStudio = false
+
+    private var activeTheme: ReadAlongTheme {
+        ReadAlongTheme(rawValue: rawStudioTheme) ?? .midnight
+    }
 
     #if os(iOS)
     private let buttonHeight: CGFloat = 44
@@ -76,10 +81,10 @@ struct STTView: View {
                 .padding(.vertical, 7)
                 .background(
                     Capsule()
-                        .fill(Color.white.opacity(0.045))
+                        .fill(activeTheme.pillFill)
                         .overlay(
                             Capsule()
-                                .strokeBorder(Color.white.opacity(0.10), lineWidth: 0.8)
+                                .strokeBorder(activeTheme.pillStroke, lineWidth: 0.8)
                         )
                 )
 
@@ -108,6 +113,29 @@ struct STTView: View {
                 Spacer()
 
                 if !viewModel.transcriptionText.isEmpty {
+                    let cleanTranscript = STTViewModel.cleanTranscriptForVoiceStudio(viewModel.transcriptionText)
+                    let cleanWordCount = cleanTranscript.split { $0.isWhitespace || $0.isNewline }.count
+                    let matchCount = transcriptSearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        ? transcriptSegments.count
+                        : transcriptSegments.filter {
+                            $0.text.localizedCaseInsensitiveContains(transcriptSearch) ||
+                            $0.speaker.localizedCaseInsensitiveContains(transcriptSearch)
+                        }.count
+
+                    // Word & Segment Summary Pill
+                    Text(
+                        transcriptSegments.isEmpty
+                            ? "\(cleanWordCount) words"
+                            : (transcriptSearch.isEmpty
+                                ? "\(cleanWordCount) words · \(transcriptSegments.count) segments"
+                                : "\(matchCount)/\(transcriptSegments.count) matches")
+                    )
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(activeTheme.pillFill, in: Capsule())
+
                     // Search Transcript Filter
                     HStack(spacing: 6) {
                         Image(systemName: "magnifyingglass")
@@ -130,11 +158,9 @@ struct STTView: View {
                     }
                     .padding(.horizontal, 10)
                     .padding(.vertical, 5)
-                    .background(Color.white.opacity(0.05), in: Capsule())
+                    .background(activeTheme.pillFill, in: Capsule())
 
                     // Send Transcript to Voice Studio
-                    let cleanTranscript = STTViewModel.cleanTranscriptForVoiceStudio(viewModel.transcriptionText)
-                    let cleanWordCount = cleanTranscript.split { $0.isWhitespace || $0.isNewline }.count
                     Button {
                         if viewModel.isGenerating {
                             autoSyncToVoiceStudio = true
@@ -183,19 +209,16 @@ struct STTView: View {
             // Inset Apple Transcript Canvas Card
             ZStack {
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(Color.white.opacity(0.03))
+                    .fill(activeTheme.canvasBackground)
                     .overlay(
                         RoundedRectangle(cornerRadius: 20, style: .continuous)
                             .strokeBorder(
                                 LinearGradient(
-                                    colors: [
-                                        Color.white.opacity(0.13),
-                                        Color.white.opacity(0.04)
-                                    ],
+                                    colors: isDropTargeted ? [Color.blue, Color.cyan] : activeTheme.canvasBorderColors,
                                     startPoint: .topLeading,
                                     endPoint: .bottomTrailing
                                 ),
-                                lineWidth: 1
+                                lineWidth: isDropTargeted ? 2 : 1
                             )
                     )
                     .shadow(color: .black.opacity(0.25), radius: 14, y: 6)
@@ -292,6 +315,47 @@ struct STTView: View {
                                     }
                                     .buttonStyle(.plain)
                                     .disabled(!viewModel.canRecord)
+
+                                    let studioSamples = Voice.bundledStudioSamples()
+                                    if !studioSamples.isEmpty {
+                                        Menu {
+                                            Section("Bundled Studio Voice Samples") {
+                                                ForEach(studioSamples, id: \.url) { sample in
+                                                    Button {
+                                                        viewModel.selectAudioFile(sample.url)
+                                                    } label: {
+                                                        Label("\(sample.name) — \(sample.subtitle)", systemImage: "waveform")
+                                                    }
+                                                }
+                                            }
+                                        } label: {
+                                            HStack(spacing: 8) {
+                                                Image(systemName: "sparkles.rectangle.stack.fill")
+                                                    .font(.system(size: 15, weight: .semibold))
+                                                    .foregroundStyle(.purple)
+                                                VStack(alignment: .leading, spacing: 2) {
+                                                    Text("Try Studio Sample")
+                                                        .font(.system(size: 13, weight: .semibold))
+                                                    Text("Instant bundled WAV")
+                                                        .font(.system(size: 11))
+                                                        .foregroundStyle(.secondary)
+                                                }
+                                            }
+                                            .padding(.horizontal, 18)
+                                            .padding(.vertical, 12)
+                                            .background(
+                                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                                    .fill(Color.purple.opacity(0.10))
+                                                    .overlay(
+                                                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                                            .strokeBorder(Color.purple.opacity(0.28), lineWidth: 0.8)
+                                                    )
+                                            )
+                                        }
+                                        .menuStyle(.button)
+                                        .buttonStyle(.plain)
+                                        .fixedSize()
+                                    }
                                 }
                                 Spacer(minLength: 48)
                             }
@@ -412,7 +476,9 @@ struct STTView: View {
                             currentTime: viewModel.currentTime,
                             duration: viewModel.duration,
                             onPlayPause: { viewModel.togglePlayPause() },
-                            onSeek: { viewModel.seek(to: $0) }
+                            onSeek: { viewModel.seek(to: $0) },
+                            audioURL: viewModel.selectedAudioURL,
+                            accentColor: activeTheme.activeWordBackground
                         )
                     }
                     .background(
@@ -783,6 +849,8 @@ struct STTView: View {
                             .buttonStyle(.plain)
                             .fixedSize()
                             .disabled(!canTranscribe)
+                            .keyboardShortcut(.return, modifiers: [.command])
+                            .help("Transcribe selected audio file (⌘Return)")
                         }
                     }
                 }
@@ -790,12 +858,12 @@ struct STTView: View {
             .padding(14)
             .background(
                 RoundedRectangle(cornerRadius: 22, style: .continuous)
-                    .fill(.ultraThinMaterial)
+                    .fill(activeTheme.dockBackground)
                     .overlay(
                         RoundedRectangle(cornerRadius: 22, style: .continuous)
                             .strokeBorder(
                                 LinearGradient(
-                                    colors: [Color.white.opacity(0.16), Color.white.opacity(0.05)],
+                                    colors: activeTheme.canvasBorderColors,
                                     startPoint: .topLeading,
                                     endPoint: .bottomTrailing
                                 ),

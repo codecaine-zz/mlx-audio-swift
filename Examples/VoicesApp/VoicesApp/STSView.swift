@@ -9,6 +9,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct STSView: View {
+    @AppStorage("VoicesApp.TTSViewModel.readAlongTheme") private var rawStudioTheme: String = ReadAlongTheme.midnight.rawValue
     @State private var viewModel = STSViewModel()
     @State private var modelsManager = DownloadedModelsManager.shared
     @State private var isFilePickerPresented = false
@@ -16,6 +17,10 @@ struct STSView: View {
     @State private var isDraggingOver = false
     @State private var pendingDeleteModel: (name: String, id: String, size: String)? = nil
     @State private var showDownloadedModelsSheet = false
+
+    private var activeTheme: ReadAlongTheme {
+        ReadAlongTheme(rawValue: rawStudioTheme) ?? .midnight
+    }
 
     var body: some View {
         ScrollView {
@@ -324,10 +329,10 @@ struct STSView: View {
                     .padding(.vertical, 7)
                     .background(
                         RoundedRectangle(cornerRadius: 9, style: .continuous)
-                            .fill(Color.black.opacity(0.28))
+                            .fill(activeTheme.recessedFill)
                             .overlay(
                                 RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                    .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.8)
+                                    .strokeBorder(activeTheme.recessedStroke, lineWidth: 0.8)
                             )
                     )
 
@@ -368,10 +373,39 @@ struct STSView: View {
     private var inputSection: some View {
         AppleBentoCard {
             VStack(alignment: .leading, spacing: 12) {
-                HStack {
+                HStack(spacing: 10) {
                     Label("Source Audio File", systemImage: "waveform.circle.fill")
                         .font(.system(size: 14, weight: .semibold))
                     Spacer()
+
+                    let studioSamples = Voice.bundledStudioSamples()
+                    if !studioSamples.isEmpty {
+                        Menu {
+                            Section("Bundled Studio Voice Samples") {
+                                ForEach(studioSamples, id: \.url) { sample in
+                                    Button {
+                                        selectedInputURL = sample.url
+                                    } label: {
+                                        Label("\(sample.name) — \(sample.subtitle)", systemImage: "waveform")
+                                    }
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "sparkles")
+                                    .font(.system(size: 10, weight: .semibold))
+                                Text("Load Sample")
+                                    .font(.system(size: 11, weight: .semibold))
+                            }
+                            .foregroundStyle(.purple)
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 4)
+                            .background(Color.purple.opacity(0.14), in: Capsule())
+                        }
+                        .menuStyle(.borderlessButton)
+                        .fixedSize()
+                    }
+
                     if selectedInputURL != nil {
                         Button("Change File") {
                             isFilePickerPresented = true
@@ -385,14 +419,14 @@ struct STSView: View {
                 ZStack {
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .strokeBorder(
-                            isDraggingOver ? Color.blue : Color.white.opacity(0.12),
+                            isDraggingOver ? Color.blue : activeTheme.pillStroke,
                             style: StrokeStyle(lineWidth: 1.5, dash: [6])
                         )
                         .background(
                             RoundedRectangle(cornerRadius: 14, style: .continuous)
                                 .fill(isDraggingOver
                                     ? Color.blue.opacity(0.08)
-                                    : Color.black.opacity(0.22))
+                                    : activeTheme.recessedFill)
                         )
                         .frame(height: 102)
 
@@ -504,10 +538,10 @@ struct STSView: View {
                 .padding(.vertical, 8)
                 .background(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(Color.black.opacity(0.26))
+                        .fill(activeTheme.recessedFill)
                         .overlay(
                             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.8)
+                                .strokeBorder(activeTheme.recessedStroke, lineWidth: 0.8)
                         )
                 )
             }
@@ -562,6 +596,7 @@ struct STSView: View {
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
+        .keyboardShortcut(.return, modifiers: [.command])
     }
 
     // MARK: - Spoken Language Identification Results
@@ -618,9 +653,20 @@ struct STSView: View {
     private var audioPlayerSection: some View {
         AppleBentoCard {
             VStack(alignment: .leading, spacing: 14) {
-                HStack {
+                HStack(spacing: 10) {
                     Label("Studio Output Compare (A/B)", systemImage: "waveform.badge.checkmark")
                         .font(.system(size: 14, weight: .semibold))
+
+                    Text(viewModel.isPlayingOriginal ? "LISTENING: ORIGINAL INPUT" : "LISTENING: PROCESSED OUTPUT")
+                        .font(.system(size: 10, weight: .bold, design: .monospaced))
+                        .foregroundStyle(viewModel.isPlayingOriginal ? .orange : .green)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(
+                            (viewModel.isPlayingOriginal ? Color.orange : Color.green).opacity(0.14),
+                            in: Capsule()
+                        )
+
                     Spacer()
                     Picker("Compare", selection: Binding(
                         get: { viewModel.isPlayingOriginal },
@@ -646,53 +692,23 @@ struct STSView: View {
                     .controlSize(.small)
                 }
 
-                VStack(spacing: 4) {
-                    Slider(
-                        value: Binding(
-                            get: { viewModel.currentTime },
-                            set: { viewModel.seek(to: $0) }
-                        ),
-                        in: 0...max(viewModel.duration, 1)
-                    )
-
-                    HStack {
-                        Text(formatTime(viewModel.currentTime))
-                        Spacer()
-                        Text(formatTime(viewModel.duration))
-                    }
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                }
-
-                HStack(spacing: 20) {
-                    Spacer()
-                    Button {
-                        viewModel.seek(to: 0)
-                    } label: {
-                        Image(systemName: "backward.end.fill")
-                            .font(.title3)
-                    }
-                    .buttonStyle(.plain)
-
-                    Button {
-                        viewModel.togglePlayPause()
-                    } label: {
-                        Image(systemName: viewModel.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                            .font(.system(size: 42))
-                            .foregroundStyle(.blue)
-                    }
-                    .buttonStyle(.plain)
-
-                    Button {
-                        viewModel.stop()
-                    } label: {
-                        Image(systemName: "stop.fill")
-                            .font(.title3)
-                    }
-                    .buttonStyle(.plain)
-
-                    Spacer()
-                }
+                CompactAudioPlayer(
+                    isPlaying: viewModel.isPlaying,
+                    currentTime: viewModel.currentTime,
+                    duration: viewModel.duration,
+                    onPlayPause: { viewModel.togglePlayPause() },
+                    onSeek: { viewModel.seek(to: $0) },
+                    audioURL: viewModel.isPlayingOriginal ? selectedInputURL : viewModel.audioURL,
+                    accentColor: viewModel.isPlayingOriginal ? .orange : activeTheme.activeWordBackground
+                )
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(activeTheme.recessedFill)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .strokeBorder(activeTheme.recessedStroke, lineWidth: 0.8)
+                        )
+                )
             }
         }
     }

@@ -1,4 +1,5 @@
 import SwiftUI
+import AVFoundation
 import UniformTypeIdentifiers
 
 // MARK: - Compact Slider (iOS)
@@ -104,6 +105,36 @@ struct ContentView: View {
     @State private var cleanOptions = SpeechCleanOptions()
     @State private var recentlyUsed: [Voice] = Voice.samples
     @State private var customVoices: [Voice] = Voice.loadCustomVoices()
+    @State private var copiedScript = false
+    @State private var isAuditioningVoice = false
+    @State private var auditionPlayer: AVAudioPlayer? = nil
+
+    private func toggleVoiceAudition() {
+        if isAuditioningVoice {
+            auditionPlayer?.stop()
+            auditionPlayer = nil
+            isAuditioningVoice = false
+            return
+        }
+        guard let voice = viewModel.selectedVoice,
+              let url = Voice.previewAudioURL(for: voice) else { return }
+        do {
+            let player = try AVAudioPlayer(contentsOf: url)
+            player.prepareToPlay()
+            player.play()
+            auditionPlayer = player
+            isAuditioningVoice = true
+            let duration = max(0.5, player.duration)
+            DispatchQueue.main.asyncAfter(deadline: .now() + duration + 0.1) {
+                if self.auditionPlayer === player {
+                    self.isAuditioningVoice = false
+                    self.auditionPlayer = nil
+                }
+            }
+        } catch {
+            isAuditioningVoice = false
+        }
+    }
 
     private let buttonHeight: CGFloat = 44
     private let buttonFont: Font = .title3
@@ -326,10 +357,10 @@ struct ContentView: View {
                 .padding(.vertical, 7)
                 .background(
                     Capsule()
-                        .fill(Color.white.opacity(0.045))
+                        .fill(theme.pillFill)
                         .overlay(
                             Capsule()
-                                .strokeBorder(Color.white.opacity(0.10), lineWidth: 0.8)
+                                .strokeBorder(theme.pillStroke, lineWidth: 0.8)
                         )
                 )
                 .fixedSize()
@@ -349,10 +380,15 @@ struct ContentView: View {
                             Text("Edit Script")
                                 .font(.system(size: 11.5, weight: !showTeleprompter ? .semibold : .medium))
                         }
-                        .foregroundStyle(!showTeleprompter ? .white : .secondary)
+                        .foregroundStyle(!showTeleprompter ? (theme.isLight ? Color.white : Color.white) : .secondary)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5.5)
-                        .background(!showTeleprompter ? Color.white.opacity(0.16) : Color.clear, in: Capsule())
+                        .background(
+                            !showTeleprompter
+                                ? (theme.isLight ? Color.black.opacity(0.78) : Color.white.opacity(0.18))
+                                : Color.clear,
+                            in: Capsule()
+                        )
                     }
                     .buttonStyle(.plain)
 
@@ -376,20 +412,20 @@ struct ContentView: View {
                             Text("Read-Along Karaoke")
                                 .font(.system(size: 11.5, weight: showTeleprompter ? .semibold : .medium))
                         }
-                        .foregroundStyle(showTeleprompter ? .white : .secondary)
+                        .foregroundStyle(showTeleprompter ? theme.activeWordForeground : .secondary)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5.5)
-                        .background(showTeleprompter ? Color.blue.opacity(0.65) : Color.clear, in: Capsule())
+                        .background(showTeleprompter ? theme.activeWordBackground : Color.clear, in: Capsule())
                     }
                     .buttonStyle(.plain)
                 }
                 .padding(3)
                 .background(
                     Capsule()
-                        .fill(Color.black.opacity(0.28))
+                        .fill(theme.recessedFill)
                         .overlay(
                             Capsule()
-                                .strokeBorder(Color.white.opacity(0.10), lineWidth: 0.8)
+                                .strokeBorder(theme.recessedStroke, lineWidth: 0.8)
                         )
                 )
                 .fixedSize()
@@ -603,10 +639,10 @@ struct ContentView: View {
                 .padding(.vertical, 3)
                 .background(
                     Capsule()
-                        .fill(Color.white.opacity(0.045))
+                        .fill(theme.pillFill)
                         .overlay(
                             Capsule()
-                                .strokeBorder(Color.white.opacity(0.10), lineWidth: 0.8)
+                                .strokeBorder(theme.pillStroke, lineWidth: 0.8)
                         )
                 )
                 .fixedSize()
@@ -617,250 +653,255 @@ struct ContentView: View {
             // 1B. Codecaine Prosody, Cinema Theme & Hierarchical Chunk Navigator Ribbon
             VStack(spacing: 6) {
                 HStack(spacing: 8) {
-                    // Cinema Theme Picker
-                    Menu {
-                        Section("Studio & Read-Along Cinema Theme") {
-                            ForEach(ReadAlongTheme.allCases) { item in
-                                Button {
-                                    withAnimation(.easeInOut(duration: 0.22)) {
-                                        rawStudioTheme = item.rawValue
-                                        viewModel.readAlongTheme = item
-                                    }
-                                } label: {
-                                    if item == theme {
-                                        Label(item.label, systemImage: "checkmark")
-                                    } else {
-                                        Label(item.label, systemImage: item.icon)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            // Cinema Theme Picker
+                            Menu {
+                                Section("Studio & Read-Along Cinema Theme") {
+                                    ForEach(ReadAlongTheme.allCases) { item in
+                                        Button {
+                                            withAnimation(.easeInOut(duration: 0.22)) {
+                                                rawStudioTheme = item.rawValue
+                                                viewModel.readAlongTheme = item
+                                            }
+                                        } label: {
+                                            if item == theme {
+                                                Label(item.label, systemImage: "checkmark")
+                                            } else {
+                                                Label(item.label, systemImage: item.icon)
+                                            }
+                                        }
                                     }
                                 }
-                            }
-                        }
-                        Divider()
-                        Toggle("Auto-Open Read-Along When Playing", isOn: $viewModel.autoReadAlong)
-                    } label: {
-                        HStack(spacing: 5) {
-                            Image(systemName: theme.icon)
-                                .font(.system(size: 10.5))
-                                .foregroundStyle(theme.activeWordBackground)
-                            Text(theme.label)
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(.primary)
-                            Image(systemName: "chevron.down")
-                                .font(.system(size: 8, weight: .bold))
-                                .foregroundStyle(.secondary)
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(
-                            Capsule()
-                                .fill(theme.activeWordBackground.opacity(0.16))
-                                .overlay(
+                                Divider()
+                                Toggle("Auto-Open Read-Along When Playing", isOn: $viewModel.autoReadAlong)
+                            } label: {
+                                HStack(spacing: 5) {
+                                    Image(systemName: theme.icon)
+                                        .font(.system(size: 10.5))
+                                        .foregroundStyle(theme.activeWordBackground)
+                                    Text(theme.label)
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundStyle(.primary)
+                                    Image(systemName: "chevron.down")
+                                        .font(.system(size: 8, weight: .bold))
+                                        .foregroundStyle(.secondary)
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .background(
                                     Capsule()
-                                        .strokeBorder(theme.activeWordBackground.opacity(0.38), lineWidth: 0.8)
+                                        .fill(theme.activeWordBackground.opacity(0.16))
+                                        .overlay(
+                                            Capsule()
+                                                .strokeBorder(theme.activeWordBackground.opacity(0.38), lineWidth: 0.8)
+                                        )
                                 )
-                        )
-                    }
-                    .menuStyle(.borderlessButton)
-                    .fixedSize()
+                            }
+                            .menuStyle(.borderlessButton)
+                            .fixedSize()
 
-                    // Speed Control Menu
-                    Menu {
-                        Section("Playback & Synthesis Speed") {
-                            ForEach([Float(0.5), 0.75, 0.9, 1.0, 1.15, 1.25, 1.5, 1.75, 2.0], id: \.self) { rate in
-                                let label = String(format: "%.2gx Speed", rate)
-                                Button {
-                                    viewModel.playbackRate = rate
-                                } label: {
-                                    if abs(viewModel.playbackRate - rate) < 0.01 {
-                                        Label(label, systemImage: "checkmark")
-                                    } else {
-                                        Text(label)
+                            // Speed Control Menu
+                            Menu {
+                                Section("Playback & Synthesis Speed") {
+                                    ForEach([Float(0.5), 0.75, 0.9, 1.0, 1.15, 1.25, 1.5, 1.75, 2.0], id: \.self) { rate in
+                                        let label = String(format: "%.2gx Speed", rate)
+                                        Button {
+                                            viewModel.playbackRate = rate
+                                        } label: {
+                                            if abs(viewModel.playbackRate - rate) < 0.01 {
+                                                Label(label, systemImage: "checkmark")
+                                            } else {
+                                                Text(label)
+                                            }
+                                        }
                                     }
                                 }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "gauge.with.dots.needle.67percent")
+                                        .font(.system(size: 10.5))
+                                        .foregroundStyle(.blue)
+                                    Text(String(format: "Speed %.2gx", viewModel.playbackRate))
+                                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                }
+                                .padding(.horizontal, 9)
+                                .padding(.vertical, 5)
+                                .background(theme.pillFill, in: Capsule())
                             }
-                        }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "gauge.with.dots.needle.67percent")
-                                .font(.system(size: 10.5))
-                                .foregroundStyle(.blue)
-                            Text(String(format: "Speed %.2gx", viewModel.playbackRate))
-                                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        }
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 5)
-                        .background(Color.white.opacity(0.05), in: Capsule())
-                    }
-                    .menuStyle(.borderlessButton)
-                    .fixedSize()
+                            .menuStyle(.borderlessButton)
+                            .fixedSize()
 
-                    // Pitch Semitone Control Menu
-                    Menu {
-                        Section("Acoustic Pitch Shift (Semitones)") {
-                            ForEach([Float(-6), -4, -2, -1, 0, 1, 2, 4, 6], id: \.self) { st in
-                                let label = st == 0 ? "0 st (Natural Pitch)" : String(format: "%+.0f st", st)
-                                Button {
-                                    viewModel.pitchSemitones = st
-                                } label: {
-                                    if abs(viewModel.pitchSemitones - st) < 0.05 {
-                                        Label(label, systemImage: "checkmark")
-                                    } else {
-                                        Text(label)
+                            // Pitch Semitone Control Menu
+                            Menu {
+                                Section("Acoustic Pitch Shift (Semitones)") {
+                                    ForEach([Float(-6), -4, -2, -1, 0, 1, 2, 4, 6], id: \.self) { st in
+                                        let label = st == 0 ? "0 st (Natural Pitch)" : String(format: "%+.0f st", st)
+                                        Button {
+                                            viewModel.pitchSemitones = st
+                                        } label: {
+                                            if abs(viewModel.pitchSemitones - st) < 0.05 {
+                                                Label(label, systemImage: "checkmark")
+                                            } else {
+                                                Text(label)
+                                            }
+                                        }
                                     }
                                 }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "tuningfork")
+                                        .font(.system(size: 10.5))
+                                        .foregroundStyle(.purple)
+                                    Text(viewModel.pitchSemitones == 0 ? "Pitch 0st" : String(format: "Pitch %+.0fst", viewModel.pitchSemitones))
+                                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                }
+                                .padding(.horizontal, 9)
+                                .padding(.vertical, 5)
+                                .background(theme.pillFill, in: Capsule())
                             }
-                        }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "tuningfork")
-                                .font(.system(size: 10.5))
-                                .foregroundStyle(.purple)
-                            Text(viewModel.pitchSemitones == 0 ? "Pitch 0st" : String(format: "Pitch %+.0fst", viewModel.pitchSemitones))
-                                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        }
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 5)
-                        .background(Color.white.opacity(0.05), in: Capsule())
-                    }
-                    .menuStyle(.borderlessButton)
-                    .fixedSize()
+                            .menuStyle(.borderlessButton)
+                            .fixedSize()
 
-                    // Paragraph Pause Control Menu
-                    Menu {
-                        Section("Inter-Chunk / Paragraph Pause") {
-                            ForEach([0, 150, 280, 350, 450, 750, 1200, 2000], id: \.self) { ms in
-                                let label = "\(ms) ms Pause"
-                                Button {
-                                    viewModel.paragraphPauseMs = ms
-                                } label: {
-                                    if viewModel.paragraphPauseMs == ms {
-                                        Label(label, systemImage: "checkmark")
-                                    } else {
-                                        Text(label)
+                            // Paragraph Pause Control Menu
+                            Menu {
+                                Section("Inter-Chunk / Paragraph Pause") {
+                                    ForEach([0, 150, 280, 350, 450, 750, 1200, 2000], id: \.self) { ms in
+                                        let label = "\(ms) ms Pause"
+                                        Button {
+                                            viewModel.paragraphPauseMs = ms
+                                        } label: {
+                                            if viewModel.paragraphPauseMs == ms {
+                                                Label(label, systemImage: "checkmark")
+                                            } else {
+                                                Text(label)
+                                            }
+                                        }
                                     }
                                 }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "pause.rectangle")
+                                        .font(.system(size: 10.5))
+                                        .foregroundStyle(.indigo)
+                                    Text("Pause \(viewModel.paragraphPauseMs)ms")
+                                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                }
+                                .padding(.horizontal, 9)
+                                .padding(.vertical, 5)
+                                .background(theme.pillFill, in: Capsule())
                             }
-                        }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "pause.rectangle")
-                                .font(.system(size: 10.5))
-                                .foregroundStyle(.indigo)
-                            Text("Pause \(viewModel.paragraphPauseMs)ms")
-                                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        }
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 5)
-                        .background(Color.white.opacity(0.05), in: Capsule())
-                    }
-                    .menuStyle(.borderlessButton)
-                    .fixedSize()
+                            .menuStyle(.borderlessButton)
+                            .fixedSize()
 
-                    // Word Sync Offset Control Menu
-                    Menu {
-                        Section("Karaoke Word Highlight Sync Offset") {
-                            ForEach([-200.0, -100.0, -50.0, 0.0, 50.0, 100.0, 200.0], id: \.self) { ms in
-                                let label = ms == 0 ? "0 ms (Auto RMS Sync)" : String(format: "%+.0f ms", ms)
-                                Button {
-                                    viewModel.wordSyncOffsetMs = ms
-                                } label: {
-                                    if abs(viewModel.wordSyncOffsetMs - ms) < 1.0 {
-                                        Label(label, systemImage: "checkmark")
-                                    } else {
-                                        Text(label)
+                            // Word Sync Offset Control Menu
+                            Menu {
+                                Section("Karaoke Word Highlight Sync Offset") {
+                                    ForEach([-200.0, -100.0, -50.0, 0.0, 50.0, 100.0, 200.0], id: \.self) { ms in
+                                        let label = ms == 0 ? "0 ms (Auto RMS Sync)" : String(format: "%+.0f ms", ms)
+                                        Button {
+                                            viewModel.wordSyncOffsetMs = ms
+                                        } label: {
+                                            if abs(viewModel.wordSyncOffsetMs - ms) < 1.0 {
+                                                Label(label, systemImage: "checkmark")
+                                            } else {
+                                                Text(label)
+                                            }
+                                        }
                                     }
                                 }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "metronome")
+                                        .font(.system(size: 10.5))
+                                        .foregroundStyle(.teal)
+                                    Text(String(format: "Sync %+.0fms", viewModel.wordSyncOffsetMs))
+                                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                }
+                                .padding(.horizontal, 9)
+                                .padding(.vertical, 5)
+                                .background(theme.pillFill, in: Capsule())
                             }
-                        }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "metronome")
-                                .font(.system(size: 10.5))
-                                .foregroundStyle(.teal)
-                            Text(String(format: "Sync %+.0fms", viewModel.wordSyncOffsetMs))
-                                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        }
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 5)
-                        .background(Color.white.opacity(0.05), in: Capsule())
-                    }
-                    .menuStyle(.borderlessButton)
-                    .fixedSize()
+                            .menuStyle(.borderlessButton)
+                            .fixedSize()
 
-                    // Max Chunk Characters Control Menu
-                    Menu {
-                        Section("Unlimited Hierarchical Chunk Size (Paragraph → Sentence → Clause)") {
-                            ForEach([200, 350, 520, 750, 1000, 1400], id: \.self) { maxC in
-                                let label = maxC == 520 ? "520 chars / chunk (Codecaine Default)" : "\(maxC) chars / chunk"
-                                Button {
-                                    viewModel.maxChunkLength = maxC
-                                } label: {
-                                    if viewModel.maxChunkLength == maxC {
-                                        Label(label, systemImage: "checkmark")
-                                    } else {
-                                        Text(label)
+                            // Max Chunk Characters Control Menu
+                            Menu {
+                                Section("Unlimited Hierarchical Chunk Size (Paragraph → Sentence → Clause)") {
+                                    ForEach([200, 350, 520, 750, 1000, 1400], id: \.self) { maxC in
+                                        let label = maxC == 520 ? "520 chars / chunk (Codecaine Default)" : "\(maxC) chars / chunk"
+                                        Button {
+                                            viewModel.maxChunkLength = maxC
+                                        } label: {
+                                            if viewModel.maxChunkLength == maxC {
+                                                Label(label, systemImage: "checkmark")
+                                            } else {
+                                                Text(label)
+                                            }
+                                        }
                                     }
                                 }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "rectangle.split.3x1")
+                                        .font(.system(size: 10.5))
+                                        .foregroundStyle(.orange)
+                                    Text("Chunk \(viewModel.maxChunkLength)c")
+                                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                }
+                                .padding(.horizontal, 9)
+                                .padding(.vertical, 5)
+                                .background(theme.pillFill, in: Capsule())
                             }
-                        }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "rectangle.split.3x1")
-                                .font(.system(size: 10.5))
-                                .foregroundStyle(.orange)
-                            Text("Chunk \(viewModel.maxChunkLength)c")
-                                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        }
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 5)
-                        .background(Color.white.opacity(0.05), in: Capsule())
-                    }
-                    .menuStyle(.borderlessButton)
-                    .fixedSize()
+                            .menuStyle(.borderlessButton)
+                            .fixedSize()
 
-                    // Codecaine File Manager 2-Second Synthesis Scope Picker
-                    Menu {
-                        Section("EPUB & Document Synthesis Speed / Scope") {
-                            ForEach(SynthesisScope.allCases) { scope in
-                                Button {
-                                    viewModel.synthesisScope = scope
-                                } label: {
-                                    if viewModel.synthesisScope == scope {
-                                        Label(scope.label, systemImage: "checkmark")
-                                    } else {
-                                        Text(scope.label)
+                            // Codecaine File Manager 2-Second Synthesis Scope Picker
+                            Menu {
+                                Section("EPUB & Document Synthesis Speed / Scope") {
+                                    ForEach(SynthesisScope.allCases) { scope in
+                                        Button {
+                                            viewModel.synthesisScope = scope
+                                        } label: {
+                                            if viewModel.synthesisScope == scope {
+                                                Label(scope.label, systemImage: "checkmark")
+                                            } else {
+                                                Text(scope.label)
+                                            }
+                                        }
                                     }
                                 }
+                                Divider()
+                                Button {
+                                    viewModel.quickExportActiveChunk(
+                                        text: textInput,
+                                        voice: viewModel.selectedVoice,
+                                        chunkIndex: activeChunkIdx,
+                                        format: .wav
+                                    )
+                                } label: {
+                                    Label("⚡ Instant 2s Synthesize & Export Active Chunk (§\(activeChunkIdx + 1))…", systemImage: "bolt.fill")
+                                }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "bolt.fill")
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(.yellow)
+                                    Text(viewModel.synthesisScope.shortBadge)
+                                        .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                                }
+                                .padding(.horizontal, 9)
+                                .padding(.vertical, 5)
+                                .background(Color.yellow.opacity(0.12), in: Capsule())
                             }
+                            .menuStyle(.borderlessButton)
+                            .fixedSize()
+                            .help("Codecaine File Manager 2-second synthesis & instant WAV export mode")
                         }
-                        Divider()
-                        Button {
-                            viewModel.quickExportActiveChunk(
-                                text: textInput,
-                                voice: viewModel.selectedVoice,
-                                chunkIndex: activeChunkIdx,
-                                format: .wav
-                            )
-                        } label: {
-                            Label("⚡ Instant 2s Synthesize & Export Active Chunk (§\(activeChunkIdx + 1))…", systemImage: "bolt.fill")
-                        }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "bolt.fill")
-                                .font(.system(size: 10))
-                                .foregroundStyle(.yellow)
-                            Text(viewModel.synthesisScope.shortBadge)
-                                .font(.system(size: 10.5, weight: .semibold, design: .rounded))
-                        }
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 5)
-                        .background(Color.yellow.opacity(0.12), in: Capsule())
                     }
-                    .menuStyle(.borderlessButton)
-                    .fixedSize()
-                    .help("Codecaine File Manager 2-second synthesis & instant WAV export mode")
+                    .fixedSize(horizontal: false, vertical: true)
 
-                    Spacer()
+                    Spacer(minLength: 6)
 
                     // Live Hierarchical Chunk Navigator Strip (§1 · §2 · §3...)
                     if !chunks.isEmpty {
@@ -1276,6 +1317,28 @@ struct ContentView: View {
                     HStack(spacing: 8) {
                         if !textInput.isEmpty {
                             Button {
+                                #if os(macOS)
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(textInput, forType: .string)
+                                #endif
+                                copiedScript = true
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                                    copiedScript = false
+                                }
+                            } label: {
+                                Label(
+                                    copiedScript ? "Copied" : "Copy",
+                                    systemImage: copiedScript ? "checkmark.circle.fill" : "doc.on.doc"
+                                )
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(copiedScript ? .green : .secondary)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Copy entire script to clipboard")
+
+                            Divider().frame(height: 10)
+
+                            Button {
                                 textInput = ""
                             } label: {
                                 Label("Clear", systemImage: "xmark.circle.fill")
@@ -1296,7 +1359,7 @@ struct ContentView: View {
                     .background(.ultraThinMaterial, in: Capsule())
                     .overlay(
                         Capsule()
-                            .strokeBorder(Color.white.opacity(0.09), lineWidth: 0.8)
+                            .strokeBorder(theme.pillStroke, lineWidth: 0.8)
                     )
                     .fixedSize()
                 }
@@ -1319,13 +1382,34 @@ struct ContentView: View {
             VStack(spacing: 12) {
                 // Status / Error Banner inside Dock
                 if !viewModel.generationProgress.isEmpty {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text(viewModel.generationProgress)
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(.secondary)
-                        Spacer()
+                    VStack(spacing: 5) {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text(viewModel.generationProgress)
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            if viewModel.isGenerating && viewModel.totalChunkCount > 1 {
+                                let completedFrac = Double(min(viewModel.totalChunkCount, viewModel.synthesizingChunkIndex + 1)) / Double(max(1, viewModel.totalChunkCount))
+                                Text("Chunk §\(min(viewModel.totalChunkCount, viewModel.synthesizingChunkIndex + 1))/\(viewModel.totalChunkCount) · \(Int(round(completedFrac * 100)))%")
+                                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                    .foregroundStyle(theme.activeWordBackground)
+                            }
+                        }
+                        if viewModel.isGenerating && viewModel.totalChunkCount > 1 {
+                            let completedFrac = Double(min(viewModel.totalChunkCount, viewModel.synthesizingChunkIndex + 1)) / Double(max(1, viewModel.totalChunkCount))
+                            GeometryReader { geo in
+                                ZStack(alignment: .leading) {
+                                    Capsule()
+                                        .fill(theme.pillFill)
+                                    Capsule()
+                                        .fill(theme.activeWordBackground)
+                                        .frame(width: max(12, geo.size.width * min(1.0, max(0.04, completedFrac))))
+                                }
+                            }
+                            .frame(height: 4)
+                        }
                     }
                     .padding(.horizontal, 6)
                 }
@@ -1533,7 +1617,9 @@ struct ContentView: View {
                             currentTime: viewModel.currentTime,
                             duration: viewModel.duration,
                             onPlayPause: { viewModel.togglePlayPause() },
-                            onSeek: { viewModel.seek(to: $0) }
+                            onSeek: { viewModel.seek(to: $0) },
+                            audioURL: viewModel.audioURL,
+                            accentColor: theme.activeWordBackground
                         )
 
                         // Speed selector pill
@@ -1687,6 +1773,37 @@ struct ContentView: View {
                     }
                     .buttonStyle(.plain)
                     .help("Browse all built-in voices or clone a custom voice from audio/microphone")
+
+                    // 1-Click Active Voice Audition Button
+                    if viewModel.selectedVoice.flatMap(Voice.previewAudioURL(for:)) != nil {
+                        Button {
+                            toggleVoiceAudition()
+                        } label: {
+                            HStack(spacing: 5) {
+                                Image(systemName: isAuditioningVoice ? "stop.fill" : "speaker.wave.2.fill")
+                                    .font(.system(size: 12.5, weight: .semibold))
+                                    .foregroundStyle(isAuditioningVoice ? .orange : .blue)
+                                Text(isAuditioningVoice ? "Stop" : "Sample")
+                                    .font(.system(size: 11.5, weight: .semibold))
+                                    .foregroundStyle(.primary)
+                            }
+                            .padding(.horizontal, 12)
+                            .frame(height: 44)
+                            .background(
+                                Capsule()
+                                    .fill(isAuditioningVoice ? Color.orange.opacity(0.16) : theme.pillFill)
+                                    .overlay(
+                                        Capsule()
+                                            .strokeBorder(
+                                                isAuditioningVoice ? Color.orange.opacity(0.45) : theme.pillStroke,
+                                                lineWidth: 0.8
+                                            )
+                                    )
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .help("Audition \(viewModel.selectedVoice?.name ?? "selected voice") reference sample")
+                    }
 
                     // Quick Model Engine Picker Capsule
                     Menu {
@@ -2057,6 +2174,13 @@ struct ContentView: View {
             }
         }
         .onAppear {
+            if ProcessInfo.processInfo.arguments.contains("--demo-player"),
+               let sampleURL = Voice.bundledStudioSamples().first?.url {
+                viewModel.audioURL = sampleURL
+                viewModel.duration = 9.4
+                viewModel.currentTime = 3.8
+                viewModel.tokensPerSecond = 84.6
+            }
             if let docPath = UserDefaults.standard.string(forKey: "VoicesApp.VoiceStudio.autoImportDocPath"),
                !docPath.isEmpty,
                FileManager.default.fileExists(atPath: docPath) {
@@ -2088,6 +2212,14 @@ struct ContentView: View {
         .task {
             LocalhostServerManager.shared.startIfNeeded()
             await viewModel.loadModel()
+            if ProcessInfo.processInfo.arguments.contains("--demo-player") {
+                try? await Task.sleep(nanoseconds: 150_000_000)
+                let demoURL = Voice.bundledStudioSamples().first?.url ?? URL(fileURLWithPath: "/tmp/demo_studio_waveform.wav")
+                viewModel.audioURL = demoURL
+                viewModel.duration = 12.6
+                viewModel.currentTime = 4.8
+                viewModel.tokensPerSecond = 84.6
+            }
             if ProcessInfo.processInfo.arguments.contains("--auto-speak"), !textInput.isEmpty {
                 showTeleprompter = true
                 viewModel.startSynthesis(
@@ -2166,6 +2298,7 @@ struct KaraokeTeleprompterView: View {
     let onQuickExportChunk: (Int) -> Void
 
     @State private var stageMode: Bool = true
+    @AppStorage("VoicesApp.Teleprompter.fontSize") private var teleprompterFontSize: Double = 16.0
 
     private func snippet(for chunk: PhononTextChunk?) -> String {
         guard let raw = chunk?.text.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
@@ -2176,9 +2309,15 @@ struct KaraokeTeleprompterView: View {
         return raw.count > 105 ? String(raw.prefix(105)) + "…" : raw
     }
 
+    private func chunkMeta(at index: Int) -> PhononTextChunk? {
+        guard index >= 0 else { return nil }
+        if index < chunks.count && chunks[index].index == index {
+            return chunks[index]
+        }
+        return chunks.first(where: { $0.index == index })
+    }
+
     var body: some View {
-        let wordsByChunk = Dictionary(grouping: timings, by: \.chunkIndex)
-        let chunksByIndex = Dictionary(uniqueKeysWithValues: chunks.map { ($0.index, $0) })
         let totalChunks = max(chunks.count, 1)
         let safeActiveChunk = min(max(0, activeChunkIndex), max(0, totalChunks - 1))
         let useFocusedStage = stageMode && chunks.count > 1
@@ -2268,6 +2407,60 @@ struct KaraokeTeleprompterView: View {
 
                         Spacer()
 
+                        if totalChunks > 1 {
+                            let bookPercent = Int(round(Double(safeActiveChunk + 1) / Double(totalChunks) * 100.0))
+                            Text("📖 \(bookPercent)%")
+                                .font(.system(size: 10.5, weight: .bold, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(theme.pillFill, in: Capsule())
+                                .help("Book / document section progress (§\(safeActiveChunk + 1) of \(totalChunks))")
+                        }
+
+                        // Teleprompter Typography Zoom (A- / A+)
+                        HStack(spacing: 4) {
+                            Button {
+                                teleprompterFontSize = max(13.0, teleprompterFontSize - 1.5)
+                            } label: {
+                                Text("A−")
+                                    .font(.system(size: 10.5, weight: .bold, design: .rounded))
+                                    .foregroundStyle(.primary.opacity(0.85))
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 3)
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(teleprompterFontSize <= 13.0)
+                            .help("Decrease teleprompter word size")
+
+                            Text("\(Int(teleprompterFontSize))pt")
+                                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                .foregroundStyle(.secondary)
+
+                            Button {
+                                teleprompterFontSize = min(26.0, teleprompterFontSize + 1.5)
+                            } label: {
+                                Text("A+")
+                                    .font(.system(size: 10.5, weight: .bold, design: .rounded))
+                                    .foregroundStyle(.primary.opacity(0.85))
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 3)
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(teleprompterFontSize >= 26.0)
+                            .help("Increase teleprompter word size")
+                        }
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1.5)
+                        .background(
+                            Capsule()
+                                .fill(theme.pillFill)
+                                .overlay(
+                                    Capsule()
+                                        .strokeBorder(theme.pillStroke, lineWidth: 0.8)
+                                )
+                        )
+
                         Button {
                             onQuickExportChunk(safeActiveChunk)
                         } label: {
@@ -2300,7 +2493,7 @@ struct KaraokeTeleprompterView: View {
 
                     if useFocusedStage {
                         // Codecaine File Manager Focused Stage Mode: keeps the active spoken chunk & highlighted word centered on screen
-                        if safeActiveChunk > 0, let prevMeta = chunksByIndex[safeActiveChunk - 1] {
+                        if safeActiveChunk > 0, let prevMeta = chunkMeta(at: safeActiveChunk - 1) {
                             Button {
                                 onSelectChunk(safeActiveChunk - 1)
                             } label: {
@@ -2328,8 +2521,8 @@ struct KaraokeTeleprompterView: View {
                             .buttonStyle(.plain)
                         }
 
-                        let activeWords = wordsByChunk[safeActiveChunk] ?? []
-                        let activeMeta = chunksByIndex[safeActiveChunk]
+                        let activeWords = timings.filter { $0.chunkIndex == safeActiveChunk }
+                        let activeMeta = chunkMeta(at: safeActiveChunk)
                         let localWordIndex = activeWords.firstIndex(where: { $0.id == activeWordId }).map { $0 + 1 } ?? 1
                         let localWordTotal = max(activeWords.count, 1)
                         let chunkProgress = Double(localWordIndex) / Double(localWordTotal)
@@ -2391,6 +2584,7 @@ struct KaraokeTeleprompterView: View {
                                         isActive: isActive,
                                         isSpoken: isSpoken,
                                         theme: theme,
+                                        fontSize: CGFloat(teleprompterFontSize),
                                         onSelect: { onSelectWord(item) }
                                     )
                                     .id("word-\(item.id)")
@@ -2408,7 +2602,7 @@ struct KaraokeTeleprompterView: View {
                         )
                         .id("chunk-\(safeActiveChunk)")
 
-                        if safeActiveChunk + 1 < totalChunks, let nextMeta = chunksByIndex[safeActiveChunk + 1] {
+                        if safeActiveChunk + 1 < totalChunks, let nextMeta = chunkMeta(at: safeActiveChunk + 1) {
                             Button {
                                 onSelectChunk(safeActiveChunk + 1)
                             } label: {
@@ -2437,11 +2631,12 @@ struct KaraokeTeleprompterView: View {
                         }
                     } else {
                         // All-Chunks View with distinct string IDs ("chunk-\(cIdx)" vs "word-\(item.id)") so ScrollViewReader never collides
+                        let wordsByChunk = Dictionary(grouping: timings, by: \.chunkIndex)
                         let chunkIndices = chunks.isEmpty ? [0] : chunks.map(\.index)
                         ForEach(chunkIndices, id: \.self) { cIdx in
                             let chunkWords = wordsByChunk[cIdx] ?? []
                             let isChunkActive = cIdx == safeActiveChunk
-                            let chunkMeta = chunksByIndex[cIdx]
+                            let chunkMeta = chunkMeta(at: cIdx)
 
                             if !chunkWords.isEmpty {
                                 VStack(alignment: .leading, spacing: 10) {
@@ -2508,6 +2703,7 @@ struct KaraokeTeleprompterView: View {
                                                 isActive: isActive,
                                                 isSpoken: isSpoken,
                                                 theme: theme,
+                                                fontSize: CGFloat(teleprompterFontSize),
                                                 onSelect: { onSelectWord(item) }
                                             )
                                             .id("word-\(item.id)")
@@ -2549,6 +2745,7 @@ struct KaraokeWordTokenView: View {
     let isActive: Bool
     let isSpoken: Bool
     let theme: ReadAlongTheme
+    var fontSize: CGFloat = 16
     let onSelect: () -> Void
 
     private var textColor: Color {
@@ -2564,7 +2761,7 @@ struct KaraokeWordTokenView: View {
     var body: some View {
         Button(action: onSelect) {
             Text(item.word)
-                .font(.system(size: 16, weight: isActive ? .bold : .medium))
+                .font(.system(size: fontSize, weight: isActive ? .bold : .medium))
                 .foregroundStyle(textColor)
                 .fixedSize(horizontal: true, vertical: true)
                 .padding(.horizontal, 10)
@@ -2821,7 +3018,7 @@ struct ErrorView: View {
     }
 }
 
-// MARK: - Compact Audio Player
+// MARK: - Compact Audio Player (Acoustic Waveform Scrubber + Skip Transport)
 
 struct CompactAudioPlayer: View {
     let isPlaying: Bool
@@ -2829,62 +3026,104 @@ struct CompactAudioPlayer: View {
     let duration: TimeInterval
     let onPlayPause: () -> Void
     let onSeek: (TimeInterval) -> Void
+    var audioURL: URL? = nil
+    var accentColor: Color = .blue
 
-    private let playButtonSize: CGFloat = 44
-    private let spacing: CGFloat = 12
-    private let padding: CGFloat = 12
+    private let barCount: Int = 44
+
+    private var envelope: [CGFloat] {
+        WaveformEnvelopeCache.envelope(for: audioURL, barCount: barCount).map { CGFloat($0) }
+    }
+
+    private var progressFraction: Double {
+        guard duration > 0.01 else { return 0 }
+        return min(1.0, max(0.0, currentTime / duration))
+    }
 
     var body: some View {
-        HStack(spacing: spacing) {
+        HStack(spacing: 10) {
+            // Skip Back 5s
+            Button {
+                onSeek(max(0, currentTime - 5))
+            } label: {
+                Image(systemName: "gobackward.5")
+                    .font(.system(size: 13.5, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 26, height: 26)
+                    .background(Color.primary.opacity(0.06), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .help("Skip back 5 seconds")
+
             // Play/Pause button
             Button(action: onPlayPause) {
                 Image(systemName: isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                    .font(.system(size: playButtonSize))
-                    .foregroundStyle(.blue)
+                    .font(.system(size: 36))
+                    .foregroundStyle(accentColor)
+                    .shadow(color: accentColor.opacity(0.3), radius: 5, y: 1)
             }
             .buttonStyle(.plain)
 
-            VStack(spacing: 2) {
-                // Progress bar
-                #if os(iOS)
-                CompactSlider(
-                    value: Binding(
-                        get: { currentTime },
-                        set: { onSeek($0) }
-                    ),
-                    range: 0...max(duration, 0.01)
-                )
-                #else
-                Slider(
-                    value: Binding(
-                        get: { currentTime },
-                        set: { onSeek($0) }
-                    ),
-                    in: 0...max(duration, 0.01)
-                )
-                .tint(.blue)
-                #endif
-
-                // Time labels
-                HStack {
-                    Text(formatTime(currentTime))
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        .foregroundStyle(.secondary)
-
-                    Spacer()
-
-                    Text(formatTime(duration))
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                }
+            // Skip Forward 5s
+            Button {
+                onSeek(min(max(duration, 0), currentTime + 5))
+            } label: {
+                Image(systemName: "goforward.5")
+                    .font(.system(size: 13.5, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 26, height: 26)
+                    .background(Color.primary.opacity(0.06), in: Circle())
             }
+            .buttonStyle(.plain)
+            .help("Skip forward 5 seconds")
+
+            // Interactive Acoustic Waveform Scrubber
+            GeometryReader { geo in
+                let dynamicCount = max(40, min(92, Int(geo.size.width / 6.5)))
+                let bars = WaveformEnvelopeCache.envelope(for: audioURL, barCount: dynamicCount).map { CGFloat($0) }
+                let totalBars = max(bars.count, 1)
+                let playedIndex = Int(round(progressFraction * Double(totalBars)))
+
+                HStack(alignment: .center, spacing: 2.5) {
+                    ForEach(0..<totalBars, id: \.self) { idx in
+                        let amp = bars[idx]
+                        let isPlayed = idx <= playedIndex && duration > 0.01
+                        RoundedRectangle(cornerRadius: 2, style: .continuous)
+                            .fill(
+                                isPlayed
+                                    ? accentColor
+                                    : Color.primary.opacity(0.20)
+                            )
+                            .frame(maxWidth: .infinity)
+                            .frame(height: max(4, geo.size.height * amp))
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { value in
+                            let ratio = min(1.0, max(0.0, Double(value.location.x / max(1, geo.size.width))))
+                            onSeek(ratio * max(duration, 0.01))
+                        }
+                )
+            }
+            .frame(height: 28)
+
+            // Time Readout Pill
+            Text("\(formatTime(currentTime)) / \(formatTime(duration))")
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .fixedSize()
         }
-        .padding(padding)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
     }
 
     private func formatTime(_ time: TimeInterval) -> String {
-        let minutes = Int(time) / 60
-        let seconds = Int(time) % 60
+        let safe = max(0, time)
+        let minutes = Int(safe) / 60
+        let seconds = Int(safe) % 60
         return String(format: "%d:%02d", minutes, seconds)
     }
 }

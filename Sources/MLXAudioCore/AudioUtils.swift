@@ -1,3 +1,4 @@
+import Accelerate
 import AVFoundation
 import Foundation
 import MLX
@@ -42,9 +43,11 @@ public class AudioUtils {
         }
 
         buffer.frameLength = frameCount
-        let channelData = buffer.floatChannelData![0]
-        for i in 0 ..< Int(frameCount) {
-            channelData[i] = samples[i]
+        if let channelData = buffer.floatChannelData, !samples.isEmpty {
+            samples.withUnsafeBufferPointer { src in
+                guard let base = src.baseAddress else { return }
+                channelData[0].update(from: base, count: samples.count)
+            }
         }
 
         let audioFile = try AVAudioFile(
@@ -65,7 +68,7 @@ public func loadAudioArray(from url: URL, sampleRate: Int? = nil) throws -> (Int
     let format = audioFile.processingFormat
     let frameCount = AVAudioFrameCount(audioFile.length)
 
-    let capacity = max(1, min(frameCount, 65_536))
+    let capacity = max(1, min(frameCount, 1_048_576))
     guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: capacity) else {
         throw AudioUtils.AudioUtilsErrors.cannotCreateAudioBuffer
     }
@@ -84,10 +87,14 @@ public func loadAudioArray(from url: URL, sampleRate: Int? = nil) throws -> (Int
         let frames = Int(buffer.frameLength)
         samples.append(contentsOf: UnsafeBufferPointer(start: floatChannelData[0], count: frames))
         if channelCount > 1 {
-            for channel in 1..<channelCount {
-                for frame in 0..<frames { samples[start + frame] += floatChannelData[channel][frame] }
+            var invChannels = Float(channelCount)
+            samples.withUnsafeMutableBufferPointer { dstBuf in
+                guard let dstBase = dstBuf.baseAddress?.advanced(by: start) else { return }
+                for channel in 1..<channelCount {
+                    vDSP_vadd(dstBase, 1, floatChannelData[channel], 1, dstBase, 1, vDSP_Length(frames))
+                }
+                vDSP_vsdiv(dstBase, 1, &invChannels, dstBase, 1, vDSP_Length(frames))
             }
-            for frame in 0..<frames { samples[start + frame] /= Float(channelCount) }
         }
         if audioFile.framePosition <= previousPosition { break }
     }
@@ -125,9 +132,10 @@ func saveAudioArray(_ audio: MLXArray, sampleRate: Double, to url: URL) throws {
 
     buffer.frameLength = frameCount
 
-    if let channelData = buffer.floatChannelData {
-        for i in 0 ..< samples.count {
-            channelData[0][i] = samples[i]
+    if let channelData = buffer.floatChannelData, !samples.isEmpty {
+        samples.withUnsafeBufferPointer { src in
+            guard let base = src.baseAddress else { return }
+            channelData[0].update(from: base, count: samples.count)
         }
     }
 
@@ -271,10 +279,35 @@ public class StreamingWAVWriter {
 
     /// Write a chunk of audio samples to the file.
     public func writeChunk(_ samples: [Float]) throws {
-        try samples.withUnsafeBytes { raw in
-            let data = Data(raw)
-            try writeChunkData(data, sampleCount: samples.count)
+        guard let audioFile else {
+            throw NSError(
+                domain: "StreamingWAVWriter",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "Audio file not initialized or already finalized"]
+            )
         }
+        let sampleCount = samples.count
+        guard sampleCount > 0 else { return }
+
+        let frameCount = AVAudioFrameCount(sampleCount)
+        let buffer = try getReusableBuffer(minFrameCapacity: sampleCount)
+        buffer.frameLength = frameCount
+
+        guard let channelData = buffer.floatChannelData else {
+            throw NSError(
+                domain: "StreamingWAVWriter",
+                code: 6,
+                userInfo: [NSLocalizedDescriptionKey: "Failed to access output channel data"]
+            )
+        }
+        samples.withUnsafeBufferPointer { src in
+            if let srcBase = src.baseAddress {
+                channelData[0].update(from: srcBase, count: sampleCount)
+            }
+        }
+
+        try audioFile.write(from: buffer)
+        framesWritten += sampleCount
     }
 
     /// Write a chunk of audio samples from an MLX array directly.

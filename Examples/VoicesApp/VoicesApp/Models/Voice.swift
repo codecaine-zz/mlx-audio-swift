@@ -1,3 +1,4 @@
+import Accelerate
 import AVFoundation
 import Foundation
 import MLX
@@ -19,6 +20,26 @@ enum ModelCacheHelper {
     private static let weightExtensions: Set<String> = [
         "safetensors", "npz", "bin", "gguf", "pt", "onnx", "zst", "fermion", "fsq"
     ]
+    private static let cacheStatsLock = NSLock()
+    nonisolated(unsafe) private static var cachedStatsByRepo: [String: (hasWeights: Bool, sizeBytes: UInt64, sizeString: String?)] = [:]
+
+    static func invalidateMemoryCache() {
+        cacheStatsLock.lock()
+        cachedStatsByRepo.removeAll()
+        cacheStatsLock.unlock()
+    }
+
+    static func isValidRepoId(_ repoId: String) -> Bool {
+        let trimmed = repoId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              !trimmed.contains(".."),
+              !trimmed.contains("\\"),
+              !trimmed.contains("\0"),
+              !trimmed.hasPrefix("/") else {
+            return false
+        }
+        return true
+    }
 
     static var hfToken: String {
         get {
@@ -47,16 +68,19 @@ enum ModelCacheHelper {
     }
 
     static func mlxModelDirectory(for repoId: String) -> URL {
-        let subdir = repoId.replacingOccurrences(of: "/", with: "_")
+        let safeRepo = isValidRepoId(repoId) ? repoId : "__invalid__"
+        let subdir = safeRepo.replacingOccurrences(of: "/", with: "_")
         return mlxAudioCacheRoot.appendingPathComponent(subdir)
     }
 
     static func hubModelDirectory(for repoId: String) -> URL {
-        let hubSubdir = "models--" + repoId.replacingOccurrences(of: "/", with: "--")
+        let safeRepo = isValidRepoId(repoId) ? repoId : "__invalid__"
+        let hubSubdir = "models--" + safeRepo.replacingOccurrences(of: "/", with: "--")
         return hubCacheRoot.appendingPathComponent(hubSubdir)
     }
 
     static func phonon2UnpackedDirectories(for repoId: String) -> [URL] {
+        guard isValidRepoId(repoId) else { return [] }
         let mlxDir = mlxModelDirectory(for: repoId)
         let hubDir = hubModelDirectory(for: repoId)
         var candidateConfigs: [URL] = [mlxDir.appendingPathComponent("config.json")]
@@ -89,6 +113,7 @@ enum ModelCacheHelper {
     }
 
     static func modelDirectory(for repoId: String) -> URL? {
+        guard isValidRepoId(repoId) else { return nil }
         let mlxDir = mlxModelDirectory(for: repoId)
         if directoryHasWeights(mlxDir) {
             return mlxDir
@@ -122,22 +147,41 @@ enum ModelCacheHelper {
         return false
     }
 
-    static func isModelCached(_ repoId: String) -> Bool {
-        modelDirectory(for: repoId) != nil
-    }
+    private static func stats(for repoId: String) -> (hasWeights: Bool, sizeBytes: UInt64, sizeString: String?) {
+        guard isValidRepoId(repoId) else { return (false, 0, nil) }
+        cacheStatsLock.lock()
+        if let cached = cachedStatsByRepo[repoId] {
+            cacheStatsLock.unlock()
+            return cached
+        }
+        cacheStatsLock.unlock()
 
-    static func cachedModelSizeBytes(_ repoId: String) -> UInt64 {
+        let hasWeights = modelDirectory(for: repoId) != nil
         let mlxBytes = directoryByteSize(mlxModelDirectory(for: repoId))
         let hubBytes = directoryByteSize(hubModelDirectory(for: repoId))
         let phonon2Bytes = phonon2UnpackedDirectories(for: repoId).reduce(0) { $0 + directoryByteSize($1) }
-        return max(mlxBytes, hubBytes) + phonon2Bytes
+        let sizeBytes = max(mlxBytes, hubBytes) + phonon2Bytes
+        let sizeString: String? = (hasWeights && sizeBytes > 0)
+            ? ByteCountFormatter.string(fromByteCount: Int64(sizeBytes), countStyle: .file)
+            : nil
+        let computed = (hasWeights: hasWeights, sizeBytes: sizeBytes, sizeString: sizeString)
+
+        cacheStatsLock.lock()
+        cachedStatsByRepo[repoId] = computed
+        cacheStatsLock.unlock()
+        return computed
+    }
+
+    static func isModelCached(_ repoId: String) -> Bool {
+        stats(for: repoId).hasWeights
+    }
+
+    static func cachedModelSizeBytes(_ repoId: String) -> UInt64 {
+        stats(for: repoId).sizeBytes
     }
 
     static func cachedModelSizeString(_ repoId: String) -> String? {
-        guard isModelCached(repoId) else { return nil }
-        let bytes = cachedModelSizeBytes(repoId)
-        guard bytes > 0 else { return nil }
-        return ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
+        stats(for: repoId).sizeString
     }
 
     static func directoryByteSize(_ dir: URL) -> UInt64 {
@@ -167,22 +211,32 @@ enum ModelCacheHelper {
     /// - Returns: The number of logical bytes freed.
     @discardableResult
     static func deleteModel(_ repoId: String) -> UInt64 {
+        guard isValidRepoId(repoId) else { return 0 }
         let fm = FileManager.default
+        let hubRootPrefix = hubCacheRoot.standardizedFileURL.path + "/"
         let freedBytes = cachedModelSizeBytes(repoId)
         let mlxDir = mlxModelDirectory(for: repoId)
         let hubDir = hubModelDirectory(for: repoId)
         let hubSubdir = hubDir.lastPathComponent
+        guard !hubSubdir.isEmpty, hubSubdir != ".", hubSubdir != "..", !hubSubdir.contains("..") else {
+            return 0
+        }
         let metadataDir = hubCacheRoot.appendingPathComponent(".metadata").appendingPathComponent(hubSubdir)
         let locksDir = hubCacheRoot.appendingPathComponent(".locks").appendingPathComponent(hubSubdir)
 
         for unpacked in phonon2UnpackedDirectories(for: repoId) {
-            try? fm.removeItem(at: unpacked)
+            if unpacked.standardizedFileURL.path.hasPrefix(hubRootPrefix) {
+                try? fm.removeItem(at: unpacked)
+            }
         }
         for target in [mlxDir, hubDir, metadataDir, locksDir] {
-            if fm.fileExists(atPath: target.path) {
+            let stdPath = target.standardizedFileURL.path
+            if stdPath.hasPrefix(hubRootPrefix), fm.fileExists(atPath: stdPath) {
                 try? fm.removeItem(at: target)
             }
         }
+
+        invalidateMemoryCache()
 
         NotificationCenter.default.post(
             name: .modelCacheDidChange,
@@ -348,6 +402,7 @@ final class DownloadedModelsManager {
     }
 
     func refresh() {
+        ModelCacheHelper.invalidateMemoryCache()
         let fm = FileManager.default
         var catalog: [String: (name: String, category: DownloadedModelCategory)] = [
             "nativ-community/phonon": ("Phonon TTS 40M (Default)", .tts),
@@ -983,57 +1038,70 @@ extension Voice {
 
         var output = [Float](repeating: 0, count: n)
         var norm = [Float](repeating: 0, count: n)
-        var outPos = 0
-        var prevInPos: Int = -1
 
-        while outPos < n {
-            let idealInPos = Int(round(Double(outPos) * stretchRatio))
-            var bestInPos = max(0, min(max(0, resampledLen - winSize), idealInPos))
+        resampled.withUnsafeBufferPointer { resBuf in
+            hann.withUnsafeBufferPointer { hannBuf in
+                output.withUnsafeMutableBufferPointer { outBuf in
+                    norm.withUnsafeMutableBufferPointer { normBuf in
+                        guard let resBase = resBuf.baseAddress,
+                              let hannBase = hannBuf.baseAddress,
+                              let outBase = outBuf.baseAddress,
+                              let normBase = normBuf.baseAddress else { return }
 
-            if prevInPos >= 0 && outPos > 0 {
-                let expectedContPos = prevInPos + hopOut
-                let searchStart = max(0, idealInPos - searchRange)
-                let searchEnd = min(max(0, resampledLen - winSize), idealInPos + searchRange)
-                let corrLen = min(hopOut, n - outPos)
+                        var outPos = 0
+                        var prevInPos: Int = -1
 
-                if expectedContPos + corrLen < resampledLen && searchEnd > searchStart {
-                    var bestScore: Float = -.infinity
-                    let step = 2
-                    var cand = searchStart
-                    while cand <= searchEnd {
-                        var dot: Float = 0
-                        var normA: Float = 1e-9
-                        var normB: Float = 1e-9
-                        var k = 0
-                        while k < corrLen {
-                            let a = resampled[expectedContPos + k]
-                            let b = resampled[cand + k]
-                            dot += a * b
-                            normA += a * a
-                            normB += b * b
-                            k += step
+                        while outPos < n {
+                            let idealInPos = Int(round(Double(outPos) * stretchRatio))
+                            var bestInPos = max(0, min(max(0, resampledLen - winSize), idealInPos))
+
+                            if prevInPos >= 0 && outPos > 0 {
+                                let expectedContPos = prevInPos + hopOut
+                                let searchStart = max(0, idealInPos - searchRange)
+                                let searchEnd = min(max(0, resampledLen - winSize), idealInPos + searchRange)
+                                let corrLen = min(hopOut, n - outPos)
+
+                                if expectedContPos + corrLen < resampledLen && searchEnd > searchStart && corrLen > 0 {
+                                    let ptrA = resBase.advanced(by: expectedContPos)
+                                    let vLen = vDSP_Length(corrLen)
+                                    var normA: Float = 0
+                                    vDSP_svesq(ptrA, 1, &normA, vLen)
+                                    normA = max(normA, 1e-9)
+
+                                    var bestScore: Float = -.infinity
+                                    let step = 2
+                                    var cand = searchStart
+                                    while cand <= searchEnd {
+                                        let ptrB = resBase.advanced(by: cand)
+                                        var dot: Float = 0
+                                        var normB: Float = 0
+                                        vDSP_dotpr(ptrA, 1, ptrB, 1, &dot, vLen)
+                                        vDSP_svesq(ptrB, 1, &normB, vLen)
+                                        let score = dot / sqrt(normA * max(normB, 1e-9))
+                                        if score > bestScore {
+                                            bestScore = score
+                                            bestInPos = cand
+                                        }
+                                        cand += step
+                                    }
+                                }
+                            }
+
+                            let copyLen = min(winSize, n - outPos, resampledLen - bestInPos)
+                            if copyLen > 0 {
+                                let vCopy = vDSP_Length(copyLen)
+                                let dstOut = outBase.advanced(by: outPos)
+                                let dstNorm = normBase.advanced(by: outPos)
+                                vDSP_vma(resBase.advanced(by: bestInPos), 1, hannBase, 1, dstOut, 1, dstOut, 1, vCopy)
+                                vDSP_vadd(dstNorm, 1, hannBase, 1, dstNorm, 1, vCopy)
+                            }
+
+                            prevInPos = bestInPos
+                            outPos += hopOut
                         }
-                        let score = dot / sqrt(normA * normB)
-                        if score > bestScore {
-                            bestScore = score
-                            bestInPos = cand
-                        }
-                        cand += step
                     }
                 }
             }
-
-            let copyLen = min(winSize, n - outPos, resampledLen - bestInPos)
-            if copyLen > 0 {
-                for i in 0..<copyLen {
-                    let w = hann[i]
-                    output[outPos + i] += resampled[bestInPos + i] * w
-                    norm[outPos + i] += w
-                }
-            }
-
-            prevInPos = bestInPos
-            outPos += hopOut
         }
 
         for i in 0..<n {
@@ -2429,7 +2497,9 @@ enum HierarchicalChunker {
     static let hardMaxChunkChars = 1200
 
     private static let cacheLock = NSLock()
-    nonisolated(unsafe) private static var lastCacheKey: String = ""
+    nonisolated(unsafe) private static var lastRawText: String = ""
+    nonisolated(unsafe) private static var lastMaxChars: Int = -1
+    nonisolated(unsafe) private static var lastMergeShort: Bool = true
     nonisolated(unsafe) private static var lastCachedChunks: [PhononTextChunk] = []
 
     /// Sanitizes raw Markdown/novel paragraph lines so horizontal dividers (`---`, `***`), heading hashes (`# `, `## `),
@@ -2493,9 +2563,8 @@ enum HierarchicalChunker {
     ) -> [PhononTextChunk] {
         guard !rawText.isEmpty else { return [] }
         let clampedMax = min(hardMaxChunkChars, max(120, maxChars))
-        let cacheKey = "\(rawText.count)|\(rawText.hashValue)|\(clampedMax)|\(mergeShortParagraphs)|v2"
         cacheLock.lock()
-        if cacheKey == lastCacheKey {
+        if clampedMax == lastMaxChars && mergeShortParagraphs == lastMergeShort && rawText == lastRawText {
             let hit = lastCachedChunks
             cacheLock.unlock()
             return hit
@@ -2573,7 +2642,9 @@ enum HierarchicalChunker {
         }
         flushPending()
         cacheLock.lock()
-        lastCacheKey = cacheKey
+        lastRawText = rawText
+        lastMaxChars = clampedMax
+        lastMergeShort = mergeShortParagraphs
         lastCachedChunks = chunks
         cacheLock.unlock()
         return chunks
@@ -2853,6 +2924,174 @@ enum ReadAlongTheme: String, CaseIterable, Identifiable {
         case .midnight: return Color.blue.opacity(0.12)
         }
     }
+
+    var isLight: Bool {
+        colorScheme == .light
+    }
+
+    var pillFill: Color {
+        switch self {
+        case .paper: return Color.black.opacity(0.06)
+        case .sepia: return Color(red: 0.98, green: 0.86, blue: 0.68).opacity(0.08)
+        case .matrix: return Color.green.opacity(0.08)
+        case .contrast: return Color.white.opacity(0.10)
+        case .nord: return Color.cyan.opacity(0.08)
+        case .midnight: return Color.white.opacity(0.055)
+        }
+    }
+
+    var pillStroke: Color {
+        switch self {
+        case .paper: return Color.black.opacity(0.13)
+        case .sepia: return Color.orange.opacity(0.24)
+        case .matrix: return Color.green.opacity(0.26)
+        case .contrast: return Color.white.opacity(0.32)
+        case .nord: return Color.cyan.opacity(0.22)
+        case .midnight: return Color.white.opacity(0.11)
+        }
+    }
+
+    var recessedFill: Color {
+        switch self {
+        case .paper: return Color.black.opacity(0.065)
+        case .sepia: return Color.black.opacity(0.26)
+        case .matrix: return Color.black.opacity(0.38)
+        case .contrast: return Color.white.opacity(0.08)
+        case .nord: return Color.black.opacity(0.28)
+        case .midnight: return Color.black.opacity(0.28)
+        }
+    }
+
+    var recessedStroke: Color {
+        switch self {
+        case .paper: return Color.black.opacity(0.14)
+        default: return Color.white.opacity(0.10)
+        }
+    }
+
+    var elevatedRowFill: Color {
+        switch self {
+        case .paper: return Color.black.opacity(0.04)
+        case .sepia: return Color(red: 0.98, green: 0.85, blue: 0.65).opacity(0.06)
+        case .matrix: return Color.green.opacity(0.06)
+        case .contrast: return Color.white.opacity(0.07)
+        case .nord: return Color.cyan.opacity(0.06)
+        case .midnight: return Color.white.opacity(0.04)
+        }
+    }
+}
+
+// MARK: - Studio Acoustic Waveform Envelope Cache
+
+enum WaveformEnvelopeCache {
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var cache: [String: [Float]] = [:]
+
+    static func envelope(for url: URL?, barCount: Int = 44) -> [Float] {
+        let count = max(8, barCount)
+        guard let url, FileManager.default.fileExists(atPath: url.path) else {
+            return fallbackEnvelope(barCount: count)
+        }
+        let fileSize = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        guard fileSize > 64 else {
+            return fallbackEnvelope(barCount: count)
+        }
+        let key = "\(url.path)|\(fileSize)|\(count)"
+        lock.lock()
+        if let hit = cache[key] {
+            lock.unlock()
+            return hit
+        }
+        lock.unlock()
+
+        guard let file = try? AVAudioFile(forReading: url) else {
+            return fallbackEnvelope(barCount: count)
+        }
+        let totalFrames = Int(file.length)
+        guard totalFrames > 0 else {
+            return fallbackEnvelope(barCount: count)
+        }
+        let maxReadFrames = min(totalFrames, 48_000 * 60)
+        guard let format = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: file.processingFormat.sampleRate,
+            channels: 1,
+            interleaved: false
+        ),
+        let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(maxReadFrames)) else {
+            return fallbackEnvelope(barCount: count)
+        }
+        do {
+            try file.read(into: buffer, frameCount: AVAudioFrameCount(maxReadFrames))
+        } catch {
+            return fallbackEnvelope(barCount: count)
+        }
+        let framesRead = Int(buffer.frameLength)
+        guard framesRead > 0, let channelData = buffer.floatChannelData?[0] else {
+            return fallbackEnvelope(barCount: count)
+        }
+
+        var bins = [Float](repeating: 0.14, count: count)
+        let framesPerBin = max(1, framesRead / count)
+        let strideStep = max(1, framesPerBin / 64)
+        var peakMax: Float = 0.001
+
+        for b in 0..<count {
+            let start = b * framesPerBin
+            let end = min(framesRead, start + framesPerBin)
+            guard end > start else { continue }
+            var sumSq: Float = 0
+            var n: Int = 0
+            var idx = start
+            while idx < end {
+                let s = channelData[idx]
+                sumSq += s * s
+                n += 1
+                idx += strideStep
+            }
+            let rms = n > 0 ? sqrt(sumSq / Float(n)) : 0
+            let shaped = pow(rms, 0.65)
+            bins[b] = shaped
+            if shaped > peakMax { peakMax = shaped }
+        }
+
+        let normalized = bins.map { val -> Float in
+            let norm = val / max(peakMax, 0.001)
+            return min(max(norm, 0.15), 1.0)
+        }
+
+        lock.lock()
+        if cache.count > 48 {
+            cache.removeAll()
+        }
+        cache[key] = normalized
+        lock.unlock()
+        return normalized
+    }
+
+    static func fallbackEnvelope(barCount: Int = 44) -> [Float] {
+        (0..<max(8, barCount)).map { idx in
+            let t = Double(idx) / Double(max(barCount - 1, 1))
+            let waveA = abs(sin(t * .pi * 3.5 + 0.4))
+            let waveB = abs(cos(t * .pi * 7.0 + 1.1)) * 0.55
+            let env = 0.35 + 0.65 * sin(t * .pi)
+            return Float(min(max(0.18 + (waveA * 0.55 + waveB * 0.35) * env, 0.18), 0.96))
+        }
+    }
+}
+
+extension Voice {
+    static func bundledStudioSamples() -> [(name: String, subtitle: String, url: URL)] {
+        let specs: [(String, String)] = [
+            ("Lily", "Warm Conversational Sample"),
+            ("Sophie", "Expressive Studio Narrator"),
+            ("James", "Deep Articulate Baritone")
+        ]
+        return specs.compactMap { name, sub in
+            guard let url = Bundle.main.url(forResource: name, withExtension: "wav") else { return nil }
+            return (name: name, subtitle: sub, url: url)
+        }
+    }
 }
 
 enum ReadAlongVideoAspect: String, CaseIterable, Identifiable {
@@ -2907,8 +3146,12 @@ enum WordTimingEngine {
     private static let boundsLock = NSLock()
     nonisolated(unsafe) private static var boundsCache: [String: (start: TimeInterval, end: TimeInterval)] = [:]
     nonisolated(unsafe) private static var fileTimingsCache: [String: [WordTiming]] = [:]
-    nonisolated(unsafe) private static var lastMasterWordsKey: String = ""
+    nonisolated(unsafe) private static var lastFileTimingsText: String = ""
+    nonisolated(unsafe) private static var lastMasterText: String = ""
+    nonisolated(unsafe) private static var lastMasterMaxChars: Int = -1
+    nonisolated(unsafe) private static var lastMasterEnableChunking: Bool = true
     nonisolated(unsafe) private static var lastMasterWords: [IndexedWordSpec] = []
+    nonisolated(unsafe) private static var lastEstText: String = ""
     nonisolated(unsafe) private static var lastEstTimingsKey: String = ""
     nonisolated(unsafe) private static var lastEstTimings: [WordTiming] = []
 
@@ -2918,9 +3161,8 @@ enum WordTimingEngine {
         enableChunking: Bool = true
     ) -> [IndexedWordSpec] {
         guard !text.isEmpty else { return [] }
-        let mKey = "\(text.count)|\(text.hashValue)|\(maxChunkChars)|\(enableChunking)"
         boundsLock.lock()
-        if mKey == lastMasterWordsKey {
+        if maxChunkChars == lastMasterMaxChars && enableChunking == lastMasterEnableChunking && text == lastMasterText {
             let hit = lastMasterWords
             boundsLock.unlock()
             return hit
@@ -2954,7 +3196,9 @@ enum WordTimingEngine {
             }
         }
         boundsLock.lock()
-        lastMasterWordsKey = mKey
+        lastMasterText = text
+        lastMasterMaxChars = maxChunkChars
+        lastMasterEnableChunking = enableChunking
         lastMasterWords = result
         boundsLock.unlock()
         return result
@@ -3030,23 +3274,25 @@ enum WordTimingEngine {
         let sr = max(8000.0, sampleRate)
         let totalSec = max(0.08, Double(samples.count) / sr)
 
-        // 1. Compute 10ms RMS energy envelope
+        // 1. Compute 10ms RMS energy envelope (SIMD vectorized via vDSP_measqv)
         let frameSamples = max(1, Int(floor(sr * 0.01)))
         let numFrames = max(1, Int(ceil(Double(samples.count) / Double(frameSamples))))
         var env = [Float](repeating: 0, count: numFrames)
         var maxEnv: Float = 0
 
-        for f in 0..<numFrames {
-            let start = f * frameSamples
-            let end = min(samples.count, start + frameSamples)
-            var sumSq: Float = 0
-            for i in start..<end {
-                let s = samples[i]
-                sumSq += s * s
+        samples.withUnsafeBufferPointer { buf in
+            guard let base = buf.baseAddress else { return }
+            for f in 0..<numFrames {
+                let start = f * frameSamples
+                let end = min(samples.count, start + frameSamples)
+                let len = end - start
+                guard len > 0 else { continue }
+                var meanSq: Float = 0
+                vDSP_measqv(base + start, 1, &meanSq, vDSP_Length(len))
+                let rms = sqrt(meanSq)
+                env[f] = rms
+                if rms > maxEnv { maxEnv = rms }
             }
-            let rms = sqrt(sumSq / Float(max(1, end - start)))
-            env[f] = rms
-            if rms > maxEnv { maxEnv = rms }
         }
 
         let voiceThresh = max(Float(0.003), maxEnv * 0.055)
@@ -3341,16 +3587,17 @@ enum WordTimingEngine {
         }
 
         // If we have a real WAV file on disk, run the full waveform-aligned DP + voiced-time algorithm (cached O(1))
-        if let audioURL, FileManager.default.fileExists(atPath: audioURL.path) {
-            let cacheKey = "\(audioURL.path)|\(masterWords.count)|\(safeStartChunk)|\(safeEndChunk ?? -1)|\(Int(duration * 100))"
+        if let audioURL {
+            let cacheKey = "\(audioURL.path)|\(masterWords.count)|\(maxChunkChars)|\(enableChunking)|\(safeStartChunk)|\(safeEndChunk ?? -1)|\(Int(duration * 100))"
             boundsLock.lock()
-            if let cached = fileTimingsCache[cacheKey] {
+            if text == lastFileTimingsText, let cached = fileTimingsCache[cacheKey] {
                 boundsLock.unlock()
                 return cached
             }
             boundsLock.unlock()
 
-            if let file = try? AVAudioFile(forReading: audioURL) {
+            if FileManager.default.fileExists(atPath: audioURL.path),
+               let file = try? AVAudioFile(forReading: audioURL) {
                 let sr = file.processingFormat.sampleRate
                 let totalFrames = file.length
                 // Align directly against the WAV PCM samples for files up to 15 minutes
@@ -3370,7 +3617,10 @@ enum WordTimingEngine {
                     result.sort { $0.id < $1.id }
 
                     boundsLock.lock()
-                    if fileTimingsCache.count > 32 { fileTimingsCache.removeAll() }
+                    if text != lastFileTimingsText || fileTimingsCache.count > 32 {
+                        fileTimingsCache.removeAll()
+                        lastFileTimingsText = text
+                    }
                     fileTimingsCache[cacheKey] = result
                     boundsLock.unlock()
                     return result
@@ -3379,9 +3629,9 @@ enum WordTimingEngine {
         }
 
         let totalDuration = max(duration, 0.25)
-        let estKey = "\(text.count)|\(text.hashValue)|\(audioURL?.path ?? "nil")|\(Int(totalDuration * 100))|\(maxChunkChars)|\(enableChunking)|\(safeStartChunk)|\(safeEndChunk ?? -1)|\(paragraphPauseMs)"
+        let estKey = "\(audioURL?.path ?? "nil")|\(Int(totalDuration * 100))|\(maxChunkChars)|\(enableChunking)|\(safeStartChunk)|\(safeEndChunk ?? -1)|\(paragraphPauseMs)"
         boundsLock.lock()
-        if estKey == lastEstTimingsKey {
+        if estKey == lastEstTimingsKey && text == lastEstText {
             let hit = lastEstTimings
             boundsLock.unlock()
             return hit
@@ -3451,6 +3701,7 @@ enum WordTimingEngine {
             cursor = end
         }
         boundsLock.lock()
+        lastEstText = text
         lastEstTimingsKey = estKey
         lastEstTimings = timings
         boundsLock.unlock()
@@ -3531,12 +3782,9 @@ enum WordTimingEngine {
             var i = 0
             while i < count {
                 let end = min(i + win, count)
-                var sum: Float = 0
-                for j in i..<end {
-                    let s = ptr[j]
-                    sum += s * s
-                }
-                let r = sqrt(sum / Float(end - i))
+                var meanSq: Float = 0
+                vDSP_measqv(ptr + i, 1, &meanSq, vDSP_Length(end - i))
+                let r = sqrt(meanSq)
                 vals.append(r)
                 if r > peak { peak = r }
                 i = end
@@ -3763,12 +4011,11 @@ enum SpeechAudioTrimmer {
             for w in 0..<numWins {
                 let start = w * win
                 let end = min(count, start + win)
-                var sumSq: Float = 0
-                for i in start..<end {
-                    let s = base[i]
-                    sumSq += s * s
-                }
-                let r = sqrt(sumSq / Float(max(1, end - start)))
+                let len = end - start
+                guard len > 0 else { continue }
+                var meanSq: Float = 0
+                vDSP_measqv(base + start, 1, &meanSq, vDSP_Length(len))
+                let r = sqrt(meanSq)
                 rms[w] = r
                 if r > peakRMS { peakRMS = r }
             }
@@ -3862,6 +4109,8 @@ enum AudioFormatExporter {
                 proc.arguments = ["-f", "WAVE", "-d", "LEI16", sourceWAV.path, destinationURL.path]
             }
             proc.standardInput = FileHandle.nullDevice
+            proc.standardOutput = FileHandle.nullDevice
+            proc.standardError = FileHandle.nullDevice
             try proc.run()
             proc.waitUntilExit()
             if proc.terminationStatus == 0 && FileManager.default.fileExists(atPath: destinationURL.path) {
@@ -4060,12 +4309,9 @@ enum VoiceBiometricsAnalyzer {
         var frameRms: [Double] = []
         var pos = 0
         while pos + frameSize <= n {
-            var sum: Double = 0
-            for i in 0..<frameSize {
-                let s = Double(channel[pos + i])
-                sum += s * s
-            }
-            frameRms.append(sqrt(sum / Double(frameSize)))
+            var meanSq: Float = 0
+            vDSP_measqv(channel + pos, 1, &meanSq, vDSP_Length(frameSize))
+            frameRms.append(sqrt(Double(meanSq)))
             pos += frameSize / 2
         }
         let sortedRms = frameRms.sorted()
@@ -4079,31 +4325,24 @@ enum VoiceBiometricsAnalyzer {
         var f0Candidates: [Double] = []
         pos = 0
         while pos + frameSize <= n && f0Candidates.count < 80 {
-            var energy: Double = 0
-            for i in 0..<frameSize {
-                let s = Double(channel[pos + i])
-                energy += s * s
-            }
-            let rms = sqrt(energy / Double(frameSize))
+            var meanSq: Float = 0
+            vDSP_measqv(channel + pos, 1, &meanSq, vDSP_Length(frameSize))
+            let rms = sqrt(Double(meanSq))
             if rms > noiseFloor * 2.2 {
                 var bestLag = 0
                 var bestCorr: Double = 0
                 var lag = minLag
                 let upperLag = min(maxLag, frameSize - 32)
                 while lag <= upperLag {
-                    var corr: Double = 0
-                    var e0: Double = 0
-                    var eLag: Double = 0
-                    let overlap = frameSize - lag
-                    for i in 0..<overlap {
-                        let a = Double(channel[pos + i])
-                        let b = Double(channel[pos + i + lag])
-                        corr += a * b
-                        e0 += a * a
-                        eLag += b * b
-                    }
-                    let denom = sqrt(max(e0 * eLag, 1e-12))
-                    let normCorr = corr / denom
+                    let overlap = vDSP_Length(frameSize - lag)
+                    var corrF: Float = 0
+                    var e0F: Float = 0
+                    var eLagF: Float = 0
+                    vDSP_dotpr(channel + pos, 1, channel + pos + lag, 1, &corrF, overlap)
+                    vDSP_svesq(channel + pos, 1, &e0F, overlap)
+                    vDSP_svesq(channel + pos + lag, 1, &eLagF, overlap)
+                    let denom = sqrt(max(Double(e0F) * Double(eLagF), 1e-12))
+                    let normCorr = Double(corrF) / denom
                     if normCorr > bestCorr {
                         bestCorr = normCorr
                         bestLag = lag
@@ -4375,6 +4614,8 @@ final class LocalhostServerManager {
         receiveHTTPRequest(on: connection, port: port, accumulated: Data())
     }
 
+    private nonisolated static let maxHTTPRequestBytes = 10 * 1024 * 1024
+
     private nonisolated func receiveHTTPRequest(on connection: NWConnection, port: UInt16, accumulated: Data) {
         connection.receive(minimumIncompleteLength: 1, maximumLength: 2 * 1024 * 1024) { [weak self] data, _, isComplete, error in
             guard let self else {
@@ -4385,11 +4626,19 @@ final class LocalhostServerManager {
             if let data, !data.isEmpty {
                 buffer.append(data)
             }
+            guard buffer.count <= Self.maxHTTPRequestBytes else {
+                connection.cancel()
+                return
+            }
 
             if let headerEnd = buffer.range(of: Data("\r\n\r\n".utf8)) {
                 let headerData = buffer.subdata(in: 0..<headerEnd.lowerBound)
                 let headerString = String(data: headerData, encoding: .utf8) ?? ""
                 let contentLength = Self.parseContentLength(from: headerString)
+                guard contentLength >= 0 && contentLength <= Self.maxHTTPRequestBytes else {
+                    connection.cancel()
+                    return
+                }
                 let bodyStart = headerEnd.upperBound
                 let receivedBodyBytes = buffer.count - bodyStart
 
@@ -4402,7 +4651,7 @@ final class LocalhostServerManager {
                 Task { @MainActor in
                     await self.dispatchHTTP(headerString: headerString, body: bodyData, connection: connection, port: port)
                 }
-            } else if !isComplete && error == nil && buffer.count < 10 * 1024 * 1024 {
+            } else if !isComplete && error == nil && buffer.count < 64 * 1024 {
                 self.receiveHTTPRequest(on: connection, port: port, accumulated: buffer)
             } else {
                 connection.cancel()
@@ -4414,11 +4663,38 @@ final class LocalhostServerManager {
         for line in header.components(separatedBy: "\r\n") {
             let parts = line.split(separator: ":", maxSplits: 1)
             if parts.count == 2, parts[0].trimmingCharacters(in: .whitespaces).lowercased() == "content-length" {
-                return Int(parts[1].trimmingCharacters(in: .whitespaces)) ?? 0
+                return Int(parts[1].trimmingCharacters(in: .whitespaces)) ?? -1
             }
         }
         return 0
     }
+
+    private nonisolated static func parseOriginHeader(from header: String) -> String? {
+        for line in header.components(separatedBy: "\r\n") {
+            let parts = line.split(separator: ":", maxSplits: 1)
+            if parts.count == 2, parts[0].trimmingCharacters(in: .whitespaces).lowercased() == "origin" {
+                let val = parts[1].trimmingCharacters(in: .whitespaces)
+                return val.isEmpty ? nil : val
+            }
+        }
+        return nil
+    }
+
+    private nonisolated static func isAllowedLocalOrigin(_ origin: String?) -> Bool {
+        guard let origin = origin?.lowercased(), !origin.isEmpty else { return true }
+        if origin == "null" || origin.hasPrefix("file://") || origin.hasPrefix("app://") || origin.hasPrefix("tauri://") {
+            return true
+        }
+        guard let components = URLComponents(string: origin),
+              let host = components.host?.lowercased() else {
+            return false
+        }
+        return host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "[::1]"
+    }
+
+    private static let allowedAudioExtensions: Set<String> = [
+        "wav", "mp3", "m4a", "flac", "ogg", "opus", "aac", "aiff", "aif", "caf", "mp4", "webm"
+    ]
 
     private func dispatchHTTP(headerString: String, body: Data, connection: NWConnection, port: UInt16) async {
         let startTime = CFAbsoluteTimeGetCurrent()
@@ -4427,9 +4703,16 @@ final class LocalhostServerManager {
         let method = tokens.first.map(String.init) ?? "GET"
         let rawPath = tokens.dropFirst().first.map(String.init) ?? "/"
         let path = rawPath.components(separatedBy: "?").first ?? "/"
+        let origin = Self.parseOriginHeader(from: headerString)
+
+        guard Self.isAllowedLocalOrigin(origin) else {
+            let errBody = (try? JSONSerialization.data(withJSONObject: ["error": "Cross-origin requests from external websites are forbidden"])) ?? Data()
+            sendResponse(connection: connection, status: 403, contentType: "application/json", body: errBody, allowedOrigin: nil)
+            return
+        }
 
         if method == "OPTIONS" {
-            sendResponse(connection: connection, status: 204, contentType: "text/plain", body: Data())
+            sendResponse(connection: connection, status: 204, contentType: "text/plain", body: Data(), allowedOrigin: origin)
             return
         }
 
@@ -4694,12 +4977,9 @@ final class LocalhostServerManager {
                     audioURL = tempAudio
                     cleanupTemp = true
                 } else if let rawFileStr = json["file"] as? String {
-                    let expanded = (rawFileStr as NSString).expandingTildeInPath
-                    if FileManager.default.fileExists(atPath: expanded) {
-                        audioURL = URL(fileURLWithPath: expanded)
-                    } else if rawFileStr.contains("base64,"),
-                              let b64Part = rawFileStr.components(separatedBy: "base64,").last,
-                              let decoded = Data(base64Encoded: b64Part, options: .ignoreUnknownCharacters) {
+                    if rawFileStr.contains("base64,"),
+                       let b64Part = rawFileStr.components(separatedBy: "base64,").last,
+                       let decoded = Data(base64Encoded: b64Part, options: .ignoreUnknownCharacters) {
                         let tempAudio = FileManager.default.temporaryDirectory.appendingPathComponent("localhost_stt_\(UUID().uuidString).wav")
                         try decoded.write(to: tempAudio)
                         audioURL = tempAudio
@@ -4708,10 +4988,32 @@ final class LocalhostServerManager {
                               rawFileStr == "/tmp/hello.wav" {
                         audioURL = fallbackSample
                     } else {
-                        status = 400
-                        responseData = try JSONSerialization.data(withJSONObject: ["error": "Audio file not found at path: \(rawFileStr)"])
-                        logSummary = "400 File not found (\(rawFileStr))"
-                        break
+                        guard !rawFileStr.contains("\0") && !rawFileStr.components(separatedBy: "/").contains("..") else {
+                            status = 400
+                            responseData = try JSONSerialization.data(withJSONObject: ["error": "Invalid audio file path"])
+                            logSummary = "400 Invalid file path"
+                            break
+                        }
+                        let expanded = (rawFileStr as NSString).expandingTildeInPath
+                        let candidateURL = URL(fileURLWithPath: expanded).standardizedFileURL
+                        let ext = candidateURL.pathExtension.lowercased()
+                        guard Self.allowedAudioExtensions.contains(ext) else {
+                            status = 400
+                            responseData = try JSONSerialization.data(withJSONObject: ["error": "Unsupported audio file extension: .\(ext)"])
+                            logSummary = "400 Unsupported audio extension"
+                            break
+                        }
+                        var isDir: ObjCBool = false
+                        if FileManager.default.fileExists(atPath: candidateURL.path, isDirectory: &isDir), !isDir.boolValue,
+                           let vals = try? candidateURL.resourceValues(forKeys: [.isRegularFileKey]),
+                           vals.isRegularFile == true {
+                            audioURL = candidateURL
+                        } else {
+                            status = 400
+                            responseData = try JSONSerialization.data(withJSONObject: ["error": "Audio file not found at path: \(rawFileStr)"])
+                            logSummary = "400 File not found (\(rawFileStr))"
+                            break
+                        }
                     }
                 } else {
                     let tempAudio = FileManager.default.temporaryDirectory.appendingPathComponent("localhost_stt_\(UUID().uuidString).wav")
@@ -4766,10 +5068,10 @@ final class LocalhostServerManager {
                 let json = (try? JSONSerialization.jsonObject(with: body) as? [String: Any]) ?? [:]
                 let rawTarget = ((json["name"] as? String) ?? (json["model"] as? String) ?? (json["id"] as? String) ?? "")
                     .trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !rawTarget.isEmpty else {
+                guard !rawTarget.isEmpty && ModelCacheHelper.isValidRepoId(rawTarget) else {
                     status = 400
-                    responseData = try JSONSerialization.data(withJSONObject: ["error": "Missing 'model' or 'name' parameter to delete"])
-                    logSummary = "400 Missing model to delete"
+                    responseData = try JSONSerialization.data(withJSONObject: ["error": "Invalid or missing 'model' or 'name' parameter to delete"])
+                    logSummary = "400 Invalid model to delete"
                     break
                 }
                 if cachedTTSModelId == rawTarget {
@@ -4855,7 +5157,7 @@ final class LocalhostServerManager {
             requestLogs.removeLast(requestLogs.count - 100)
         }
 
-        sendResponse(connection: connection, status: status, contentType: contentType, body: responseData)
+        sendResponse(connection: connection, status: status, contentType: contentType, body: responseData, allowedOrigin: origin)
     }
 
     private func resolveTTSRepo(from requested: String) -> String {
@@ -4918,22 +5220,25 @@ final class LocalhostServerManager {
         return "FermionResearch/Phonon-2.5-English"
     }
 
-    private nonisolated func sendResponse(connection: NWConnection, status: Int, contentType: String, body: Data) {
+    private nonisolated func sendResponse(connection: NWConnection, status: Int, contentType: String, body: Data, allowedOrigin: String?) {
         let statusText: String
         switch status {
         case 200: statusText = "OK"
         case 204: statusText = "No Content"
         case 400: statusText = "Bad Request"
+        case 403: statusText = "Forbidden"
         case 404: statusText = "Not Found"
         default: statusText = "Internal Server Error"
         }
 
+        let corsOrigin = allowedOrigin ?? "http://127.0.0.1"
         let header = [
             "HTTP/1.1 \(status) \(statusText)",
             "Content-Type: \(contentType)",
             "Content-Length: \(body.count)",
-            "Access-Control-Allow-Origin: *",
-            "Access-Control-Allow-Methods: GET, POST, OPTIONS",
+            "Access-Control-Allow-Origin: \(corsOrigin)",
+            "Vary: Origin",
+            "Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS",
             "Access-Control-Allow-Headers: Content-Type, Authorization",
             "Connection: close",
             "",
@@ -5238,16 +5543,14 @@ final class StudioPackageManager {
         proc.executableURL = URL(fileURLWithPath: executable)
         proc.arguments = args
         proc.standardInput = FileHandle.nullDevice
-        let outPipe = Pipe()
-        let errPipe = Pipe()
-        proc.standardOutput = outPipe
-        proc.standardError = errPipe
+        let pipe = Pipe()
+        proc.standardOutput = pipe
+        proc.standardError = pipe
         do {
             try proc.run()
-            let outData = outPipe.fileHandleForReading.readDataToEndOfFile()
-            let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
+            let outData = pipe.fileHandleForReading.readDataToEndOfFile()
             proc.waitUntilExit()
-            let combined = (String(data: outData, encoding: .utf8) ?? "") + "\n" + (String(data: errData, encoding: .utf8) ?? "")
+            let combined = String(data: outData, encoding: .utf8) ?? ""
             let firstLine = combined
                 .components(separatedBy: .newlines)
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -5263,11 +5566,18 @@ final class StudioPackageManager {
         }
     }
 
+    private static func shellSingleQuote(_ str: String) -> String {
+        "'" + str.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
     /// Launches the official Homebrew installation script inside macOS Terminal.app so the user can enter their sudo password once.
     func installHomebrewInTerminal() {
         #if os(macOS)
+        let tempScript = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Install_Homebrew_Codecaine_\(UUID().uuidString).command")
         let scriptContent = """
         #!/bin/bash
+        rm -f \(Self.shellSingleQuote(tempScript.path))
         clear
         echo "=================================================================="
         echo "  Codecaine Studio — Official Homebrew Package Manager Installer"
@@ -5278,10 +5588,9 @@ final class StudioPackageManager {
         echo "✅ Homebrew installation finished! Return to Voices Studio and click 'Check Again'."
         exec /bin/zsh -l
         """
-        let tempScript = FileManager.default.temporaryDirectory.appendingPathComponent("Install_Homebrew_Codecaine.command")
         do {
             try scriptContent.write(to: tempScript, atomically: true, encoding: .utf8)
-            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tempScript.path)
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: tempScript.path)
             NSWorkspace.shared.open(tempScript)
             consoleLog += "[\(Date().formatted(date: .omitted, time: .standard))] Opened macOS Terminal.app with official Homebrew installer.\n"
         } catch {
@@ -5293,13 +5602,19 @@ final class StudioPackageManager {
     /// Runs any shell command inside macOS Terminal.app
     func runCommandInTerminal(_ command: String, title: String) {
         #if os(macOS)
+        let safeName = title.replacingOccurrences(of: "[^a-zA-Z0-9_-]", with: "_", options: .regularExpression)
+        let tempScript = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Codecaine_\(safeName)_\(UUID().uuidString).command")
+        let quotedTitle = Self.shellSingleQuote("  Codecaine Studio — \(title)")
+        let quotedCmdEcho = Self.shellSingleQuote("  $ \(command)")
         let scriptContent = """
         #!/bin/bash
+        rm -f \(Self.shellSingleQuote(tempScript.path))
         export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
         clear
         echo "=================================================================="
-        echo "  Codecaine Studio — \(title)"
-        echo "  $ \(command)"
+        echo \(quotedTitle)
+        echo \(quotedCmdEcho)
         echo "=================================================================="
         echo ""
         \(command)
@@ -5307,11 +5622,9 @@ final class StudioPackageManager {
         echo "✅ Done! Return to Voices Studio and click 'Check Again'."
         exec /bin/zsh -l
         """
-        let safeName = title.replacingOccurrences(of: "[^a-zA-Z0-9_-]", with: "_", options: .regularExpression)
-        let tempScript = FileManager.default.temporaryDirectory.appendingPathComponent("Codecaine_\(safeName).command")
         do {
             try scriptContent.write(to: tempScript, atomically: true, encoding: .utf8)
-            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tempScript.path)
+            try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: tempScript.path)
             NSWorkspace.shared.open(tempScript)
         } catch {
             consoleLog += "Failed to open Terminal: \(error.localizedDescription)\n"

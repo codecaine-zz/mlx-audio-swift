@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 #if os(macOS)
 import AppKit
 #endif
@@ -280,14 +281,37 @@ struct VoicesApp: App {
                 .onAppear {
                     DispatchQueue.main.async {
                         StudioBrandIconLoader.applyDockIcon()
+                        NSApplication.shared.activate(ignoringOtherApps: true)
                         for window in NSApplication.shared.windows {
                             window.title = "Codecaine MLX RAD AI Audio Studio"
-                            if window.frame.width < 1160 || window.frame.height < 800 {
+                            if window.frame.width < 1340 || window.frame.height < 840 {
                                 var frame = window.frame
-                                frame.size.width = max(frame.size.width, 1200)
-                                frame.size.height = max(frame.size.height, 840)
+                                frame.size.width = max(frame.size.width, 1380)
+                                frame.size.height = max(frame.size.height, 880)
                                 window.setFrame(frame, display: true, animate: false)
                                 window.center()
+                            }
+                            window.makeKeyAndOrderFront(nil)
+                        }
+                        let args = ProcessInfo.processInfo.arguments
+                        if let snapIdx = args.firstIndex(of: "--snapshot-out"), snapIdx + 1 < args.count {
+                            let outPath = args[snapIdx + 1]
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
+                                if let window = NSApplication.shared.windows.first(where: { $0.frame.width > 400 }),
+                                   let contentView = window.contentView {
+                                    if window.frame.width < 1380 || window.frame.height < 880 {
+                                        window.setContentSize(NSSize(width: 1400, height: 900))
+                                    }
+                                    contentView.layoutSubtreeIfNeeded()
+                                    let bounds = contentView.bounds
+                                    if let rep = contentView.bitmapImageRepForCachingDisplay(in: bounds) {
+                                        contentView.cacheDisplay(in: bounds, to: rep)
+                                        if let pngData = rep.representation(using: .png, properties: [:]) {
+                                            try? pngData.write(to: URL(fileURLWithPath: outPath))
+                                        }
+                                    }
+                                }
+                                NSApplication.shared.terminate(nil)
                             }
                         }
                     }
@@ -296,7 +320,53 @@ struct VoicesApp: App {
         }
         #if os(macOS)
         .windowStyle(.hiddenTitleBar)
-        .defaultSize(width: 1200, height: 840)
+        .defaultSize(width: 1380, height: 880)
+        .commands {
+            CommandMenu("Studio") {
+                Button("Voice Studio (TTS & Cloning)") {
+                    selectedTab = 0
+                }
+                .keyboardShortcut("1", modifiers: .command)
+
+                Button("Transcribe (Speech to Text)") {
+                    selectedTab = 1
+                }
+                .keyboardShortcut("2", modifiers: .command)
+
+                Button("Audio Lab (Stems, Denoise & LID)") {
+                    selectedTab = 2
+                }
+                .keyboardShortcut("3", modifiers: .command)
+
+                Button("Localhost API Server") {
+                    selectedTab = 3
+                }
+                .keyboardShortcut("4", modifiers: .command)
+
+                Button("Packages & Downloaded Models") {
+                    selectedTab = 4
+                }
+                .keyboardShortcut("5", modifiers: .command)
+
+                Divider()
+
+                Menu("Studio & Read-Along Theme") {
+                    ForEach(ReadAlongTheme.allCases) { item in
+                        Button(item.label) {
+                            UserDefaults.standard.set(item.rawValue, forKey: "VoicesApp.TTSViewModel.readAlongTheme")
+                        }
+                    }
+                }
+
+                Divider()
+
+                Button("Purge Metal GPU VRAM Cache") {
+                    HardwareGuardInspector.purgeGPUCache()
+                    LocalhostServerManager.shared.unloadAllModelsAndPurgeVRAM()
+                }
+                .keyboardShortcut("k", modifiers: [.command, .shift])
+            }
+        }
         #endif
     }
 }
@@ -308,6 +378,9 @@ struct StudioWorkspaceTab: Identifiable {
     let title: String
     let subtitle: String
     let icon: String
+    var shortcutKey: KeyEquivalent {
+        KeyEquivalent(Character("\(id + 1)"))
+    }
 }
 
 struct AppleStudioShellView: View {
@@ -318,6 +391,7 @@ struct AppleStudioShellView: View {
     @State private var visitedTabs: Set<Int> = []
     @State private var showIconShowcase: Bool = ProcessInfo.processInfo.arguments.contains("--show-icon-showcase")
     @Namespace private var tabNamespace
+    private let telemetryTimer = Timer.publish(every: 4.0, on: .main, in: .common).autoconnect()
 
     private var activeTheme: ReadAlongTheme {
         ReadAlongTheme(rawValue: rawStudioTheme) ?? .midnight
@@ -387,7 +461,7 @@ struct AppleStudioShellView: View {
                                     selectedTab = tab.id
                                 }
                             } label: {
-                                HStack(spacing: 7) {
+                                HStack(spacing: 6) {
                                     Image(systemName: tab.icon)
                                         .font(.system(size: 12, weight: isSelected ? .semibold : .medium))
                                         .foregroundStyle(isSelected ? theme.activeWordForeground : .secondary)
@@ -395,8 +469,18 @@ struct AppleStudioShellView: View {
                                     Text(tab.title)
                                         .font(.system(size: 12, weight: isSelected ? .semibold : .medium))
                                         .foregroundStyle(isSelected ? theme.activeWordForeground : .primary.opacity(0.82))
+
+                                    Text("⌘\(tab.id + 1)")
+                                        .font(.system(size: 9.5, weight: .bold, design: .rounded))
+                                        .foregroundStyle(isSelected ? theme.activeWordForeground.opacity(0.82) : .secondary.opacity(0.65))
+                                        .padding(.horizontal, 4.5)
+                                        .padding(.vertical, 1)
+                                        .background(
+                                            Capsule()
+                                                .fill(isSelected ? theme.activeWordForeground.opacity(0.15) : Color.primary.opacity(0.06))
+                                        )
                                 }
-                                .padding(.horizontal, 11)
+                                .padding(.horizontal, 10)
                                 .padding(.vertical, 6.5)
                                 .background {
                                     if isSelected {
@@ -422,6 +506,8 @@ struct AppleStudioShellView: View {
                                 .contentShape(Capsule())
                             }
                             .buttonStyle(.plain)
+                            .keyboardShortcut(tab.shortcutKey, modifiers: .command)
+                            .help("\(tab.title) — \(tab.subtitle) (⌘\(tab.id + 1))")
                         }
                     }
                     .padding(4)
@@ -504,9 +590,18 @@ struct AppleStudioShellView: View {
                             Divider()
                                 .frame(height: 12)
 
-                            Text(String(format: "%.0f GB", hardware.safeBudgetGB))
-                                .font(.system(size: 11, weight: .medium))
+                            HStack(spacing: 4) {
+                                Image(systemName: "memorychip")
+                                    .font(.system(size: 9.5, weight: .semibold))
+                                    .foregroundStyle(theme.activeWordBackground)
+                                Text(
+                                    hardware.activeMetalMB >= 10
+                                        ? String(format: "%.0f MB / %.0f GB", hardware.activeMetalMB, hardware.safeBudgetGB)
+                                        : String(format: "%.0f GB Guard", hardware.safeBudgetGB)
+                                )
+                                .font(.system(size: 10.5, weight: .medium, design: .monospaced))
                                 .foregroundStyle(.secondary)
+                            }
                         }
                         .padding(.horizontal, 11)
                         .padding(.vertical, 6)
@@ -521,7 +616,7 @@ struct AppleStudioShellView: View {
                     }
                     .buttonStyle(.plain)
                     .fixedSize()
-                    .help("Standalone Localhost API active on ports 8080, 11434 (Ollama), and 1234 (LM Studio)")
+                    .help("Standalone Localhost API active on ports 8080, 11434 (Ollama), and 1234 (LM Studio) · Click to inspect VRAM & endpoints (⌘4)")
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 28)
@@ -578,6 +673,13 @@ struct AppleStudioShellView: View {
         .preferredColorScheme(theme.colorScheme)
         .onChange(of: selectedTab) { _, newTab in
             visitedTabs.insert(newTab)
+            hardware = HardwareGuardInspector.inspect()
+        }
+        .onReceive(telemetryTimer) { _ in
+            hardware = HardwareGuardInspector.inspect()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .modelCacheDidChange)) { _ in
+            hardware = HardwareGuardInspector.inspect()
         }
         .onReceive(NotificationCenter.default.publisher(for: .sendTranscriptToVoiceStudio)) { _ in
             visitedTabs.insert(0)

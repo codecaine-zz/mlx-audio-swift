@@ -10,18 +10,59 @@ import MLX
 
 // MARK: - Mel Spectrogram Computation
 
+private struct WindowCacheKey: Hashable {
+    let kind: UInt8 // 0 = hanning, 1 = hamming
+    let size: Int
+    let periodic: Bool
+}
+
+private struct MelFilterCacheKey: Hashable {
+    let sampleRate: Int
+    let nFft: Int
+    let nMels: Int
+    let fMinBits: UInt32
+    let fMaxBits: UInt32
+    let norm: String?
+    let isSlaneyScale: Bool
+}
+
+private enum DSPCache {
+    static let lock = NSLock()
+    nonisolated(unsafe) static var windows: [WindowCacheKey: MLXArray] = [:]
+    nonisolated(unsafe) static var melFilters: [MelFilterCacheKey: MLXArray] = [:]
+    nonisolated(unsafe) static var reverseIndices: [Int: MLXArray] = [:]
+}
 
 /// Create a Hanning window of given size.
 /// `periodic: true` matches `torch.hann_window` (librosa/Whisper default);
 /// the previous symmetric-only form is kept as default for compatibility.
 public func hanningWindow(size: Int, periodic: Bool = false) -> MLXArray {
-    let effectiveSize = periodic ? size + 1 : size
-    let denom = Float(effectiveSize - 1)
-    var window = [Float](repeating: 0, count: size)
-    for n in 0..<size {
-        window[n] = 0.5 * (1 - cos(2 * Float.pi * Float(n) / denom))
+    guard size > 0 else { return MLXArray.zeros([0], type: Float.self) }
+    if size == 1 { return MLXArray([Float(1.0)]) }
+
+    let key = WindowCacheKey(kind: 0, size: size, periodic: periodic)
+    DSPCache.lock.lock()
+    if let cached = DSPCache.windows[key] {
+        DSPCache.lock.unlock()
+        return cached
     }
-    return MLXArray(window)
+    DSPCache.lock.unlock()
+
+    let effectiveSize = periodic ? size + 1 : size
+    let invDenom = (2.0 * Float.pi) / Float(effectiveSize - 1)
+    let window = [Float](unsafeUninitializedCapacity: size) { buffer, initializedCount in
+        for n in 0..<size {
+            buffer[n] = 0.5 * (1.0 - cos(Float(n) * invDenom))
+        }
+        initializedCount = size
+    }
+    let array = MLXArray(window)
+    eval(array)
+
+    DSPCache.lock.lock()
+    DSPCache.windows[key] = array
+    DSPCache.lock.unlock()
+    return array
 }
 
 /// Create a Hamming window of given size.
@@ -29,23 +70,33 @@ public func hammingWindow(size: Int, periodic: Bool = true) -> MLXArray {
     guard size > 0 else { return MLXArray.zeros([0], type: Float.self) }
     if size == 1 { return MLXArray([Float(1.0)]) }
 
+    let key = WindowCacheKey(kind: 1, size: size, periodic: periodic)
+    DSPCache.lock.lock()
+    if let cached = DSPCache.windows[key] {
+        DSPCache.lock.unlock()
+        return cached
+    }
+    DSPCache.lock.unlock()
+
     let effectiveSize = periodic ? size + 1 : size
-    let denom = Float(effectiveSize - 1)
-
-    var values = [Float](repeating: 0, count: effectiveSize)
-    for n in 0..<effectiveSize {
-        let phase = 2.0 * Float.pi * Float(n) / denom
-        values[n] = 0.54 - 0.46 * cos(phase)
+    let invDenom = (2.0 * Float.pi) / Float(effectiveSize - 1)
+    let values = [Float](unsafeUninitializedCapacity: size) { buffer, initializedCount in
+        for n in 0..<size {
+            buffer[n] = 0.54 - 0.46 * cos(Float(n) * invDenom)
+        }
+        initializedCount = size
     }
+    let array = MLXArray(values)
+    eval(array)
 
-    if periodic {
-        return MLXArray(Array(values.prefix(size)))
-    }
-    return MLXArray(values)
+    DSPCache.lock.lock()
+    DSPCache.windows[key] = array
+    DSPCache.lock.unlock()
+    return array
 }
 
 /// Mel scale variants for filterbank computation.
-public enum MelScale {
+public enum MelScale: Hashable, Sendable {
     /// HTK formula: mel = 2595 * log10(1 + f/700)
     case htk
     /// Slaney (Auditory Toolbox): linear below 1000 Hz, logarithmic above
@@ -53,7 +104,7 @@ public enum MelScale {
 }
 
 /// Padding mode for STFT.
-public enum PadMode {
+public enum PadMode: Hashable, Sendable {
     /// Reflect padding (default, used by Whisper)
     case reflect
     /// Zero (constant) padding (used by NeMo/Sortformer)
@@ -86,13 +137,32 @@ public func melFilters(
     melScale: MelScale = .htk
 ) -> MLXArray {
     let fMaxVal = fMax ?? Float(sampleRate) / 2.0
+    let key = MelFilterCacheKey(
+        sampleRate: sampleRate,
+        nFft: nFft,
+        nMels: nMels,
+        fMinBits: fMin.bitPattern,
+        fMaxBits: fMaxVal.bitPattern,
+        norm: norm,
+        isSlaneyScale: melScale == .slaney
+    )
+
+    DSPCache.lock.lock()
+    if let cached = DSPCache.melFilters[key] {
+        DSPCache.lock.unlock()
+        return cached
+    }
+    DSPCache.lock.unlock()
 
     let nFreqs = nFft / 2 + 1
 
     // Generate frequency points
-    var allFreqs = [Float](repeating: 0, count: nFreqs)
-    for i in 0..<nFreqs {
-        allFreqs[i] = Float(i) * Float(sampleRate) / Float(nFft)
+    let freqScale = Float(sampleRate) / Float(nFft)
+    let allFreqs = [Float](unsafeUninitializedCapacity: nFreqs) { buffer, initializedCount in
+        for i in 0..<nFreqs {
+            buffer[i] = Float(i) * freqScale
+        }
+        initializedCount = nFreqs
     }
 
     // Mel scale conversion functions
@@ -130,54 +200,84 @@ public func melFilters(
     // Convert to mel scale and back
     let mMin = hzToMel(fMin)
     let mMax = hzToMel(fMaxVal)
+    let mStep = (mMax - mMin) / Float(nMels + 1)
 
-    var mPts = [Float](repeating: 0, count: nMels + 2)
-    for i in 0..<(nMels + 2) {
-        mPts[i] = mMin + Float(i) * (mMax - mMin) / Float(nMels + 1)
+    let fPts = [Float](unsafeUninitializedCapacity: nMels + 2) { buffer, initializedCount in
+        for i in 0..<(nMels + 2) {
+            buffer[i] = melToHz(mMin + Float(i) * mStep)
+        }
+        initializedCount = nMels + 2
     }
 
-    let fPts = mPts.map { melToHz($0) }
-
-    // Compute filterbank
-    var filterbank = [[Float]](repeating: [Float](repeating: 0, count: nMels), count: nFreqs)
-
-    for i in 0..<nFreqs {
+    // Compute flat filterbank [nFreqs, nMels] in a single allocation with fused normalization
+    let useSlaneyNorm = (norm == "slaney")
+    var flatFilters = [Float](repeating: 0, count: nFreqs * nMels)
+    flatFilters.withUnsafeMutableBufferPointer { buf in
         for j in 0..<nMels {
             let low = fPts[j]
             let center = fPts[j + 1]
             let high = fPts[j + 2]
+            let enorm: Float = useSlaneyNorm ? (2.0 / (high - low)) : 1.0
+            let invLower = center > low ? (enorm / (center - low)) : 0
+            let invUpper = high > center ? (enorm / (high - center)) : 0
 
-            if allFreqs[i] >= low && allFreqs[i] < center {
-                filterbank[i][j] = (allFreqs[i] - low) / (center - low)
-            } else if allFreqs[i] >= center && allFreqs[i] <= high {
-                filterbank[i][j] = (high - allFreqs[i]) / (high - center)
-            }
-        }
-    }
-
-    // Apply slaney normalization
-    if norm == "slaney" {
-        for j in 0..<nMels {
-            let enorm = 2.0 / (fPts[j + 2] - fPts[j])
             for i in 0..<nFreqs {
-                filterbank[i][j] *= enorm
+                let freq = allFreqs[i]
+                if freq < low { continue }
+                if freq > high { break }
+                if freq < center {
+                    buf[i * nMels + j] = (freq - low) * invLower
+                } else {
+                    buf[i * nMels + j] = (high - freq) * invUpper
+                }
             }
         }
     }
 
-    // Convert to MLXArray [nFreqs, nMels]
-    let flatFilters = filterbank.flatMap { $0 }
-    return MLXArray(flatFilters).reshaped([nFreqs, nMels])
+    let result = MLXArray(flatFilters).reshaped([nFreqs, nMels])
+    eval(result)
+
+    DSPCache.lock.lock()
+    DSPCache.melFilters[key] = result
+    DSPCache.lock.unlock()
+    return result
 }
 
-/// Reverse an array along the first axis using slicing.
+/// Reverse an array along the first axis using cached GPU index gather.
 private func reverseArray(_ arr: MLXArray) -> MLXArray {
     let len = arr.shape[0]
-    var indices = [Int](repeating: 0, count: len)
-    for i in 0..<len {
-        indices[i] = len - 1 - i
+    guard len > 1 else { return arr }
+
+    if len <= 4096 {
+        DSPCache.lock.lock()
+        if let cachedIdx = DSPCache.reverseIndices[len] {
+            DSPCache.lock.unlock()
+            return arr[cachedIdx]
+        }
+        DSPCache.lock.unlock()
+
+        let indices = [Int32](unsafeUninitializedCapacity: len) { buffer, initializedCount in
+            for i in 0..<len {
+                buffer[i] = Int32(len - 1 - i)
+            }
+            initializedCount = len
+        }
+        let idxArray = MLXArray(indices)
+        eval(idxArray)
+
+        DSPCache.lock.lock()
+        DSPCache.reverseIndices[len] = idxArray
+        DSPCache.lock.unlock()
+        return arr[idxArray]
     }
-    return arr[MLXArray(indices.map { Int32($0) })]
+
+    let indices = [Int32](unsafeUninitializedCapacity: len) { buffer, initializedCount in
+        for i in 0..<len {
+            buffer[i] = Int32(len - 1 - i)
+        }
+        initializedCount = len
+    }
+    return arr[MLXArray(indices)]
 }
 
 /// Short-time Fourier Transform.
@@ -194,20 +294,21 @@ public func stft(
 
     let padded: MLXArray
     switch padMode {
-    case .reflect:
+    case .reflect where audioLen > 1:
         // Reflect padding: reverse slices at both ends
-        let prefixSlice = audio[1..<(min(padding + 1, audioLen))]
+        let prefixEnd = min(padding + 1, audioLen)
+        let prefixSlice = audio[1..<prefixEnd]
         let prefix = reverseArray(prefixSlice)
 
         let suffixStart = max(0, audioLen - padding - 1)
-        let suffixEnd = max(1, audioLen - 1)
+        let suffixEnd = max(suffixStart + 1, audioLen - 1)
         let suffixSlice = audio[suffixStart..<suffixEnd]
         let suffix = reverseArray(suffixSlice)
 
         padded = MLX.concatenated([prefix, audio, suffix])
 
-    case .constant:
-        // Zero padding
+    case .reflect, .constant:
+        // Zero padding (or fallback when audioLen <= 1)
         let prefix = MLXArray.zeros([padding])
         let suffix = MLXArray.zeros([padding])
         padded = MLX.concatenated([prefix, audio, suffix])
@@ -215,7 +316,7 @@ public func stft(
 
     // Calculate number of frames
     let paddedLen = padded.shape[0]
-    let numFrames = 1 + (paddedLen - nFft) / hopLength
+    let numFrames = max(1, 1 + (paddedLen - nFft) / hopLength)
 
     // Create frames using strided view — zero-copy, no per-frame loop
     let framesStacked = asStrided(padded, [numFrames, nFft], strides: [hopLength, 1], offset: 0)
@@ -244,7 +345,7 @@ public func computeMelSpectrogram(
 ) -> MLXArray {
     // If audio is 1D, compute proper mel spectrogram
     if audio.ndim == 1 {
-        // Create Hanning window
+        // Create cached Hanning window
         let window = hanningWindow(size: nFft, periodic: hannPeriodic)
 
         // Compute STFT
@@ -256,9 +357,8 @@ public func computeMelSpectrogram(
         let numFrames = freqs.dim(0)
         let kept = numFrames > 1 ? freqs[0..<(numFrames - 1)] : freqs
         let magnitudes = MLX.abs(kept).square()
-        eval(magnitudes)  // Allow MLX to free STFT complex output
 
-        // Create mel filterbank [nFreqs, nMels]
+        // Retrieve cached mel filterbank [nFreqs, nMels]
         let filters = melFilters(
             sampleRate: sampleRate,
             nFft: nFft,
@@ -269,7 +369,6 @@ public func computeMelSpectrogram(
 
         // Apply mel filterbank: [numFrames, nFreqs] @ [nFreqs, nMels] = [numFrames, nMels]
         var melSpec = MLX.matmul(magnitudes, filters)
-        eval(melSpec)  // Allow MLX to free magnitudes and filters
 
         // Apply log scaling with clamping (Whisper-style normalization)
         melSpec = MLX.maximum(melSpec, MLXArray(Float(1e-10)))

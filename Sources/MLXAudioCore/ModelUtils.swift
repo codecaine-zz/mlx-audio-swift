@@ -248,13 +248,28 @@ public enum ModelUtils {
         repoID: Repo.ID,
         cache: HubCache = .default
     ) -> Bool {
+        let rawDesc = repoID.description
+        guard !rawDesc.isEmpty,
+              !rawDesc.contains(".."),
+              !rawDesc.contains("\\"),
+              !rawDesc.contains("\0"),
+              !rawDesc.hasPrefix("/") else {
+            return false
+        }
         let fm = FileManager.default
-        let modelSubdir = repoID.description.replacingOccurrences(of: "/", with: "_")
+        let cacheRootPath = cache.cacheDirectory.standardizedFileURL.path
+        let modelSubdir = rawDesc.replacingOccurrences(of: "/", with: "_")
+        guard !modelSubdir.isEmpty, modelSubdir != ".", modelSubdir != ".." else {
+            return false
+        }
         let modelDir = cache.cacheDirectory
             .appendingPathComponent("mlx-audio")
             .appendingPathComponent(modelSubdir)
         let hubRepoDir = cache.repoDirectory(repo: repoID, kind: .model)
         let hubRepoName = hubRepoDir.lastPathComponent
+        guard !hubRepoName.isEmpty, hubRepoName != ".", hubRepoName != "..", !hubRepoName.contains("..") else {
+            return false
+        }
         let metadataDir = cache.cacheDirectory.appendingPathComponent(".metadata").appendingPathComponent(hubRepoName)
         let locksDir = cache.cacheDirectory.appendingPathComponent(".locks").appendingPathComponent(hubRepoName)
 
@@ -265,7 +280,8 @@ public enum ModelUtils {
             let unpackedDir = cache.cacheDirectory
                 .appendingPathComponent("mlx-audio/phonon2")
                 .appendingPathComponent(digest)
-            if fm.fileExists(atPath: unpackedDir.path) {
+            let stdPath = unpackedDir.standardizedFileURL.path
+            if stdPath.hasPrefix(cacheRootPath + "/"), fm.fileExists(atPath: stdPath) {
                 if (try? fm.removeItem(at: unpackedDir)) != nil {
                     removedAny = true
                 }
@@ -273,7 +289,8 @@ public enum ModelUtils {
         }
 
         for dir in [modelDir, hubRepoDir, metadataDir, locksDir] {
-            if fm.fileExists(atPath: dir.path) {
+            let stdPath = dir.standardizedFileURL.path
+            if stdPath.hasPrefix(cacheRootPath + "/"), fm.fileExists(atPath: stdPath) {
                 if (try? fm.removeItem(at: dir)) != nil {
                     removedAny = true
                 }

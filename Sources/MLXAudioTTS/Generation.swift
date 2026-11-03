@@ -178,8 +178,11 @@ private func makePCMBuffer(samples: [Float], sampleRate: Int) throws -> AVAudioP
     }
 
     buffer.frameLength = frameCount
-    for i in 0 ..< samples.count {
-        channel[i] = samples[i]
+    if !samples.isEmpty {
+        samples.withUnsafeBufferPointer { src in
+            guard let base = src.baseAddress else { return }
+            channel.update(from: base, count: samples.count)
+        }
     }
     return buffer
 }

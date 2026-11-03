@@ -126,11 +126,9 @@ public class IncrementalMelSpectrogram {
         let windowed = framesStacked * window
         let fft = MLXFFT.rfft(windowed, axis: 1)
         let magnitudes = MLX.abs(fft).square()
-        eval(magnitudes)
 
         // Apply mel filterbank
         var melSpec = MLX.matmul(magnitudes, filters)
-        eval(melSpec)
 
         // Log scaling with running max normalization
         melSpec = MLX.maximum(melSpec, MLXArray(Float(1e-10)))
@@ -161,9 +159,13 @@ public class IncrementalMelSpectrogram {
         // Add reflect padding at the end
         let padSize = nFft / 2
         let signalLen = signal.count
-        let reflectLen = min(padSize, signalLen - 1)
-        let suffix = Array(signal[(signalLen - 1 - reflectLen)..<(signalLen - 1)].reversed())
-        signal += suffix
+        if signalLen > 1 {
+            let reflectLen = min(padSize, signalLen - 1)
+            if reflectLen > 0 {
+                let suffix = Array(signal[(signalLen - 1 - reflectLen)..<(signalLen - 1)].reversed())
+                signal += suffix
+            }
+        }
 
         overlapBuffer = []
 
@@ -181,10 +183,8 @@ public class IncrementalMelSpectrogram {
         let windowed = framesStacked * window
         let fft = MLXFFT.rfft(windowed, axis: 1)
         let magnitudes = MLX.abs(fft).square()
-        eval(magnitudes)
 
         var melSpec = MLX.matmul(magnitudes, filters)
-        eval(melSpec)
 
         melSpec = MLX.maximum(melSpec, MLXArray(Float(1e-10)))
         melSpec = MLX.log10(melSpec)

@@ -251,34 +251,33 @@ public class AudioPlayer: NSObject, ObservableObject {
 
     /// Schedule audio samples for streaming playback with studio-grade raised-cosine edge de-clicking
     public func scheduleAudioChunk(_ samples: [Float], withCrossfade: Bool = true) {
+        let count = samples.count
         guard isStreaming,
-              !samples.isEmpty,
-              let format = streamingFormat else { return }
-
-        var processedSamples = samples
-
-        if withCrossfade && processedSamples.count > 64 {
-            // 4ms raised-cosine (Hann) micro-taper at chunk boundaries prevents DC/phase clicks without ducking syllables
-            let taperSamples = min(Int(format.sampleRate * 0.004), processedSamples.count / 4)
-            if taperSamples > 1 {
-                for i in 0..<taperSamples {
-                    let phase = Double(i) / Double(taperSamples)
-                    let gain = Float(0.5 * (1.0 - cos(Double.pi * phase)))
-                    processedSamples[i] *= gain
-                    processedSamples[processedSamples.count - 1 - i] *= gain
-                }
-            }
-        }
-
-        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(processedSamples.count)) else {
+              count > 0,
+              let format = streamingFormat,
+              let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(count)) else {
             return
         }
 
-        buffer.frameLength = AVAudioFrameCount(processedSamples.count)
+        buffer.frameLength = AVAudioFrameCount(count)
 
         if let channelData = buffer.floatChannelData {
-            processedSamples.withUnsafeBufferPointer { src in
-                channelData[0].update(from: src.baseAddress!, count: processedSamples.count)
+            let dst = channelData[0]
+            samples.withUnsafeBufferPointer { src in
+                guard let base = src.baseAddress else { return }
+                dst.update(from: base, count: count)
+            }
+            if withCrossfade && count > 64 {
+                // 4ms raised-cosine (Hann) micro-taper at chunk boundaries prevents DC/phase clicks without ducking syllables
+                let taperSamples = min(Int(format.sampleRate * 0.004), count / 4)
+                if taperSamples > 1 {
+                    let invTaper = Float.pi / Float(taperSamples)
+                    for i in 0..<taperSamples {
+                        let gain = 0.5 * (1.0 - cos(Float(i) * invTaper))
+                        dst[i] *= gain
+                        dst[count - 1 - i] *= gain
+                    }
+                }
             }
         }
 

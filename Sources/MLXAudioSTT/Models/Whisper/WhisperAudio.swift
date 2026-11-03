@@ -40,8 +40,7 @@ enum WhisperAudio {
         let nFft = WhisperAudioConfig.nFft
         let hop = WhisperAudioConfig.hopLength
 
-        let nIdx = MLXArray(0..<nFft).asType(.float32)
-        let window = 0.5 * (1.0 - cos((2.0 * Float.pi * nIdx) / Float(nFft)))
+        let window = hanningWindow(size: nFft, periodic: true)
 
         let mono: MLXArray = audio.ndim > 1 ? audio.reshaped([-1]) : audio
         let padded = reflectPad(mono.asType(.float32), pad: nFft / 2)
@@ -115,7 +114,12 @@ enum WhisperAudio {
     private static func reverseAlongFirstAxis(_ array: MLXArray) -> MLXArray {
         let n = array.dim(0)
         if n <= 1 { return array }
-        let idx = MLXArray((0..<n).reversed().map { Int32($0) })
-        return array[idx]
+        let indices = [Int32](unsafeUninitializedCapacity: n) { buffer, initializedCount in
+            for i in 0..<n {
+                buffer[i] = Int32(n - 1 - i)
+            }
+            initializedCount = n
+        }
+        return array[MLXArray(indices)]
     }
 }
