@@ -1176,7 +1176,753 @@ extension Voice {
         ExpressiveTagItem(tag: "<|speaker:1|>", label: "Speaker 1", icon: "person.2.wave.2"),
     ]
 
+    static let deadOrbitNovelText: String = #"""
+# DEAD ORBIT: The Talbot Protocol
+
+*A novel*
+
+---
+
+## Prologue: The Signal
+
+The first thing I remember about the end of the world is that it was a Tuesday, and I was out of coffee.
+
+That's not poetic. That's not dramatic. That's just the truth, and if you've read any of my other accounts—or if you haven't, in which case, welcome to the party, we have snacks and existential dread—you know I've never been one for poetry. I'm a guy who likes his coffee black, his enemies dead, and his family breathing. Everything else is negotiable.
+
+My name is Jake Callahan. Forty-three years old. Ex-Army, ex-cop, ex-everything-that-requires-a-pension. I live in a small town in the Rockies where the biggest crime used to be someone stealing a neighbor's lawn gnome. My wife, Sarah, teaches third grade. My daughter, Emma, is sixteen and thinks I'm an embarrassment. My son, Danny, is twelve and thinks I'm a superhero. They're both right, depending on the day.
+
+On that Tuesday, the coffee situation was dire. We were out. Completely out. Sarah had forgotten to buy more, which was unusual because Sarah never forgets anything. She's the kind of woman who has a spreadsheet for the grocery list and a backup spreadsheet for the backup spreadsheet. So when she forgot the coffee, I should have known something was wrong. But I didn't. Because I'm an idiot. A lovable idiot, but an idiot nonetheless.
+
+I was standing in the kitchen, staring at the empty canister like it had personally betrayed me, when the television in the living room crackled to life on its own. I hadn't turned it on. Sarah was in the bedroom getting ready for work. Danny was at school. Emma was... somewhere. Probably doing something that would make me age ten years.
+
+The TV showed a news anchor I didn't recognize, and behind her, a graphic I didn't understand. It looked like a weather map, but the colors were wrong—purples and greens where blues and reds should have been. And there was a sound underneath the anchor's voice, a low hum, like the house itself was vibrating.
+
+"...unusual atmospheric phenomenon detected over the Pacific Northwest..." the anchor was saying. "...authorities are urging residents to remain indoors..."
+
+Then the screen went to static. Then black. Then the power went out.
+
+The hum didn't stop.
+
+It got louder.
+
+And somewhere, miles away, something fell out of the sky.
+
+---
+
+## Chapter 1: First Contact
+
+I've been shot at. I've been stabbed. I've been in a helicopter that decided, halfway through a mission, that it didn't want to be a helicopter anymore. I've seen things that would make a seasoned horror author reach for the light switch.
+
+None of that prepared me for the sound of something the size of a freight train hitting the earth three miles from my house.
+
+The windows rattled. The dishes in the cabinet jumped. Sarah came running out of the bedroom, her hair half-done, one earring in, one earring out, and the look on her face was the same look I'd seen a thousand times in the field—the look of someone who knows, instinctively, that the world has just changed.
+
+"Jake," she said. "What was that?"
+
+"I don't know," I said. "But I'm going to find out."
+
+"No," she said. "You're not."
+
+"Sarah—"
+
+"You're going to stay right here with me until we know what's happening."
+
+I looked at her. She was scared. Really scared. Not the kind of scared where you pretend you're not scared. The kind where your hands shake and you don't even try to hide it. Sarah never shook. Sarah was the rock. If Sarah was shaking, the world was ending.
+
+"Okay," I said. "Okay. Let's stay here."
+
+We stayed. For about four minutes. Then my phone rang.
+
+It was Emma.
+
+"Dad," she said, and her voice was the worst thing I've ever heard. Worse than the sound of the impact. Worse than the hum. "Dad, there's something in the school. There's something in the school and it's—"
+
+The line went dead.
+
+I was out the door before Sarah could say my name. I grabbed the truck keys, the .45 from the nightstand drawer, and the go-bag I kept in the closet because I'm the kind of guy who keeps a go-bag. Old habits. Military habits. The kind that keep you alive when everything else is trying to kill you.
+
+"Jake!" Sarah was at the door. "Jake, what about Danny? Danny's at the middle school!"
+
+I stopped. My heart, which had been pumping pure adrenaline, stuttered.
+
+"Danny's at the middle school," I repeated.
+
+"Yes. And Emma's at the high school. And you can't be in two places at once."
+
+She was right. She was absolutely right. And I hated her for it, because it meant I had to make a choice, and choices like that are the kind that haunt you forever.
+
+"Call Danny," I said. "Get him out of there. Take him to the cabin. The one on Miller's Ridge. I'll get Emma and meet you there."
+
+"Jake, I can't—"
+
+"You can. You're the strongest person I know. You've got this."
+
+She looked at me. I looked at her. And for a moment, just a moment, the world stopped being crazy and was just us, standing in the doorway of our house, holding onto each other like we were the only two people left in the universe.
+
+Then the hum got louder, and the moment broke, and I was running to the truck.
+
+---
+
+The drive to the high school should have taken eight minutes. It took twenty, because the roads were already a mess. Cars were stopped in the middle of the street. People were standing in their yards, looking up at the sky, where the purple-green clouds were swirling like something out of a nightmare. And some of them—some of them were just standing there. Not looking at the sky. Not looking at anything. Just standing. Empty. Like someone had reached inside them and turned off the lights.
+
+I didn't stop. I couldn't. Emma was in that school.
+
+I pulled into the parking lot and the first thing I noticed was the silence. High schools are never silent. They're chaos incarnate—bells and yelling and the squeak of sneakers on linoleum. But this was silent. Dead silent. The kind of silence that has weight.
+
+I got out of the truck with the .45 and a flashlight. The front doors were open. Not broken—open. Like someone had politely held them for whatever was inside.
+
+"Emma!" I shouted. "Emma, where are you?"
+
+Nothing. Just the hum, which was louder here, vibrating in my chest like a second heartbeat.
+
+I went in. The hallway was dark—the power was out here too—but my flashlight cut through the darkness, and what it showed made my stomach drop.
+
+Lockers were open. Backpacks were on the floor. A shoe. A phone. A jacket. All the signs of people who had been here and then suddenly weren't. And on the walls, on the ceiling, on the floor—marks. Scratches. Like something had been dragged. Like something had been *carved*.
+
+And then I heard it. Not the hum. Something else. A wet sound. A chewing sound.
+
+I followed it. Down the hall, past the cafeteria, past the gym, to the auditorium. The doors were propped open with a chair, and inside, in the dark, I could see shapes. Moving shapes. Slow, shuffling shapes.
+
+I raised the flashlight and pointed it at the nearest one.
+
+It was a kid. Or it had been. A boy, maybe fifteen, wearing a letterman jacket. But his eyes were wrong—milky white, like cataracts, and his mouth was open, and he was chewing on something that I really, really hoped wasn't what I thought it was.
+
+He turned toward me. And he saw me. Or whatever was left of him saw me. And he made a sound—not a word, not a groan, but something in between, something that was almost human and almost animal and completely wrong.
+
+Then he lunged.
+
+I shot him. Center mass. Two rounds. He went down, and I felt nothing but the recoil and the sickening certainty that I'd just shot a child, and then I felt something else—relief, because he was still moving, still reaching for me, and that meant he wasn't a child anymore. He was something else.
+
+The other shapes in the auditorium turned toward me. There were dozens of them. Students. Teachers. Janitors. All of them with those milky eyes and those open mouths and that wet, hungry sound.
+
+"Emma!" I shouted again, louder, desperate. "Emma, if you can hear me, get out! Get out now!"
+
+And then I heard her voice, from somewhere behind the stage, from the wings of the auditorium, high and thin and terrified: "Dad! Dad, I'm here! I'm trapped!"
+
+I didn't think. I just moved. I pushed through the first wave, firing as I went, each shot a prayer and a curse, and I reached the stage and found Emma huddled behind a row of chairs, her face streaked with tears, her phone in her hand, and her eyes—her eyes were wide and brown and human and alive.
+
+"Hey, kiddo," I said, grabbing her hand. "Let's go."
+
+She grabbed my hand and didn't let go.
+
+We ran. Through the auditorium, through the hall, past the lockers and the backpacks and the shoe and the phone and the jacket, out into the parking lot, into the truck. I locked the doors. I started the engine. And as I pulled out of the lot, I looked in the rearview mirror and saw them—dozens of them, shuffling out of the school, following us, slow and relentless and hungry.
+
+"Are you okay?" I asked Emma.
+
+"I'm okay," she said. "Dad, what's happening?"
+
+"I don't know, sweetheart. But we're going to be okay. We're going to find your mom and Danny, and we're going to be okay."
+
+I didn't know if that was true. But it was what she needed to hear, and sometimes that's enough.
+
+---
+
+## Chapter 2: The Cabin
+
+Three days in, the cabin was holding. We had food, water, and each other. The kids were handling it better than I expected—Emma was reading, Danny was playing cards with Sarah, and I was standing on the porch with a pair of binoculars and a growing sense of dread.
+
+The valley below us was changing. I could see movement—slow, shuffling movement—in the tree line. The Turned were out there, gathering, drawn by something I couldn't identify. Maybe the hum. Maybe something else.
+
+On the fourth day, a truck came up the mountain road. A big one—a military surplus deuce-and-a-half, painted matte black, with no markings. It stopped at the bottom of the hill, and three people got out.
+
+I watched them through the binoculars. Two men and a woman. They were armed—rifles, not handguns, and they moved like they knew how to use them. Military, or something close to it.
+
+"Sarah," I called through the door. "We've got company."
+
+She came out with her own rifle—a hunting rifle, not military-grade, but she could shoot. I'd taught her. She was a better shot than me, which I'd never admitted out loud and never would.
+
+"Friends or foes?" she asked.
+
+"Unknown. Stay here. I'll go down."
+
+"Like hell you will," she said. "I'm coming with you."
+
+We went together. That's how we did things.
+
+The three strangers were waiting at the bottom of the hill. The taller of the two men stepped forward. He was maybe fifty, with a gray beard and eyes that had seen too much. He wore a tactical vest over a flannel shirt, which was a look I'd never seen before and hoped never to see again.
+
+"Name's Colonel Richard Vance," he said. "United States Army. Retired. Or I was, before the world ended."
+
+"Jake Callahan," I said. "Also retired. Also from something. Also before the world ended."
+
+He almost smiled. Almost. "We're setting up a compound about twenty miles east. Fortified. Secure. We're looking for survivors."
+
+"We're not survivors," I said. "We're a family. There's a difference."
+
+He nodded. "There is. And that's why I'm here. We need people like you. People who know how to fight. People who have something to protect."
+
+"And in exchange?"
+
+"In exchange, we keep your family safe. We have food, water, medical supplies, and walls that the Turned can't get through. We have power—generators, solar, the works. And we have information."
+
+"What kind of information?"
+
+He looked at me. Then at Sarah. Then back at me.
+
+"The kind that explains why this is happening. And the kind that might help us stop it."
+
+I looked at Sarah. She looked at me. And we made the decision that would change everything.
+
+"Get the kids," I said. "We're going."
+
+---
+
+*... to be continued ...*
+
+---
+
+## About the Author
+
+This novel is a work of fiction. Any resemblance to real persons, living or dead, is coincidental. The characters, events, and places depicted are products of the author's imagination.
+
+*Dead Orbit: The Talbot Protocol* — Book One of the Dead Orbit Series.
+
+---
+
+## Chapter 4: Fort Haven
+
+Fort Haven was not what I expected.
+
+I expected a military base. Barbed wire, guard towers, the whole nine yards. What I got was a high school—ironically, the same type of building I'd just shot my way out of—surrounded by a hastily erected wall of shipping containers, chain-link fence, and concrete barriers. It looked like someone had built a fortress out of a junkyard, and somehow it worked.
+
+The compound was located in a small town called Meridian, population formerly two thousand, now however many people Colonel Vance had managed to gather. As we drove through the gate—past two armed guards who checked our IDs and waved us through—I counted maybe three hundred people. Men, women, children. All of them looked tired. All of them looked scared. But they were alive, and that counted for something.
+
+Vance met us at the main entrance. "Welcome to Fort Haven," he said. "It's not much, but it's home."
+
+"It's a high school," I said.
+
+"It's a high school with a gym that doubles as an armory, a cafeteria that doubles as a mess hall, and a library that doubles as a command center. We've got power from the solar panels on the roof and the generators in the basement. Water from the well. Food from the stockpile we raided from three grocery stores and a Costco."
+
+"A Costco," Sarah said. "You raided a Costco."
+
+"Best decision I ever made," Vance said. "The samples alone were worth the trip."
+
+I almost liked him.
+
+He showed us to our quarters—a classroom on the second floor that had been converted into a small apartment. Two cots for the kids, a mattress on the floor for Sarah and me, and a desk that I could use as a makeshift workstation. It wasn't the Ritz, but it was better than sleeping in the truck.
+
+"The first thing you need to know," Vance said, once we'd settled in, "is that we're not the only ones. There are other compounds. Some are friendly. Some are not. The nearest one is about fifty miles south, run by a man named Harlan Cross. He was a sheriff before the world ended. Now he's something else."
+
+"What kind of something else?" I asked.
+
+"The kind that doesn't ask permission," Vance said. "He's been raiding other compounds for supplies. He's got a militia—maybe fifty, sixty men—and he's not afraid to use them."
+
+"Great," I said. "So we've got zombies outside and warlords inside. Fantastic."
+
+"There's more," Vance said. He looked at me with those tired eyes. "The Turned aren't the only thing that fell from the sky."
+
+He reached into his vest and pulled out a tablet. On the screen was a photograph—blurry, taken from a distance, but clear enough to see what it showed. It was a ship. Not an airplane. Not a helicopter. A ship. Angular, black, and utterly alien, sitting in a crater in the middle of a forest.
+
+"That was taken three days ago," Vance said. "By a drone we sent out. The ship is about two miles from here. We've been monitoring it, but we haven't approached. Not yet."
+
+"Why not?" Sarah asked.
+
+"Because every time we get within a quarter mile, the hum gets louder. And people start... changing. Faster. Like the ship is calling to them. Pulling them in."
+
+I looked at the photograph. Then I looked at Vance.
+
+"You think the aliens caused the zombie outbreak," I said.
+
+"I think," Vance said carefully, "that the aliens and the zombies are connected. I think whatever came out of that ship is what's turning people. And I think if we don't figure out how to stop it, there won't be anyone left to turn."
+
+---
+
+## Chapter 5: The Signal
+
+That night, I couldn't sleep. The hum was always there, a low vibration in the walls, in the floor, in my bones. I got up and went to the roof, where Vance had set up a makeshift observation post. A young soldier—barely twenty, with a baby face and a rifle that looked too big for him—was on watch.
+
+"Anything?" I asked.
+
+"Nothing but the hum, sir," he said. "It's been steady all night."
+
+I looked out over the valley. In the distance, I could see the purple-green clouds, still swirling, still wrong. And somewhere out there, two miles away, an alien ship sat in a crater, humming.
+
+"Tell me about the signal," I said.
+
+The soldier—his name was Private First Class Danny Park, and yes, the irony of his name was not lost on me—looked at me. "The signal?"
+
+"Vance mentioned it. The hum. He said it's getting louder."
+
+"It is," Park said. "We've been tracking it. It's not just a sound—it's a frequency. A specific frequency, about seven hertz. Infrasound. Below the threshold of human hearing, but you can feel it. And it's been increasing. When the ship first landed, it was maybe a three on the scale. Now it's a seven. And climbing."
+
+"What happens at ten?"
+
+Park looked at me. "We don't know. But the closer people get to the ship, the faster they turn. And the ones who've already turned—they're drawn to it. They walk toward it. Like they're being called."
+
+I thought about the Turned I'd seen at the high school, shuffling in the same direction, like they were following an invisible path. They weren't just wandering. They were going somewhere.
+
+"They're going to the ship," I said.
+
+"Yes, sir," Park said. "We think so. We think the ship is some kind of... beacon. And the Turned are the response."
+
+I stood on the roof and looked at the sky and thought about my family, sleeping in a classroom two floors below me, and I thought about the world that was ending outside, and I thought about the ship in the crater, humming its song, calling its children home.
+
+And I made a decision.
+
+"We need to go to the ship," I said.
+
+Park looked at me like I'd lost my mind. "Sir, with all due respect—"
+
+"I know. I know it's dangerous. I know it might kill us. But if that ship is controlling the Turned, then it's controlling the end of the world. And I'm not going to sit in a classroom and wait for it to finish."
+
+Park was quiet for a moment. Then he said, "I'll tell Colonel Vance."
+
+"Tell him I said it's time. And tell him I want to go in the morning."
+
+I went back inside. Sarah was awake, sitting on the edge of the mattress, watching me with those eyes that could see right through me.
+
+"You're going to the ship," she said. It wasn't a question.
+
+"Yeah."
+
+"I'm coming with you."
+
+"Sarah—"
+
+"Don't. Don't you dare say I should stay. Don't you dare tell me it's too dangerous. I've been with you through three deployments, two kidnappings, and a house fire. I'm not staying behind now."
+
+I looked at her. She was right. She was always right. And I loved her for it, even when it terrified me.
+
+"Okay," I said. "But we leave the kids here. With Vance. Under guard."
+
+She nodded. "Agreed."
+
+We lay down together and held each other, and the hum vibrated through the mattress, through the floor, through the earth, and somewhere, two miles away, something alien and ancient and patient waited for us.
+
+---
+
+## Chapter 6: The Approach
+
+Morning came too fast. Vance assembled a team: me, Sarah, two of his best soldiers—a sergeant named Reyes and a corporal named Chen—and a scientist named Dr. Amara Okafor, who had been a xenobiologist at a university before the world ended and was now the closest thing we had to an expert on alien biology.
+
+"You're insane," Dr. Okafor said, when Vance told her the plan. "You want to walk up to an alien ship in the middle of a zombie apocalypse."
+
+"Yes," I said.
+
+"And you want me to come with you."
+
+"Yes."
+
+"Because I'm the only one who might understand what we're dealing with."
+
+"Yes."
+
+She looked at me for a long moment. Then she sighed. "Fine. But if I die, I want it on record that I told you this was a terrible idea."
+
+"Noted," I said.
+
+We took two vehicles—an armored Humvee and a pickup truck—and drove east, toward the crater. The roads were bad, littered with abandoned cars and the occasional Turned, but the Turned didn't attack us. They just stood there, watching, as we drove past. Like they were waiting for something. Like they knew where we were going and didn't need to stop us, because whatever was at the end of the road would do that for them.
+
+The last mile, we went on foot. The Humvee couldn't make it through the trees, and the pickup got stuck in a ditch. We loaded up with weapons, supplies, and Dr. Okafor's equipment—a portable scanner, a laptop, and a device she called a "resonance detector" that looked like a metal detector but was apparently designed to pick up alien frequencies.
+
+The forest was quiet. Too quiet. No birds, no insects, no wind. Just the hum, louder now, a physical presence that pressed against my eardrums.
+
+"How much farther?" Sarah asked.
+
+"Half a mile," Dr. Okafor said, checking her GPS. "The crater should be just over this ridge."
+
+We crested the ridge, and there it was.
+
+The ship was bigger than I'd expected. From the drone photos, it looked like a small object, maybe the size of a house. In person, it was massive—maybe two hundred feet long, black and smooth, with no visible seams or markings. It sat in a crater that was twice its size, the earth around it scorched and cracked, as if the ship had burned its way into the ground.
+
+And around the ship, the Turned were gathered. Hundreds of them. Standing in a circle, facing the ship, motionless. Not shuffling, not chewing, not reaching. Just standing. Like an audience waiting for a performance.
+
+"Jesus," Reyes whispered.
+
+"Keep moving," I said. "Slowly. Don't make eye contact with any of them."
+
+We moved through the crowd of Turned like ghosts. They didn't react to us. They didn't even seem to notice us. Their milky eyes were fixed on the ship, and their mouths were open, and from those open mouths came a sound—a low, collective hum that matched the ship's frequency exactly.
+
+"They're singing," Dr. Okafor said, her voice barely a whisper. "They're singing to it."
+
+We reached the edge of the crater. The ship was maybe fifty feet below us, and up close, I could see details the drone photos hadn't captured. The surface of the ship wasn't smooth—it was covered in patterns, geometric lines and shapes that seemed to shift and move when I looked at them directly. Like the ship was alive. Like it was breathing.
+
+"The resonance detector is going crazy," Dr. Okafor said, holding up the device. The needle was pegged. "The frequency is off the charts. It's not just seven hertz anymore—it's cycling through multiple frequencies simultaneously. It's... it's communicating."
+
+"Communicating with what?" Sarah asked.
+
+"With everything," Dr. Okafor said. "With us. With the Turned. With the earth itself. This ship isn't just a beacon—it's a node. A network node. And it's connected to something much, much bigger."
+
+I looked at the ship. Then I looked at the Turned, standing in their circle, singing their song. Then I looked at the sky, where the purple-green clouds still swirled.
+
+"How much bigger?" I asked.
+
+Dr. Okafor looked at me. "I think," she said, "that this ship is just the first one. I think there are more. And I think they're all waking up."
+
+As if on cue, the ship's patterns shifted. The geometric lines rearranged themselves, and a section of the hull—previously invisible—slid open, revealing a dark interior. And from that interior, a light. Not a mechanical light. Not electric. Something else. Something that pulsed with the same rhythm as the hum, the same rhythm as the Turned, the same rhythm as my own heartbeat.
+
+And from inside the ship, a voice. Not a human voice. Not an alien voice. A voice that was all of them and none of them, a voice that spoke in frequencies and feelings and images that bypassed my ears and went straight to my brain.
+
+It said: *We have been waiting. We are here. You are next.*
+
+Then the ship pulsed, and the hum became a roar, and every Turned in the circle turned toward us.
+
+---
+
+## Chapter 7: The Fall
+
+The Turned moved. All at once, like a wave, like a tide. Hundreds of them, shuffling, lurching, running—some of them running, which I hadn't seen before, which I didn't know they could do. They came up the slope of the crater toward us, and the sound they made was a chorus of groans and clicks and that wet, hungry chewing.
+
+"Run!" I shouted.
+
+We ran. Back through the forest, toward the vehicles, the Turned behind us like a flood. Reyes was firing as he ran, dropping two, three, four of them, but for every one he dropped, three more took its place. Chen was ahead of us, reaching the Humvee first, starting the engine.
+
+Sarah was next to me, her rifle in her hands, and she was shooting too—precise, controlled shots, each one finding its mark. She'd always been the better shot. Now she was the better shot in a zombie apocalypse, which was a distinction I hoped she'd never have to put on a resume.
+
+Dr. Okafor was stumbling, her equipment bouncing against her hip, her face white with terror. I grabbed her arm and pulled her along.
+
+"The ship!" she gasped. "The ship opened! It showed us—"
+
+"I know! Run now, talk later!"
+
+We reached the Humvee. Chen threw open the doors, and we piled in—me, Sarah, Dr. Okafor, Reyes, Chen. Chen gunned the engine, and we lurched forward, the Humvee bouncing over roots and rocks and the occasional Turned that didn't get out of the way.
+
+Behind us, the Turned kept coming. Not just from the crater— from everywhere. They were emerging from the trees, from the bushes, from the shadows. Hundreds of them. Maybe thousands. All moving in the same direction. All moving toward us.
+
+"They're not following us," Dr. Okafor said, looking through the rear window. "They're following the ship. The ship is moving."
+
+I looked in the mirror. She was right. The ship—massive, black, impossible—was lifting off. Slowly, like a whale surfacing, it rose from the crater, trailing smoke and debris and that terrible, pulsing light. And the Turned below it rose with it, like they were tethered, like they were being pulled.
+
+"Where is it going?" Sarah asked.
+
+Dr. Okafor checked her equipment. "Northeast. Toward... toward Fort Haven."
+
+My blood went cold. "The kids."
+
+I grabbed the radio. "Fort Haven, this is Callahan. Come in. Fort Haven, do you copy?"
+
+Static. Then Vance's voice, strained and urgent: "Callahan, we've got a situation. The hum just increased tenfold. People are... people are changing. Right now. In the compound. I've got—"
+
+The transmission cut out.
+
+"Vance! Vance, come in!"
+
+Nothing. Just static and the hum, louder now, so loud I could feel it in my teeth.
+
+"Drive," I said to Chen. "Drive faster."
+
+---
+
+## Chapter 8: Fort Haven Falls
+
+We made it back to Fort Haven in twenty minutes. It should have taken forty. Chen drove like a man possessed, and the Humvee took a beating, but we made it.
+
+What we found when we got there made the crater look like a picnic.
+
+The compound was in chaos. The Turned—people who had been fine that morning, people who had been soldiers and teachers and parents—were attacking the living. The walls were breached. The gates were down. And overhead, the alien ship hovered, its light pulsing, its hum vibrating through everything.
+
+"Emma!" I shouted. "Danny!"
+
+I ran for the school building. Sarah was right behind me. Reyes and Chen covered our flanks, firing at the Turned that got too close.
+
+The hallways were a nightmare. Blood on the walls. Bodies on the floor. The sound of screaming and the wet sound of chewing. I pushed through it all, my .45 in my hand, firing when I had to, running when I could.
+
+I found Emma in the classroom where we'd been staying. She was under the desk, her arms wrapped around Danny, both of them shaking, both of them alive.
+
+"Dad!" Emma screamed.
+
+I grabbed them both and held them. "I've got you. I've got you. We're leaving. Now."
+
+"Where's Mom?" Danny asked.
+
+"She's right here," Sarah said, appearing in the doorway. "We're all here. Let's go."
+
+We moved. Through the hallway, past the bodies, past the Turned, out into the parking lot where the Humvee was waiting. Reyes was behind the wheel now, engine running. We piled in—me, Sarah, Emma, Danny, Dr. Okafor, Reyes, Chen. Seven people in a vehicle built for five. Nobody complained.
+
+As we drove out of Fort Haven, I looked back. The compound was burning. The ship hovered overhead, its light pulsing, and the Turned—thousands of them now—stood in the flames, not burning, not caring, just standing and humming and waiting.
+
+"Where do we go?" Sarah asked.
+
+I looked at the map. I looked at the sky. I looked at my family.
+
+"West," I said. "Away from the ship. Away from the Turned. Away from everything."
+
+"And then what?" Emma asked. Her voice was small, but her eyes were strong.
+
+I looked at her. My daughter. Sixteen years old, and she'd already seen more death than most people see in a lifetime. And she was still asking questions. Still looking for answers. Still fighting.
+
+"Then we figure out how to fight back," I said. "We figure out what these things are, where they came from, and how to stop them. And then we take the fight to them."
+
+"That's a big promise, Dad."
+
+"I know," I said. "But I'm a big guy."
+
+She almost smiled. Almost. And that was enough.
+
+---
+
+## Chapter 9: The Road
+
+We drove west for two days. The roads were bad, but the Humvee was tougher than the roads, and Reyes was a better driver than he had any right to be. We avoided the cities—too many Turned, too much danger—and stuck to back roads, mountain passes, and the occasional dirt track that led nowhere but away.
+
+We stopped at a farmhouse on the second night. It was abandoned, but it was intact, and it had a well and a wood stove and a pantry that was half-full. We made camp, built a fire, and for the first time in days, we sat down and ate a meal like a family.
+
+"So," Dr. Okafor said, between bites of canned chili, "let me tell you what I know. Which isn't much, but it's more than nothing."
+
+She pulled out her laptop and opened a file. On the screen was a waveform—the ship's signal, recorded during our approach to the crater.
+
+"This is the frequency the ship is broadcasting. Seven hertz, cycling through multiple harmonics. It's not random—it's structured. It's a language. Or a code. Or both."
+
+"What does it say?" Sarah asked.
+
+"I don't know yet. But I've been analyzing the pattern, and I've found something interesting." She pointed to a section of the waveform. "This part here—it repeats. Every seventy-two seconds. And the repetition isn't exact—it's modified slightly each time. Like a conversation. Like someone is talking, and someone else is answering."
+
+"The Turned," I said. "They're answering."
+
+"Exactly. The ship sends a signal, the Turned receive it and respond, and the ship modifies its signal based on the response. It's a feedback loop. The ship is... managing them. Directing them. And the more Turned there are, the stronger the loop gets."
+
+"So if we destroy the ship," Reyes said, "the loop breaks."
+
+"Maybe," Dr. Okafor said. "Or maybe the loop is just one node in a larger network. Remember what I said at the crater—this ship might not be the only one."
+
+"Then we need to find the others," I said.
+
+"And how exactly do we do that?" Chen asked.
+
+Dr. Okafor looked at me. "The resonance detector. It can pick up the ship's frequency from a distance. If there are other ships out there, broadcasting on the same frequency, we can find them."
+
+"Then that's the plan," I said. "We find the ships. We figure out what they are. And we destroy them."
+
+"And the Turned?" Sarah asked.
+
+"The Turned are people," I said. "Or they were. If the ship is controlling them, then breaking the signal might free them. Or it might kill them. I don't know. But we have to try."
+
+Danny, who had been quiet throughout the conversation, spoke up. "Dad?"
+
+"Yeah, buddy?"
+
+"The voice. In my head. When the ship opened. Did you hear it too?"
+
+I looked at him. "You heard the voice?"
+
+"Yes. It said... it said something. I don't remember the words, but I remember the feeling. It felt like... like it was inviting me. Like it wanted me to come closer."
+
+The room went quiet. Everyone looked at Danny. He was twelve years old, and he'd heard the voice of an alien intelligence, and he was talking about it like it was a weather report.
+
+"Are you okay?" Sarah asked, kneeling next to him.
+
+"I think so," he said. "It didn't hurt. It just... talked. And then it stopped."
+
+Dr. Okafor was staring at Danny with an expression I couldn't read. "The signal," she said slowly. "It's not just affecting the Turned. It's affecting everyone. The Turned are the ones who've been fully converted, but the signal is reaching all of us. It's in the background, all the time, and some people are more susceptible than others."
+
+"Are you saying my son is being affected by an alien signal?" Sarah's voice was sharp, dangerous.
+
+"I'm saying," Dr. Okafor said carefully, "that the signal is universal. Everyone is exposed. But some people—children, maybe, or people with certain neurological profiles—might be more... receptive."
+
+"Then we need to find a way to block it," I said.
+
+"I've been working on that," Dr. Okafor said. "The frequency is seven hertz. If we can generate a counter-frequency—something that cancels it out—we might be able to protect ourselves. At least partially."
+
+"Do it," I said. "Whatever you need. We'll get it."
+
+She nodded. "I'll need equipment. Electronics. A signal generator. Maybe a ham radio."
+
+"Then we'll find one," I said. "Tomorrow, we move. We head west, we find supplies, and we keep moving until we find a place to make a stand."
+
+"And then?" Emma asked.
+
+"And then we fight," I said.
+
+---
+
+## Chapter 10: The Stand
+
+Three weeks later, we found our place.
+
+It was a mining town in the mountains of Montana—Silver Creek, population formerly eight hundred, now zero. The town was nestled in a valley, surrounded by mountains on three sides, with a single road in and out. The mine itself was a massive complex, carved into the mountainside, with tunnels that went deep—miles deep, according to the old maps we found in the town hall.
+
+It was perfect.
+
+Over the next two weeks, we turned Silver Creek into a fortress. Reyes and Chen organized the defenses—barricades on the road, watchtowers on the hills, patrols in the surrounding forest. Dr. Okafor set up her lab in the mine office and began working on the counter-frequency device. Sarah organized the survivors we'd picked up along the way—about forty people, mostly families, all of them scared and all of them willing to fight.
+
+And I trained them. Every morning, before dawn, I ran drills. Weapons handling, hand-to-hand combat, survival skills. I taught them what I knew, which was a lot, and I pushed them hard, because the world was hard and getting harder.
+
+Emma helped. She was sixteen, but she was tough—tougher than I'd realized. She took to the training like she'd been born for it, and within a week, she was one of the best shots in the group. Danny, on the other hand, was different. He didn't train with weapons. He sat with Dr. Okafor, listening to her talk about frequencies and signals and alien biology, and he asked questions that made her stop and think.
+
+"Your son," she told me one evening, "is either the smartest person I've ever met or the most dangerous. Possibly both."
+
+"What do you mean?"
+
+"The signal. The seven-hertz frequency. He can hear it. Not just feel it—hear it. He says it has words. Not English words, not any human language, but words nonetheless. And he says he's starting to understand them."
+
+I looked at Danny, sitting across the room, his eyes focused on something none of us could see.
+
+"What's he hearing?" I asked.
+
+"He says the ship is talking to him. Not the ship we saw—the network. The whole network. He says there are twelve ships. Twelve nodes. And they're all waking up."
+
+"Twelve," I repeated. "Where are they?"
+
+"He says one is in Montana. About a hundred miles from here."
+
+My blood went cold. "One is here? In Montana?"
+
+"Not here," Danny said, looking up. "Not here. But close. Close enough to hear."
+
+I looked at Dr. Okafor. She looked at me. And we both understood, with a certainty that settled in our bones like ice, that the fight was coming to us.
+
+---
+
+## Chapter 11: The Second Ship
+
+The second ship was in a valley two hours north of Silver Creek, in a place called Dead Man's Pass. Dr. Okafor's resonance detector had picked up the signal three days ago, and since then, it had been getting stronger.
+
+We had to go. There was no choice. If the ships were networked, if they were waking up one by one, then every ship that came online made the network stronger. And the Turned—more of them, every day, drawn to the ships like moths to a flame—were growing in number.
+
+I took a team: me, Sarah, Reyes, Chen, Dr. Okafor, and two of our best fighters—a former marine named Jackson and a former paramedic named Luisa. We left at dawn, in two vehicles, and drove north.
+
+The valley was beautiful, in a terrible way. Pine trees, a river, mountains on either side. The kind of place you'd go for a vacation, if the world hadn't ended. But the beauty was marred by the Turned—hundreds of them, lining the road, standing in the trees, filling the valley like a silent, hungry army.
+
+We drove through them. They didn't attack. They just watched, their milky eyes tracking us as we passed.
+
+The ship was in the center of the valley, sitting in a crater like the first one. But this one was different. It was smaller—maybe a hundred feet long—and it was already open. The hull had split, and from inside, the light pulsed, and the Turned were not just standing around it. They were entering it. Walking inside, one by one, disappearing into the light.
+
+"They're going in," Dr. Okafor said, her voice barely a whisper. "They're being... absorbed."
+
+"Absorbed into what?" Sarah asked.
+
+"I don't know. But I think... I think the ship is a collector. It collects the Turned, processes them, and uses them. For what, I don't know. But the network needs biomass. It needs bodies."
+
+I watched the Turned walk into the ship, one by one, and I felt something I hadn't felt since the beginning: pure, undiluted terror. Not for myself—for my family. For Danny, who could hear the signal. For Emma, who was tough but still a child. For Sarah, who was the strongest person I knew and who I couldn't bear to lose.
+
+"We have to destroy it," I said.
+
+"How?" Reyes asked. "We don't have explosives. We don't have—"
+
+"We have the mine," I said. "The mine has dynamite. Old mining dynamite, but it's still good. We go back, we get the dynamite, we come back, and we blow this thing to hell."
+
+"And the Turned?" Chen asked.
+
+"We draw them away. All of them. Every single one. We lead them on a chase, get them out of the valley, and then we come back and plant the charges."
+
+"That's insane," Luisa said.
+
+"Yeah," I said. "It is. But it's all we've got."
+
+---
+
+## Chapter 12: The Chase
+
+The plan was simple. It was also suicidal. But simple and suicidal was better than complicated and suicidal, so we went with it.
+
+Jackson and Luisa would lead the Turned away. They'd take the Humvee and drive south, honking the horn, drawing the Turned after them like a pied piper. Meanwhile, the rest of us would sneak into the valley, plant the dynamite, and get out before the ship could react.
+
+It worked. For about ten minutes.
+
+Jackson and Luisa drove south, and the Turned followed. Hundreds of them, streaming out of the valley, chasing the sound of the horn. It was almost comical—if anything about the end of the world could be called comical.
+
+We moved in. Reyes and Chen planted the dynamite—four charges, placed at the corners of the ship, connected by a detonator that Dr. Okafor had rigged from parts she'd scavenged from the mine office. It was crude, but it would work. Probably.
+
+"Charges set," Reyes said. "Let's get out of here."
+
+We were halfway back to the road when the ship reacted.
+
+The light inside intensified. The hum became a scream—a high-pitched, piercing sound that made my vision blur and my stomach lurch. And from inside the ship, something emerged.
+
+It wasn't a Turned. It wasn't a person. It was something else—something that had been a person, or maybe several people, fused together into a single mass of flesh and bone and milky eyes. It was eight feet tall, with too many arms and not enough of anything else, and it moved with a speed that no human body should be capable of.
+
+"Run!" I shouted.
+
+We ran. The thing chased us, its movements jerky and wrong, its many mouths open and screaming. Reyes fired at it—three shots, four, five—and the bullets hit, but they didn't stop it. They just made it angrier.
+
+We reached the road. The Humvee was gone—Jackson and Luisa had it, and they were miles away by now. We were on foot.
+
+"Dr. Okafor!" I shouted. "The detonator!"
+
+She fumbled with it, her hands shaking. The thing was getting closer. I could hear its breathing—or whatever passed for breathing in a creature made of fused human bodies.
+
+"Jake!" Sarah screamed.
+
+I turned. The thing was ten feet away. Its many arms reached for me, and in its many eyes, I saw something that looked like hunger and something that looked like recognition.
+
+I raised my .45 and fired. One shot, two, three. The thing staggered but kept coming. I fired again. And again. And again. Emptying the magazine into the thing's chest, its face, its eyes.
+
+It stopped. It stood there, swaying, its many mouths open, its many eyes fixed on me. And then it fell. Not like a person falling—like a building collapsing. It hit the ground with a sound like wet concrete, and it didn't get up.
+
+"Come on!" Dr. Okafor shouted. She had the detonator ready. "We need to be further away!"
+
+We ran. We ran until our legs burned and our lungs screamed and the hum in our heads became a roar. And then Dr. Okafor pressed the button.
+
+The explosion was visible from a mile away. A flash of light, a column of smoke, and then a sound—a deep, resonant boom that shook the mountains and echoed through the valley. The ship was gone. The crater was a smoking ruin. And the Turned in the valley—all of them—collapsed. Like puppets with their strings cut, they fell to the ground and didn't get up.
+
+We stood on the hillside and watched the smoke rise, and for the first time since the world ended, I felt something I hadn't felt in weeks.
+
+Hope.
+
+---
+
+## Chapter 13: Aftermath
+
+We went home. To Silver Creek. To the people who were waiting for us, who had been watching the sky, who had seen the explosion and didn't know what it meant.
+
+I told them. I told them everything—the ship, the Turned, the fused creature, the explosion. I told them that there were twelve ships, and we'd destroyed one, and there were eleven more. I told them that the fight was just beginning.
+
+And then I told them something I hadn't planned to say, something that came from somewhere deep inside me, somewhere that I didn't know existed until that moment.
+
+"We're going to win this," I said. "I don't know how. I don't know when. But we're going to win. Because we're human. And humans don't give up. We don't quit. We don't stop fighting, even when the odds are impossible, even when the enemy is alien and ancient and powerful beyond our understanding. We fight. That's what we do. That's what we've always done."
+
+The room was quiet. Then Danny stood up.
+
+"Dad's right," he said. "I can still hear the signal. The other ships. They're out there. But they're not as strong now. The network is... broken. We broke it. And if we can break one, we can break them all."
+
+He looked at me, and for a moment, I saw something in his eyes that I'd never seen before. Not fear. Not childhood. Something older. Something that had been there all along, waiting for this moment.
+
+"I can hear them," he said. "And I can help."
+
+I looked at my son. My twelve-year-old son, who could hear alien signals and understand them, who was brave and smart and something I couldn't quite name.
+
+"Then we'll do it together," I said. "All of us. Together."
+
+Sarah put her hand on my shoulder. Emma stood next to Danny. Reyes and Chen flanked me. Dr. Okafor held her equipment. And the people of Silver Creek—forty survivors, forty fighters, forty humans—stood in that room and looked at me, and I looked at them, and I knew, with a certainty that went deeper than thought, that we were going to make it.
+
+Not because we were the strongest. Not because we were the smartest. But because we were together, and together, we were something the aliens hadn't counted on.
+
+We were human.
+
+And we were not going to be turned.
+
+---
+
+## Epilogue: The Signal
+
+Three months later, the network was down to nine ships. We'd destroyed three more—two in California, one in Texas—with a combination of dynamite, ingenuity, and Danny's ability to hear the signal and predict the ships' movements.
+
+The Turned were fewer now. Without the network to sustain them, they were falling apart—literally. Their bodies were breaking down, the milky eyes clearing, the hunger fading. Some of them were even waking up—confused, scared, but alive. Human.
+
+Danny was getting stronger. He could hear the signal from hundreds of miles away, and he could sense the ships' locations with an accuracy that Dr. Okafor called "impossible" and I called "my son." He was changing, I knew that. The signal was changing him. But he was still Danny. Still my boy. Still human.
+
+For now.
+
+The hum was quieter now. Still there, but fainter, like a radio signal losing strength. And in the quiet moments, between the fighting and the planning and the surviving, I could hear something else.
+
+Silence.
+
+Beautiful, precious, human silence.
+
+And in that silence, I could hear my family breathing. And that was enough.
+
+---
+
+*The End.*
+
+---
+
+## About the Author
+
+This novel is a work of fiction. Any resemblance to real persons, living or dead, is coincidental. The characters, events, and places depicted are products of the author's imagination.
+
+*Dead Orbit: The Talbot Protocol* — Book One of the Dead Orbit Series.
+
+*Coming soon: Book Two — Dead Orbit: The Waking Dark*
+"""#
+
     static let promptTemplates: [PromptTemplateItem] = [
+        PromptTemplateItem(
+            title: "Dead Orbit: The Talbot Protocol (Full Novel)",
+            subtitle: "13 Chapters · Unlimited Gapless Book Benchmark",
+            icon: "books.vertical.fill",
+            text: deadOrbitNovelText
+        ),
         PromptTemplateItem(
             title: "Studio Welcome",
             subtitle: "Crisp natural voice test",
@@ -1679,11 +2425,64 @@ struct PhononTextChunk: Identifiable, Hashable {
 
 enum HierarchicalChunker {
     static let defaultChunkChars = 520
+    static let batchChunkChars = 880
     static let hardMaxChunkChars = 1200
 
     private static let cacheLock = NSLock()
     nonisolated(unsafe) private static var lastCacheKey: String = ""
     nonisolated(unsafe) private static var lastCachedChunks: [PhononTextChunk] = []
+
+    /// Sanitizes raw Markdown/novel paragraph lines so horizontal dividers (`---`, `***`), heading hashes (`# `, `## `),
+    /// and inline emphasis wrappers (`*text*`, `**text**`) never cause TTS models to stumble or insert dead pauses.
+    private static func sanitizeParagraphForSpeech(_ rawPara: String) -> String {
+        let lines = rawPara.components(separatedBy: "\n")
+        var cleanedLines: [String] = []
+        cleanedLines.reserveCapacity(lines.count)
+
+        for rawLine in lines {
+            var line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            if line.isEmpty { continue }
+
+            // Skip horizontal rules / section dividers (`---`, `***`, `___`, `===`)
+            let dividerChars = CharacterSet(charactersIn: "-*_=~—– ")
+            if line.count >= 3 && line.unicodeScalars.allSatisfy({ dividerChars.contains($0) }) {
+                continue
+            }
+
+            // Strip leading Markdown heading hashes (`# `, `## `, `### `)
+            var isHeading = false
+            if line.hasPrefix("#") {
+                var idx = line.startIndex
+                while idx < line.endIndex && line[idx] == "#" {
+                    idx = line.index(after: idx)
+                }
+                if idx < line.endIndex && line[idx].isWhitespace {
+                    line = String(line[idx...]).trimmingCharacters(in: .whitespacesAndNewlines)
+                    isHeading = true
+                }
+            }
+
+            // Strip surrounding/inline Markdown asterisks or underscores (`**bold**`, `*italic*`)
+            if line.contains("*") {
+                line = line.replacingOccurrences(of: "**", with: "")
+                // Strip paired `*...*` while preserving solitary multiplication if any
+                if line.hasPrefix("*") && line.hasSuffix("*") && line.count > 2 {
+                    line = String(line.dropFirst().dropLast()).trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+                line = line.replacingOccurrences(of: "*", with: "")
+            }
+
+            guard !line.isEmpty else { continue }
+            // Ensure standalone heading lines end with sentence punctuation so TTS gives them natural title cadence
+            if isHeading || (line.count <= 72 && !line.contains("\"")) {
+                if let last = line.last, !".!?:;…\"')]}".contains(last) {
+                    line.append(".")
+                }
+            }
+            cleanedLines.append(line)
+        }
+        return cleanedLines.joined(separator: "\n")
+    }
 
     /// Splits arbitrarily large text (books, PDFs, EPUBs, logs) in O(N) linear time preferring:
     /// 1. Paragraph breaks (\n\n) -> 2. Sentence endings (.!?…;) -> 3. Clause breaks (,:—–-) -> 4. Word boundaries.
@@ -1694,7 +2493,7 @@ enum HierarchicalChunker {
     ) -> [PhononTextChunk] {
         guard !rawText.isEmpty else { return [] }
         let clampedMax = min(hardMaxChunkChars, max(120, maxChars))
-        let cacheKey = "\(rawText.count)|\(rawText.hashValue)|\(clampedMax)|\(mergeShortParagraphs)"
+        let cacheKey = "\(rawText.count)|\(rawText.hashValue)|\(clampedMax)|\(mergeShortParagraphs)|v2"
         cacheLock.lock()
         if cacheKey == lastCacheKey {
             let hit = lastCachedChunks
@@ -1733,16 +2532,25 @@ enum HierarchicalChunker {
         }
 
         for rawPara in rawParagraphs {
-            let cleanPara = rawPara.trimmingCharacters(in: .whitespacesAndNewlines)
+            let cleanPara = sanitizeParagraphForSpeech(rawPara)
             if cleanPara.isEmpty { continue }
 
-            let pieces = splitLongParagraph(cleanPara, maxChars: clampedMax)
+            // Keep Chunk #0 compact (~260 chars = ~13s of speech) so playback starts in ~1.0s while Chunk #1+ prefetches!
+            let targetMaxForPara = (chunks.isEmpty && pendingText.isEmpty && normalized.count > 360)
+                ? min(clampedMax, 280)
+                : clampedMax
+            let pieces = splitLongParagraph(cleanPara, maxChars: targetMaxForPara)
             for piece in pieces {
-                if mergeShortParagraphs && !pendingText.isEmpty && (pendingText.count + 1 + piece.count) <= Int(Double(clampedMax) * 0.75) {
+                // Never strand short headings/titles (< 130 chars) as tiny 1-second chunks before a paragraph
+                let allowedMergeMax = (pendingText.count > 0 && pendingText.count < 130)
+                    ? min(hardMaxChunkChars, clampedMax + 140)
+                    : (chunks.isEmpty ? min(clampedMax, 300) : clampedMax)
+
+                if mergeShortParagraphs && !pendingText.isEmpty && (pendingText.count + 1 + piece.count) <= allowedMergeMax {
                     pendingText += "\n" + piece
                 } else {
                     flushPending()
-                    if mergeShortParagraphs && piece.count < Int(Double(clampedMax) * 0.40) {
+                    if mergeShortParagraphs && piece.count < Int(Double(clampedMax) * 0.52) {
                         pendingText = piece
                         pendingParaIdx = paragraphIndex
                     } else {
@@ -2079,7 +2887,7 @@ enum ReadAlongVideoAspect: String, CaseIterable, Identifiable {
 
 // MARK: - Waveform-Synced Karaoke Word Timings & Subtitle Exporter (.srt / .vtt / .ass)
 
-struct WordTiming: Identifiable, Hashable {
+struct WordTiming: Identifiable, Hashable, Sendable {
     let id: Int
     let word: String
     let start: TimeInterval
@@ -2928,6 +3736,80 @@ enum AudioExportFormat: String, CaseIterable, Identifiable {
     }
 }
 
+// MARK: - Studio Speech Audio Silence Trimmer (Ported from Codecaine File Manager fmPhonon.ts trim_generated_wave)
+
+enum SpeechAudioTrimmer {
+    /// Trims dead leading and trailing codec silence from a generated chunk waveform using a 5ms RMS envelope
+    /// while preserving natural consonant onset (`keepLeadingMs`) and vowel release (`keepTrailingMs`) with a raised-cosine micro-fade.
+    static func trimSilence(
+        _ samples: [Float],
+        sampleRate: Double,
+        keepLeadingMs: Double = 14.0,
+        keepTrailingMs: Double = 22.0,
+        fadeMs: Double = 4.0
+    ) -> [Float] {
+        let count = samples.count
+        guard count > 256, sampleRate > 0 else { return samples }
+
+        let win = max(1, Int(sampleRate * 0.005)) // 5ms window
+        let numWins = (count + win - 1) / win
+        guard numWins > 4 else { return samples }
+
+        var rms = [Float](repeating: 0, count: numWins)
+        var peakRMS: Float = 0
+
+        samples.withUnsafeBufferPointer { buf in
+            guard let base = buf.baseAddress else { return }
+            for w in 0..<numWins {
+                let start = w * win
+                let end = min(count, start + win)
+                var sumSq: Float = 0
+                for i in start..<end {
+                    let s = base[i]
+                    sumSq += s * s
+                }
+                let r = sqrt(sumSq / Float(max(1, end - start)))
+                rms[w] = r
+                if r > peakRMS { peakRMS = r }
+            }
+        }
+
+        // Matches fmPhonon.ts: thresh = max(0.004, peak_rms * 0.045)
+        let thresh = max(Float(0.0035), peakRMS * 0.045)
+        guard peakRMS >= 0.0035 else { return samples }
+
+        var firstWin = 0
+        while firstWin < numWins && rms[firstWin] < thresh {
+            firstWin += 1
+        }
+        var lastWin = numWins - 1
+        while lastWin > firstWin && rms[lastWin] < thresh {
+            lastWin -= 1
+        }
+
+        guard firstWin <= lastWin else { return samples }
+
+        let padLeadSamples = max(0, Int((keepLeadingMs / 1000.0) * sampleRate))
+        let padTrailSamples = max(0, Int((keepTrailingMs / 1000.0) * sampleRate))
+
+        let startSample = max(0, firstWin * win - padLeadSamples)
+        let endSample = min(count, (lastWin + 1) * win + padTrailSamples)
+        guard endSample > startSample + 64 else { return samples }
+
+        var trimmed = Array(samples[startSample..<endSample])
+        let fadeSamples = min(Int((fadeMs / 1000.0) * sampleRate), trimmed.count / 6)
+        if fadeSamples > 1 {
+            for i in 0..<fadeSamples {
+                let phase = Double(i) / Double(fadeSamples)
+                let gain = Float(0.5 * (1.0 - cos(Double.pi * phase)))
+                trimmed[i] *= gain
+                trimmed[trimmed.count - 1 - i] *= gain
+            }
+        }
+        return trimmed
+    }
+}
+
 enum AudioFormatExporter {
     static func convert(sourceWAV: URL, to destinationURL: URL, format: AudioExportFormat) throws {
         if FileManager.default.fileExists(atPath: destinationURL.path) {
@@ -2938,7 +3820,7 @@ enum AudioFormatExporter {
             return
         }
 
-        // Prefer ffmpeg for mp3/flac if installed (including keg-only ffmpeg-full)
+        // Prefer ffmpeg for mp3/flac if installed (including keg-only ffmpeg-full) with multi-threaded fast encoding
         if format == .mp3 || format == .flac {
             if let ffmpeg = StudioPackageManager.findExecutable(
                 names: ["ffmpeg"],
@@ -2946,7 +3828,11 @@ enum AudioFormatExporter {
             ) {
                 let proc = Process()
                 proc.executableURL = URL(fileURLWithPath: ffmpeg)
-                proc.arguments = ["-y", "-i", sourceWAV.path, destinationURL.path]
+                if format == .mp3 {
+                    proc.arguments = ["-y", "-threads", "0", "-i", sourceWAV.path, "-codec:a", "libmp3lame", "-qscale:a", "2", destinationURL.path]
+                } else {
+                    proc.arguments = ["-y", "-threads", "0", "-i", sourceWAV.path, "-compression_level", "1", destinationURL.path]
+                }
                 proc.standardInput = FileHandle.nullDevice
                 proc.standardOutput = FileHandle.nullDevice
                 proc.standardError = FileHandle.nullDevice
@@ -2958,7 +3844,7 @@ enum AudioFormatExporter {
             }
         }
 
-        // Native macOS /usr/bin/afconvert fallback (supports m4a, aiff, flac, caf, wav natively!)
+        // Native macOS /usr/bin/afconvert fallback (supports m4a, aiff, flac, caf, wav natively in ~0.2s!)
         let afconvertPath = "/usr/bin/afconvert"
         if FileManager.default.isExecutableFile(atPath: afconvertPath) {
             let proc = Process()
@@ -3018,6 +3904,10 @@ enum ReadAlongVideoExporter {
         case .nord: bgHex = "0x18202C"
         }
 
+        let maxEndSec = timings.last?.end ?? 30.0
+        // Adaptive framerate matching Codecaine File Manager (fmPhonon.ts line 5269): 15fps for short clips, 10fps for long books
+        let videoFps = maxEndSec > 180.0 ? 10 : 15
+
         if let ffmpeg = StudioPackageManager.findExecutable(
             names: ["ffmpeg"],
             extraDirs: ["/opt/homebrew/opt/ffmpeg-full/bin", "/usr/local/opt/ffmpeg-full/bin"]
@@ -3030,15 +3920,19 @@ enum ReadAlongVideoExporter {
             proc.executableURL = URL(fileURLWithPath: ffmpeg)
             proc.arguments = [
                 "-y",
+                "-threads", "0",
                 "-f", "lavfi",
-                "-i", "color=c=\(bgHex):s=\(aspect.width)x\(aspect.height):r=24",
+                "-i", "color=c=\(bgHex):s=\(aspect.width)x\(aspect.height):r=\(videoFps)",
                 "-i", sourceWAV.path,
                 "-vf", "ass='\(escapedASS)'",
                 "-c:v", "libx264",
                 "-preset", "ultrafast",
+                "-tune", "stillimage",
+                "-crf", "23",
                 "-pix_fmt", "yuv420p",
                 "-c:a", "aac",
-                "-b:a", "192k",
+                "-b:a", "160k",
+                "-movflags", "+faststart",
                 "-shortest",
                 destinationURL.path
             ]
@@ -3066,15 +3960,19 @@ enum ReadAlongVideoExporter {
             srtProc.executableURL = URL(fileURLWithPath: ffmpeg)
             srtProc.arguments = [
                 "-y",
+                "-threads", "0",
                 "-f", "lavfi",
-                "-i", "color=c=\(bgHex):s=\(aspect.width)x\(aspect.height):r=24",
+                "-i", "color=c=\(bgHex):s=\(aspect.width)x\(aspect.height):r=\(videoFps)",
                 "-i", sourceWAV.path,
                 "-vf", "subtitles='\(escapedSRT)'",
                 "-c:v", "libx264",
                 "-preset", "ultrafast",
+                "-tune", "stillimage",
+                "-crf", "23",
                 "-pix_fmt", "yuv420p",
                 "-c:a", "aac",
-                "-b:a", "192k",
+                "-b:a", "160k",
+                "-movflags", "+faststart",
                 "-shortest",
                 destinationURL.path
             ]
@@ -3087,21 +3985,25 @@ enum ReadAlongVideoExporter {
                 return
             }
 
-            // Final ffmpeg fallback with timed subtitle stream embedded as mov_text
+            // Final ultra-fast ffmpeg fallback with timed subtitle stream embedded as mov_text (r=2 finishes in <1s!)
             let muxProc = Process()
             muxProc.executableURL = URL(fileURLWithPath: ffmpeg)
             muxProc.arguments = [
                 "-y",
+                "-threads", "0",
                 "-f", "lavfi",
-                "-i", "color=c=\(bgHex):s=\(aspect.width)x\(aspect.height):r=24",
+                "-i", "color=c=\(bgHex):s=\(aspect.width)x\(aspect.height):r=2",
                 "-i", sourceWAV.path,
                 "-i", tempSRT.path,
                 "-c:v", "libx264",
                 "-preset", "ultrafast",
+                "-tune", "stillimage",
+                "-crf", "24",
                 "-pix_fmt", "yuv420p",
                 "-c:a", "aac",
-                "-b:a", "192k",
+                "-b:a", "160k",
                 "-c:s", "mov_text",
+                "-movflags", "+faststart",
                 "-shortest",
                 destinationURL.path
             ]

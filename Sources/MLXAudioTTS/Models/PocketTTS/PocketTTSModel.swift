@@ -21,6 +21,8 @@ public final class PocketTTSModel: Module, SpeechGenerationModel, @unchecked Sen
     public var lsd_decode_steps: Int
     public var noise_clamp: Float?
     public var eos_threshold: Float
+    private var cachedVoiceKey: String?
+    private var cachedVoiceConditioning: MLXArray?
 
     public var sampleRate: Int { config.mimi.sampleRate }
     public var defaultGenerationParameters: GenerateParameters {
@@ -233,8 +235,17 @@ public final class PocketTTSModel: Module, SpeechGenerationModel, @unchecked Sen
             return .audio(audio.asType(.float32))
         }
 
+        let cacheKey = "voice:\(voice ?? defaultAudioPrompt)"
+        if refAudio == nil, cachedVoiceKey == cacheKey, let cached = cachedVoiceConditioning {
+            return .embedding(cached)
+        }
+
         if let voice, let file = try await resolveVoiceFile(voice) {
-            return .embedding(try voiceConditioning(MLX.loadArrays(url: file)))
+            let cond = try voiceConditioning(MLX.loadArrays(url: file))
+            eval(cond)
+            cachedVoiceKey = cacheKey
+            cachedVoiceConditioning = cond
+            return .embedding(cond)
         }
 
         let voices = Self.voiceFiles(in: modelFolder)
@@ -244,7 +255,11 @@ public final class PocketTTSModel: Module, SpeechGenerationModel, @unchecked Sen
         guard let file = voices[selected] else {
             throw Self.modelError("Unknown voice '\(selected)'. Available voices: \(voices.keys.sorted().joined(separator: ", "))")
         }
-        return .embedding(try voiceConditioning(MLX.loadArrays(url: file)))
+        let cond = try voiceConditioning(MLX.loadArrays(url: file))
+        eval(cond)
+        cachedVoiceKey = cacheKey
+        cachedVoiceConditioning = cond
+        return .embedding(cond)
     }
 
     private func resolveVoiceFile(_ voice: String) async throws -> URL? {
@@ -360,10 +375,10 @@ public final class PocketTTSModel: Module, SpeechGenerationModel, @unchecked Sen
         for chunk in chunks {
             try Task.checkCancellation()
             sliceFlowCache(&state, to: promptNumFrames)
-            let (_, guess) = try PocketTTSTextUtils.prepareTextPrompt(chunk)
-            let frames = framesAfterEos ?? (guess + 2)
+            let (preparedText, _) = try PocketTTSTextUtils.prepareTextPrompt(chunk)
+            let frames = framesAfterEos ?? 1
             try generateAudioStreamShortText(
-                state: &state, text: chunk, framesAfterEos: frames, maxFrames: maxFrames, onChunk: onChunk)
+                state: &state, text: preparedText, framesAfterEos: frames, maxFrames: maxFrames, onChunk: onChunk)
         }
     }
 

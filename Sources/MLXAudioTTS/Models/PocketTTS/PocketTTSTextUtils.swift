@@ -59,7 +59,7 @@ public enum PocketTTSTextUtils {
             tokenChunks.append((end - start, text))
         }
 
-        let maxNbTokensInChunk = 50
+        let maxNbTokensInChunk = 110
         var chunks: [String] = []
         var current = ""
         var currentCount = 0

@@ -90,18 +90,7 @@ struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("VoicesApp.TTSViewModel.readAlongTheme") private var rawStudioTheme: String = ReadAlongTheme.midnight.rawValue
     @State private var viewModel = TTSViewModel()
-    @State private var textInput: String = {
-        if ProcessInfo.processInfo.arguments.contains("--read-along") {
-            return """
-            Welcome to Codecaine MLX RAD AI Audio Studio on Apple Silicon. As neural speech plays or generates, every word highlights in real time with acoustic waveform alignment and automatic teleprompter scrolling.
-
-            Large books, PDFs, EPUBs, Markdown documents, and transcripts of any size are automatically split into natural paragraph, sentence, and clause chunks so you can read unlimited text with zero memory spikes.
-
-            Click any chunk pill above to synthesize from that section immediately, or click any word in Read-Along mode to jump directly to that moment in the audio timeline.
-            """
-        }
-        return ""
-    }()
+    @State private var textInput: String = Voice.deadOrbitNovelText
     @State private var showVoices = ProcessInfo.processInfo.arguments.contains("--open-voices")
     @State private var showSettings = false
     @State private var showDownloadedModelsSheet = false
@@ -485,7 +474,7 @@ struct ContentView: View {
 
                     // Direct Silent Audio, Read-Along MP4 Video, Subtitles & Batch Export menu
                     Menu {
-                        Section("Direct Silent Audio Export (No Playback Needed)") {
+                        Section("Instant Audio Export (<1s if Generated · ~2s Silent)") {
                             ForEach(AudioExportFormat.allCases) { fmt in
                                 Button {
                                     viewModel.saveAudioInFormat(
@@ -493,15 +482,15 @@ struct ContentView: View {
                                         fallbackText: textInput,
                                         voice: viewModel.selectedVoice,
                                         chunkIndex: activeChunkIdx,
-                                        scopeOverride: viewModel.synthesisScope
+                                        scopeOverride: nil
                                     )
                                 } label: {
-                                    Label("Export Audio as \(fmt.label) (Silent)", systemImage: "waveform.badge.plus")
+                                    Label("Export Audio as \(fmt.label)", systemImage: "waveform.badge.plus")
                                 }
                             }
                         }
                         Divider()
-                        Section("Instant 2s Active Chunk (§\(activeChunkIdx + 1)) Silent Export") {
+                        Section("Instant 1.5s Active Chunk (§\(activeChunkIdx + 1)) Silent Export") {
                             ForEach([AudioExportFormat.wav, .mp3, .m4a]) { fmt in
                                 Button {
                                     viewModel.quickExportActiveChunk(
@@ -512,7 +501,23 @@ struct ContentView: View {
                                         scope: .activeChunk
                                     )
                                 } label: {
-                                    Label("⚡ 2s Export Chunk §\(activeChunkIdx + 1) as \(fmt.rawValue.uppercased()) (Silent)", systemImage: "bolt.fill")
+                                    Label("⚡ 1.5s Export Chunk §\(activeChunkIdx + 1) as \(fmt.rawValue.uppercased()) (Silent)", systemImage: "bolt.fill")
+                                }
+                            }
+                        }
+                        Divider()
+                        Section("Export Full Book / Novel Batch (All \(max(1, chunks.count)) Chunks)") {
+                            ForEach([AudioExportFormat.wav, .mp3, .m4a]) { fmt in
+                                Button {
+                                    viewModel.quickExportActiveChunk(
+                                        text: textInput,
+                                        voice: viewModel.selectedVoice,
+                                        chunkIndex: 0,
+                                        format: fmt,
+                                        scope: .fullDocument
+                                    )
+                                } label: {
+                                    Label("📚 Export Full Book as \(fmt.rawValue.uppercased()) (Silent)", systemImage: "books.vertical.fill")
                                 }
                             }
                         }
@@ -1781,7 +1786,7 @@ struct ContentView: View {
 
                     // Direct Silent Export Menu (Export without pressing Generate Speech & without playing sound)
                     Menu {
-                        Section("Direct Silent Audio Export (No Playback)") {
+                        Section("Instant Audio Export (<1s if Generated · ~2s Silent)") {
                             ForEach(AudioExportFormat.allCases) { fmt in
                                 Button {
                                     viewModel.saveAudioInFormat(
@@ -1789,15 +1794,15 @@ struct ContentView: View {
                                         fallbackText: textInput,
                                         voice: viewModel.selectedVoice,
                                         chunkIndex: activeChunkIdx,
-                                        scopeOverride: viewModel.synthesisScope
+                                        scopeOverride: nil
                                     )
                                 } label: {
-                                    Label("Export as \(fmt.label) (Silent)", systemImage: "arrow.down.doc.fill")
+                                    Label("Export as \(fmt.label)", systemImage: "arrow.down.doc.fill")
                                 }
                             }
                         }
                         Divider()
-                        Section("Instant 2s Active Chunk (§\(activeChunkIdx + 1)) Silent Export") {
+                        Section("Instant 1.5s Active Chunk (§\(activeChunkIdx + 1)) Silent Export") {
                             ForEach([AudioExportFormat.wav, .mp3, .m4a]) { fmt in
                                 Button {
                                     viewModel.quickExportActiveChunk(
@@ -1808,12 +1813,12 @@ struct ContentView: View {
                                         scope: .activeChunk
                                     )
                                 } label: {
-                                    Label("⚡ 2s Export Chunk §\(activeChunkIdx + 1) as \(fmt.rawValue.uppercased())", systemImage: "bolt.fill")
+                                    Label("⚡ 1.5s Export Chunk §\(activeChunkIdx + 1) as \(fmt.rawValue.uppercased())", systemImage: "bolt.fill")
                                 }
                             }
                         }
                         Divider()
-                        Section("Export Full Book / Document Batch (Silent)") {
+                        Section("Export Full Book / Document Batch (All \(max(1, chunks.count)) Chunks)") {
                             ForEach([AudioExportFormat.wav, .mp3, .m4a]) { fmt in
                                 Button {
                                     viewModel.quickExportActiveChunk(
@@ -1867,8 +1872,8 @@ struct ContentView: View {
                     }
                     .menuStyle(.borderlessButton)
                     .fixedSize()
-                    .disabled(textInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || viewModel.isGenerating)
-                    .help("Export audio or Read-Along MP4 directly without pressing Generate Speech — synthesizes silently with no sound played")
+                    .disabled(textInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && viewModel.audioURL == nil)
+                    .help("Instant export (<1s when audio is generated, ~1.5–2s silent synthesis when not yet generated)")
 
                     // Primary Generate / Stop Button
                     if viewModel.isGenerating {
@@ -2083,6 +2088,14 @@ struct ContentView: View {
         .task {
             LocalhostServerManager.shared.startIfNeeded()
             await viewModel.loadModel()
+            if ProcessInfo.processInfo.arguments.contains("--auto-speak"), !textInput.isEmpty {
+                showTeleprompter = true
+                viewModel.startSynthesis(
+                    text: textInput,
+                    voice: viewModel.selectedVoice,
+                    startChunkIndex: 0
+                )
+            }
         }
     }
 

@@ -10,39 +10,40 @@ import SwiftUI
 import AppKit
 #endif
 
-/// Codecaine File Manager Synthesis Scope for instant 2-second EPUB/Book start & export
+/// Codecaine File Manager Synthesis Scope for instant 1-second EPUB/Book start, unlimited reading & 2s export
 enum SynthesisScope: String, CaseIterable, Identifiable {
+    case fullDocument = "fullDocument"
     case fastSection = "fastSection"
     case activeChunk = "activeChunk"
-    case fullDocument = "fullDocument"
 
     var id: String { rawValue }
 
     var label: String {
         switch self {
-        case .fastSection:
-            return "Smart Lookahead (2s Start + 4-Chunk Window)"
-        case .activeChunk:
-            return "Active Chunk Only (~2s Instant Synthesis & Export)"
         case .fullDocument:
-            return "Full Book / Document Batch (All Chunks)"
+            return "Unlimited Continuous Stream (1s Start · Reads Entire Book)"
+        case .fastSection:
+            return "Fast 4-Chunk Section (~2s Start & Quick Section Export)"
+        case .activeChunk:
+            return "Active Chunk Only (~1.5s Instant Synthesis & Export)"
         }
     }
 
     var shortBadge: String {
         switch self {
-        case .fastSection: return "⚡ Smart 4-Chunk (2s)"
-        case .activeChunk: return "🎯 1 Chunk (2s)"
-        case .fullDocument: return "📚 Full Book"
+        case .fullDocument: return "♾️ Unlimited Book (1s)"
+        case .fastSection: return "⚡ 4-Chunk Section"
+        case .activeChunk: return "🎯 1 Chunk (1.5s)"
         }
     }
 }
 
 /// Writes an IEEE Float32 RIFF/WAVE file incrementally and updates its 44-byte header in place after every chunk
-/// so `audioURL` is a valid, playable, exportable WAV file on disk within ~1.5–2 seconds (after Chunk #1).
-final class LivePlayableWAVWriter {
+/// so `audioURL` is a valid, playable, exportable WAV file on disk within ~1.0–1.5 seconds (after Chunk #1).
+final class LivePlayableWAVWriter: @unchecked Sendable {
     let url: URL
     let sampleRate: UInt32
+    private let lock = NSLock()
     private var fileHandle: FileHandle?
     private(set) var framesWritten: Int = 0
 
@@ -55,7 +56,10 @@ final class LivePlayableWAVWriter {
     }
 
     func writeChunk(_ samples: [Float]) throws {
-        guard !samples.isEmpty, let fh = fileHandle else { return }
+        guard !samples.isEmpty else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        guard let fh = fileHandle else { return }
         try fh.seekToEnd()
         let pcmData = samples.withUnsafeBytes { Data($0) }
         try fh.write(contentsOf: pcmData)
@@ -64,11 +68,12 @@ final class LivePlayableWAVWriter {
         let header = Self.makeWAVHeader(sampleRate: sampleRate, dataBytes: dataBytes)
         try fh.seek(toOffset: 0)
         try fh.write(contentsOf: header)
-        try? fh.synchronize()
     }
 
     @discardableResult
     func finalize() -> URL {
+        lock.lock()
+        defer { lock.unlock() }
         try? fileHandle?.synchronize()
         try? fileHandle?.close()
         fileHandle = nil
@@ -111,7 +116,8 @@ enum PhononChunkCache {
     private static let lock = NSLock()
     nonisolated(unsafe) private static var memoryCache: [String: [Float]] = [:]
     nonisolated(unsafe) private static var lruKeys: [String] = []
-    private static let maxMemoryEntries = 96
+    private static let maxMemoryEntries = 256
+    private static let diskWriteQueue = DispatchQueue(label: "VoicesApp.PhononChunkCache.DiskWrite", qos: .utility)
 
     private static var cacheDirectory: URL {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("VoicesAppPhononChunkCache", isDirectory: true)
@@ -122,7 +128,7 @@ enum PhononChunkCache {
     }
 
     static func cacheKey(modelId: String, voiceParam: String?, refText: String?, pitch: Float, text: String) -> String {
-        let raw = "\(modelId)|\(voiceParam ?? "default")|\(refText ?? "")|\(String(format: "%.2f", pitch))|\(text)"
+        let raw = "v3|\(modelId)|\(voiceParam ?? "default")|\(refText ?? "")|\(String(format: "%.2f", pitch))|\(text)"
         let digest = SHA256.hash(data: Data(raw.utf8))
         return digest.map { String(format: "%02x", $0) }.joined()
     }
@@ -168,8 +174,10 @@ enum PhononChunkCache {
         lock.unlock()
 
         let fileURL = cacheDirectory.appendingPathComponent("\(key).pcm")
-        let data = samples.withUnsafeBytes { Data($0) }
-        try? data.write(to: fileURL, options: .atomic)
+        diskWriteQueue.async {
+            let data = samples.withUnsafeBytes { Data($0) }
+            try? data.write(to: fileURL, options: .atomic)
+        }
     }
 }
 
@@ -254,7 +262,7 @@ class TTSViewModel {
 
     // Generation parameters: model defaults + optional UI overrides
     private var defaultGenerationParameters = GenerateParameters(
-        maxTokens: 1200,
+        maxTokens: 4096,
         temperature: 0.6,
         topP: 0.8,
         repetitionPenalty: 1.3,
@@ -353,7 +361,7 @@ class TTSViewModel {
     }
     var synthesisScope: SynthesisScope = SynthesisScope(
         rawValue: UserDefaults.standard.string(forKey: "VoicesApp.TTSViewModel.synthesisScope") ?? ""
-    ) ?? .fastSection {
+    ) ?? .fullDocument {
         didSet {
             UserDefaults.standard.set(synthesisScope.rawValue, forKey: "VoicesApp.TTSViewModel.synthesisScope")
         }
@@ -409,7 +417,7 @@ class TTSViewModel {
     }
     var paragraphPauseMs: Int = UserDefaults.standard.object(forKey: "VoicesApp.TTSViewModel.paragraphPauseMs").map { _ in
         UserDefaults.standard.integer(forKey: "VoicesApp.TTSViewModel.paragraphPauseMs")
-    } ?? 350 {
+    } ?? 0 {
         didSet { UserDefaults.standard.set(paragraphPauseMs, forKey: "VoicesApp.TTSViewModel.paragraphPauseMs") }
     }
     var wordSyncOffsetMs: Double = UserDefaults.standard.object(forKey: "VoicesApp.TTSViewModel.wordSyncOffsetMs").map { _ in
@@ -433,6 +441,7 @@ class TTSViewModel {
     var synthesizedStartChunkIndex: Int = 0
     var synthesizedEndChunkIndex: Int? = nil
     var synthesizedWordTimings: [WordTiming] = []
+    var lastSynthesizedText: String = ""
 
     // Audio player state (manually synced from AudioPlayerManager)
     var isPlaying: Bool = false
@@ -446,7 +455,7 @@ class TTSViewModel {
     private var generationTask: Task<Void, Never>?
 
     private var defaultMaxTokens: Int {
-        defaultGenerationParameters.maxTokens ?? 1200
+        max(defaultGenerationParameters.maxTokens ?? 4096, 4096)
     }
 
     var isModelLoaded: Bool {
@@ -466,6 +475,14 @@ class TTSViewModel {
             if maxChunkLength <= 300 {
                 maxChunkLength = 520
             }
+        }
+        if !UserDefaults.standard.bool(forKey: "VoicesApp.TTSViewModel.migratedFastPhononEngineV5") {
+            UserDefaults.standard.set(true, forKey: "VoicesApp.TTSViewModel.migratedFastPhononEngineV5")
+            if ModelCacheHelper.isModelCached(Self.defaultModelId) {
+                modelId = Self.defaultModelId
+            }
+            synthesisScope = .fullDocument
+            paragraphPauseMs = 0
         }
         setupAudioPlayerObservers()
         refreshVoicesForCurrentModel(forceSelectFirst: true)
@@ -600,11 +617,11 @@ class TTSViewModel {
         voiceDescription = ""
         enableChunking = true
         maxChunkLength = 520
-        synthesisScope = .fastSection
+        synthesisScope = .fullDocument
         splitPattern = "\n"
         streamingPlayback = true
         pitchSemitones = 0.0
-        paragraphPauseMs = 350
+        paragraphPauseMs = 0
         wordSyncOffsetMs = 0.0
         readAlongTheme = .midnight
         autoReadAlong = true
@@ -631,6 +648,8 @@ class TTSViewModel {
         var parameters = defaultGenerationParameters
         if let maxTokensOverride {
             parameters.maxTokens = maxTokensOverride
+        } else {
+            parameters.maxTokens = max(parameters.maxTokens ?? 4096, 4096)
         }
         if let temperatureOverride {
             parameters.temperature = temperatureOverride
@@ -644,15 +663,15 @@ class TTSViewModel {
         return parameters
     }
 
-    /// Split arbitrarily large text into chunks using Codecaine File Manager's HierarchicalChunker
-    func chunkText(_ text: String) -> [String] {
+    /// Split arbitrarily large text into chunks with paragraph metadata using Codecaine File Manager's HierarchicalChunker
+    func chunkTextWithMetadata(_ text: String, maxCharsOverride: Int? = nil) -> [PhononTextChunk] {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
         guard enableChunking else {
-            return [text]
+            let words = trimmed.split { $0.isWhitespace || $0.isNewline }.count
+            return [PhononTextChunk(id: 0, index: 0, paragraphIndex: 0, text: trimmed, charCount: trimmed.count, wordCount: words)]
         }
-        let effectiveMax = max(180, maxChunkLength)
-        guard text.count > effectiveMax else {
-            return [text]
-        }
+        let effectiveMax = max(180, maxCharsOverride ?? maxChunkLength)
         var normalizedText = text
         let trimmedPattern = splitPattern.trimmingCharacters(in: .whitespaces)
         if !trimmedPattern.isEmpty && trimmedPattern != "\n" && trimmedPattern != "\\n" {
@@ -662,7 +681,16 @@ class TTSViewModel {
             }
         }
         let phononChunks = HierarchicalChunker.splitText(normalizedText, maxChars: effectiveMax, mergeShortParagraphs: true)
-        return phononChunks.isEmpty ? [text] : phononChunks.map(\.text)
+        if phononChunks.isEmpty {
+            let words = trimmed.split { $0.isWhitespace || $0.isNewline }.count
+            return [PhononTextChunk(id: 0, index: 0, paragraphIndex: 0, text: trimmed, charCount: trimmed.count, wordCount: words)]
+        }
+        return phononChunks
+    }
+
+    /// Split arbitrarily large text into chunks using Codecaine File Manager's HierarchicalChunker
+    func chunkText(_ text: String) -> [String] {
+        return chunkTextWithMetadata(text).map(\.text)
     }
 
     /// Start synthesis in a cancellable task (optionally starting from a specific chunk index or scope override)
@@ -725,7 +753,8 @@ class TTSViewModel {
             return
         }
 
-        guard !text.isEmpty else {
+        let cleanedInput = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanedInput.isEmpty else {
             errorMessage = "Please enter text to synthesize"
             return
         }
@@ -764,8 +793,8 @@ class TTSViewModel {
                 }
             }
 
-            // Split text into chunks (unlimited length hierarchical chunker)
-            let allChunks = chunkText(text)
+            // Split text into chunks with paragraph metadata (unlimited length hierarchical chunker)
+            let allChunks = chunkTextWithMetadata(text)
             let safeStart = min(max(0, startChunkIndex), max(0, allChunks.count - 1))
             let effectiveScope = scopeOverride ?? synthesisScope
             let maxWindowCount: Int
@@ -773,9 +802,9 @@ class TTSViewModel {
             case .activeChunk:
                 maxWindowCount = 1
             case .fastSection:
-                // Codecaine File Manager fast lookahead window: synthesize Chunk #1 in ~1.5s + 3 lookahead chunks
                 maxWindowCount = allChunks.count > 4 ? 4 : allChunks.count
             case .fullDocument:
+                // Unlimited length reading: synthesize Chunk #1 in ~1s and stream all remaining chunks continuously!
                 maxWindowCount = allChunks.count
             }
 
@@ -786,17 +815,16 @@ class TTSViewModel {
             synthesizingChunkIndex = safeStart
             synthesizedStartChunkIndex = safeStart
             synthesizedEndChunkIndex = plannedEndChunk
+            lastSynthesizedText = cleanedInput
             let sampleRate = Double(model.sampleRate)
 
-            // Create LivePlayableWAVWriter — updates WAV header in place after every chunk so `audioURL` is ready after Chunk #1 (~1.5s)
+            // Create LivePlayableWAVWriter — updates WAV header in place after every chunk so `audioURL` is ready after Chunk #1 (~1.0s)
             let tempURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent(UUID().uuidString)
                 .appendingPathExtension("wav")
             let wavWriter = try LivePlayableWAVWriter(url: tempURL, sampleRate: sampleRate)
 
-            var totalTokenCount = 0
-
-            // Streaming playback — model yields audio chunks progressively
+            // Streaming playback — model yields audio chunks progressively with 0ms gapless queueing
             let useStreaming = streamingPlayback && playAudio
             if useStreaming {
                 audioPlayer.startStreaming(sampleRate: sampleRate)
@@ -818,70 +846,76 @@ class TTSViewModel {
             synthesizedWordTimings = workingTimings
             var cumulativeFramesWritten = 0
 
-            for (offset, chunk) in chunks.enumerated() {
+            // Determine voice parameter once outside the hot loop
+            let voiceParam: String?
+            if useVoiceDesign && !voiceDescription.isEmpty {
+                voiceParam = voiceDescription
+            } else if let voice {
+                if voice.isClonedVoice {
+                    voiceParam = nil
+                } else if voice.isBuiltIn {
+                    voiceParam = voice.voiceId
+                } else {
+                    voiceParam = voice.voiceId ?? voice.name
+                }
+            } else {
+                voiceParam = nil
+            }
+            let activeModelId = modelId
+            let generationParameters = effectiveGenerationParameters()
+            let inlineTag = fishPreset?.inlineTag
+            let voiceCacheId = voiceParam ?? voice?.name
+
+            Memory.cacheLimit = 512 * 1024 * 1024 // 512MB cache limit
+
+            for (offset, chunkMeta) in chunks.enumerated() {
+                let chunk = chunkMeta.text
                 let globalIndex = safeStart + offset
                 synthesizingChunkIndex = globalIndex
                 if offset == 0 {
                     activeChunkIndex = safeStart
                 }
-                // Check for cancellation between chunks
                 try Task.checkCancellation()
 
-                var chunkTokenCount = 0
                 let chunkWords = masterWordsByChunk[globalIndex] ?? []
                 let chunkStartSec = Double(cumulativeFramesWritten) / sampleRate
-                var chunkSamples: [Float] = []
-
-                // Set cache limit for this chunk
-                Memory.cacheLimit = 512 * 1024 * 1024 // 512MB cache limit
-                let generationParameters = effectiveGenerationParameters()
-
-                // Determine voice parameter (VoiceDesign description, built-in voiceId, or nil for cloned voice)
-                let voiceParam: String?
-                if useVoiceDesign && !voiceDescription.isEmpty {
-                    voiceParam = voiceDescription
-                } else if let voice {
-                    if voice.isClonedVoice {
-                        voiceParam = nil
-                    } else if voice.isBuiltIn {
-                        voiceParam = voice.voiceId
-                    } else {
-                        voiceParam = voice.voiceId ?? voice.name
-                    }
-                } else {
-                    voiceParam = nil
-                }
+                let isParagraphChangeToNext: Bool = {
+                    guard offset + 1 < chunks.count else { return false }
+                    return chunks[offset + 1].paragraphIndex != chunkMeta.paragraphIndex
+                }()
+                let interChunkPauseFrames = isParagraphChangeToNext ? pauseFrames : 0
 
                 let effectiveChunk: String
-                if let tag = fishPreset?.inlineTag, !chunk.trimmingCharacters(in: .whitespaces).hasPrefix("[") {
+                if let tag = inlineTag, !chunk.trimmingCharacters(in: .whitespaces).hasPrefix("[") {
                     effectiveChunk = "\(tag) \(chunk)"
                 } else {
                     effectiveChunk = chunk
                 }
 
                 let cacheKey = PhononChunkCache.cacheKey(
-                    modelId: modelId,
-                    voiceParam: voiceParam ?? voice?.name,
+                    modelId: activeModelId,
+                    voiceParam: voiceCacheId,
                     refText: refText,
                     pitch: totalPitchShift,
                     text: effectiveChunk
                 )
 
-                if let cachedSamples = PhononChunkCache.get(key: cacheKey) {
-                    chunkSamples = cachedSamples
-                    generationProgress = "Loaded chunk §\(globalIndex + 1)/\(allChunks.count) from instant cache (0ms)..."
-                } else {
-                    if allChunks.count > 1 {
-                        if offset == 0 {
-                            generationProgress = "Synthesizing §\(globalIndex + 1) of \(allChunks.count) (instant 2s start & export)..."
-                        } else {
-                            generationProgress = "Speaking §\(activeChunkIndex + 1) · Prefetching §\(globalIndex + 1)/\(plannedEndChunk + 1)..."
-                        }
+                if allChunks.count > 1 {
+                    if offset == 0 {
+                        generationProgress = "Synthesizing §\(globalIndex + 1) of \(allChunks.count) (instant 1s start & export)..."
+                    } else {
+                        generationProgress = "Speaking §\(activeChunkIndex + 1) · Prefetching §\(globalIndex + 1)/\(plannedEndChunk + 1) (gapless)..."
                     }
+                }
 
-                    // Each chunk needs a fresh generation.
-                    // Pass streamingInterval: 60.0 so models that support sub-chunk streaming synthesize each sentence chunk cohesively
-                    // without mid-sentence buffering gaps or partial-waveform word timing distortion.
+                // Yield to keep @MainActor (AudioPlayer callbacks, timers, 120Hz Teleprompter UI) responsive
+                await Task.yield()
+
+                var rawSamples: [Float] = []
+                if let cachedSamples = PhononChunkCache.get(key: cacheKey) {
+                    rawSamples = cachedSamples
+                } else {
+                    var tokenTick = 0
                     for try await event in model.generateStream(
                         text: effectiveChunk,
                         voice: voiceParam,
@@ -891,70 +925,75 @@ class TTSViewModel {
                         generationParameters: generationParameters,
                         streamingInterval: 60.0
                     ) {
-                        // Throw if cancelled - this will exit the loop and be caught below
                         try Task.checkCancellation()
-
                         switch event {
                         case .token:
-                            chunkTokenCount += 1
-                            totalTokenCount += 1
-                            if chunkTokenCount % 50 == 0 {
-                                if allChunks.count > 1 {
-                                    generationProgress = "Chunk §\(globalIndex + 1)/\(plannedEndChunk + 1): \(chunkTokenCount) tokens..."
-                                } else {
-                                    generationProgress = "Generated \(chunkTokenCount) tokens..."
-                                }
+                            tokenTick += 1
+                            if tokenTick % 20 == 0 {
+                                await Task.yield()
                             }
-                        case .progress(let fraction):
-                            let percent = Int((fraction * 100).rounded())
-                            if allChunks.count > 1 {
-                                generationProgress = "Chunk §\(globalIndex + 1)/\(plannedEndChunk + 1): \(percent)%"
-                            } else {
-                                generationProgress = "Generating... \(percent)%"
-                            }
+                        case .progress:
+                            break
                         case .info(let info):
                             tokensPerSecond = info.tokensPerSecond
                         case .audio(let audioData):
                             autoreleasepool {
                                 let samples = audioData.asArray(Float.self)
-                                chunkSamples.append(contentsOf: samples)
+                                rawSamples.append(contentsOf: samples)
                             }
                         }
                     }
 
-                    if !chunkSamples.isEmpty && abs(totalPitchShift) > 0.05 {
-                        chunkSamples = Voice.applyPitchShift(chunkSamples, semitones: totalPitchShift, sampleRate: sampleRate)
-                    }
-                    if !chunkSamples.isEmpty {
-                        PhononChunkCache.put(key: cacheKey, samples: chunkSamples)
+                    // Offload pitch shift, silence trimming, and cache write to a background thread
+                    if !rawSamples.isEmpty {
+                        let unshifted = rawSamples
+                        rawSamples = await Task.detached(priority: .userInitiated) {
+                            var processed = unshifted
+                            if abs(totalPitchShift) > 0.05 {
+                                processed = Voice.applyPitchShift(processed, semitones: totalPitchShift, sampleRate: sampleRate)
+                            }
+                            processed = SpeechAudioTrimmer.trimSilence(processed, sampleRate: sampleRate)
+                            PhononChunkCache.put(key: cacheKey, samples: processed)
+                            return processed
+                        }.value
                     }
                 }
 
-                if !chunkSamples.isEmpty {
-                    // Align chunk words against the complete synthesized waveform of this chunk before playback begins
+                // Offload waveform DP word alignment and WAV file writing off @MainActor
+                let finalChunkSamples = rawSamples
+                let chunkResult: (samplesToWrite: [Float], alignedTimings: [WordTiming]) = await Task.detached(priority: .userInitiated) {
+                    guard !finalChunkSamples.isEmpty else {
+                        return ([], [])
+                    }
+                    let aligned: [WordTiming]
                     if !chunkWords.isEmpty {
-                        let aligned = WordTimingEngine.alignWordsToPCM(
+                        aligned = WordTimingEngine.alignWordsToPCM(
                             words: chunkWords,
-                            samples: chunkSamples,
+                            samples: finalChunkSamples,
                             sampleRate: sampleRate,
                             startOffsetSec: chunkStartSec
                         )
-                        for t in aligned where t.id >= 0 && t.id < workingTimings.count {
-                            workingTimings[t.id] = t
-                        }
-                        self.synthesizedWordTimings = workingTimings
+                    } else {
+                        aligned = []
                     }
 
-                    var samplesToWrite = chunkSamples
-                    if offset + 1 < chunks.count && pauseFrames > 0 {
-                        samplesToWrite.append(contentsOf: repeatElement(Float(0), count: pauseFrames))
+                    var samplesToWrite = finalChunkSamples
+                    if interChunkPauseFrames > 0 {
+                        samplesToWrite.append(contentsOf: repeatElement(Float(0), count: interChunkPauseFrames))
                     }
-
                     try? wavWriter.writeChunk(samplesToWrite)
-                    cumulativeFramesWritten += samplesToWrite.count
+                    return (samplesToWrite, aligned)
+                }.value
+
+                if !chunkResult.samplesToWrite.isEmpty {
+                    for t in chunkResult.alignedTimings where t.id >= 0 && t.id < workingTimings.count {
+                        workingTimings[t.id] = t
+                    }
+                    self.synthesizedWordTimings = workingTimings
+                    cumulativeFramesWritten += chunkResult.samplesToWrite.count
                     self.synthesizedEndChunkIndex = globalIndex
 
-                    // Publish playable & exportable WAV URL immediately after Chunk #1 (~1.5–2.0 seconds!)
+                    // Publish playable & exportable WAV URL immediately after Chunk #1 (~1.0s!)
                     let liveDuration = Double(wavWriter.framesWritten) / sampleRate
                     if self.audioURL != tempURL {
                         self.audioURL = tempURL
@@ -964,12 +1003,14 @@ class TTSViewModel {
                     }
 
                     if useStreaming {
-                        audioPlayer.scheduleAudioChunk(samplesToWrite, withCrossfade: true)
+                        audioPlayer.scheduleAudioChunk(chunkResult.samplesToWrite, withCrossfade: true)
                     }
                 }
 
-                // Clear GPU cache after each chunk so arbitrarily large books never accumulate VRAM
-                Memory.clearCache()
+                // Only clear GPU cache periodically so Metal buffers stay warm for instant chunk-to-chunk synthesis
+                if (offset + 1) % 10 == 0 {
+                    Memory.clearCache()
+                }
             }
 
             // Finalize the WAV file
@@ -992,7 +1033,7 @@ class TTSViewModel {
 
             // Record in session take history
             if recordHistory {
-                let takeText = chunks.joined(separator: "\n\n")
+                let takeText = chunks.map(\.text).joined(separator: "\n\n")
                 let take = GeneratedTake(
                     text: takeText,
                     modelId: modelId,
@@ -1109,8 +1150,21 @@ class TTSViewModel {
         chunkIndex: Int? = nil,
         scopeOverride: SynthesisScope? = nil
     ) {
-        let existingURL = sourceURL ?? ((chunkIndex == nil && scopeOverride == nil) ? audioURL : nil)
         let cleanedFallback = fallbackText.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Reuse already-synthesized audio immediately (~0.2s export!) whenever `sourceURL` is passed
+        // or when `audioURL` already exists for the current session and no explicit sub-chunk scope override was requested
+        let canReuseExistingAudio: Bool = {
+            if sourceURL != nil { return true }
+            guard let currentURL = audioURL, FileManager.default.fileExists(atPath: currentURL.path) else { return false }
+            if !cleanedFallback.isEmpty && !lastSynthesizedText.isEmpty && lastSynthesizedText != cleanedFallback {
+                return false
+            }
+            if scopeOverride == nil { return true }
+            if cleanedFallback.isEmpty { return true }
+            if lastSynthesizedText == cleanedFallback && scopeOverride == synthesisScope { return true }
+            return false
+        }()
+        let existingURL = sourceURL ?? (canReuseExistingAudio ? audioURL : nil)
         guard existingURL != nil || !cleanedFallback.isEmpty else {
             errorMessage = "Enter or import text before exporting audio"
             return
@@ -1119,30 +1173,66 @@ class TTSViewModel {
         let savePanel = NSSavePanel()
         savePanel.canCreateDirectories = true
         savePanel.isExtensionHidden = false
-        savePanel.title = "Export Audio as \(format.label) (Silent Synthesis — No Playback Needed)"
+        savePanel.title = existingURL != nil
+            ? "Instant Export Audio as \(format.label) (<1s)"
+            : "Export Audio as \(format.label) (Silent Synthesis — No Playback Needed)"
         savePanel.nameFieldStringValue = "\(baseName).\(format.rawValue)"
 
         savePanel.begin { [weak self] response in
             guard let self, response == .OK, let dest = savePanel.url else { return }
+
+            // Fast path: if audio is already on disk, snapshot-copy and convert in ~0.2s without stopping live playback!
+            if let readyWAV = existingURL, FileManager.default.fileExists(atPath: readyWAV.path) {
+                self.generationProgress = "Instant exporting \(format.label)..."
+                let snapshotWAV = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("export_snap_\(UUID().uuidString).wav")
+                try? FileManager.default.copyItem(at: readyWAV, to: snapshotWAV)
+                let srcForConvert = FileManager.default.fileExists(atPath: snapshotWAV.path) ? snapshotWAV : readyWAV
+                Task.detached(priority: .userInitiated) {
+                    defer {
+                        if srcForConvert == snapshotWAV {
+                            try? FileManager.default.removeItem(at: snapshotWAV)
+                        }
+                    }
+                    do {
+                        try AudioFormatExporter.convert(sourceWAV: srcForConvert, to: dest, format: format)
+                        await MainActor.run {
+                            self.generationProgress = "Exported \(dest.lastPathComponent) (<1s instant export)"
+                            Task { @MainActor in
+                                try? await Task.sleep(for: .seconds(2.2))
+                                if self.generationProgress.hasPrefix("Exported \(dest.lastPathComponent)") {
+                                    self.generationProgress = ""
+                                }
+                            }
+                        }
+                    } catch {
+                        await MainActor.run {
+                            self.generationProgress = ""
+                            self.errorMessage = "Audio export failed: \(error.localizedDescription)"
+                        }
+                    }
+                }
+                return
+            }
+
+            // Silent synthesis path when no audio has been generated yet:
+            // Default to fastSection (or explicit scopeOverride) so un-synthesized exports finish in a couple of seconds!
+            let effectiveExportScope = scopeOverride ?? .fastSection
             self.generationTask?.cancel()
             self.generationTask = Task { @MainActor in
-                var wavToConvert = existingURL
-                if wavToConvert == nil {
-                    if !self.isModelLoaded {
-                        await self.loadModel()
-                    }
-                    self.generationProgress = "Synthesizing silently for \(format.label) export (no audio playback)..."
-                    await self.synthesize(
-                        text: cleanedFallback,
-                        voice: voice ?? self.selectedVoice,
-                        startChunkIndex: chunkIndex ?? self.activeChunkIndex,
-                        playAudio: false,
-                        recordHistory: true,
-                        scopeOverride: scopeOverride ?? self.synthesisScope
-                    )
-                    wavToConvert = self.audioURL
+                if !self.isModelLoaded {
+                    await self.loadModel()
                 }
-                guard let finalWAV = wavToConvert else { return }
+                self.generationProgress = "Synthesizing silently for \(format.label) export..."
+                await self.synthesize(
+                    text: cleanedFallback,
+                    voice: voice ?? self.selectedVoice,
+                    startChunkIndex: chunkIndex ?? self.activeChunkIndex,
+                    playAudio: false,
+                    recordHistory: true,
+                    scopeOverride: effectiveExportScope
+                )
+                guard let finalWAV = self.audioURL else { return }
                 self.generationProgress = "Exporting \(format.label)..."
                 Task.detached(priority: .userInitiated) {
                     do {
@@ -1183,9 +1273,10 @@ class TTSViewModel {
         savePanel.nameFieldStringValue = "read_along_\(theme.rawValue)_\(aspect.rawValue.replacingOccurrences(of: ":", with: "x")).mp4"
         savePanel.begin { [weak self] response in
             guard let self, response == .OK, let dest = savePanel.url else { return }
-            self.generationTask?.cancel()
-            self.generationTask = Task { @MainActor in
+
+            Task { @MainActor in
                 if self.audioURL == nil && !cleaned.isEmpty {
+                    self.generationTask?.cancel()
                     if !self.isModelLoaded {
                         await self.loadModel()
                     }
@@ -1196,10 +1287,15 @@ class TTSViewModel {
                         startChunkIndex: self.activeChunkIndex,
                         playAudio: false,
                         recordHistory: true,
-                        scopeOverride: self.synthesisScope
+                        scopeOverride: .fastSection
                     )
                 }
                 guard let urlToSave = self.audioURL else { return }
+                let snapshotWAV = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("video_snap_\(UUID().uuidString).wav")
+                try? FileManager.default.copyItem(at: urlToSave, to: snapshotWAV)
+                let wavForVideo = FileManager.default.fileExists(atPath: snapshotWAV.path) ? snapshotWAV : urlToSave
+
                 let estDuration = self.duration > 0 ? self.duration : max(1.5, Double(cleaned.count) / 14.0)
                 let activeDirect = self.synthesizedWordTimings.filter { $0.end > $0.start }
                 let rawTimings: [WordTiming]
@@ -1208,7 +1304,7 @@ class TTSViewModel {
                 } else {
                     rawTimings = WordTimingEngine.computeWordTimings(
                         text: cleaned,
-                        audioURL: urlToSave,
+                        audioURL: wavForVideo,
                         duration: estDuration,
                         maxChunkChars: max(180, self.maxChunkLength),
                         enableChunking: self.enableChunking,
@@ -1220,9 +1316,14 @@ class TTSViewModel {
                 let timings = WordTimingEngine.shiftedTimings(rawTimings, offsetMs: self.wordSyncOffsetMs)
                 self.generationProgress = "Rendering Read-Along MP4 Video (\(aspect.rawValue))..."
                 Task.detached(priority: .userInitiated) {
+                    defer {
+                        if wavForVideo == snapshotWAV {
+                            try? FileManager.default.removeItem(at: snapshotWAV)
+                        }
+                    }
                     do {
                         try ReadAlongVideoExporter.exportKaraokeVideo(
-                            sourceWAV: urlToSave,
+                            sourceWAV: wavForVideo,
                             timings: timings,
                             theme: theme,
                             aspect: aspect,
