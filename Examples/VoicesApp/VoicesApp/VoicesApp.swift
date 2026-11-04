@@ -26,8 +26,23 @@ enum StudioBrandIconLoader {
 
     @MainActor
     static func applyDockIcon() {
+        let appTitle = "Codecaine MLX RAD AI Audio Studio"
         if let icon = nsImage {
             NSApplication.shared.applicationIconImage = icon
+        }
+        if let mainMenu = NSApplication.shared.mainMenu,
+           let appMenuItem = mainMenu.items.first {
+            appMenuItem.title = appTitle
+            if let appSubmenu = appMenuItem.submenu {
+                appSubmenu.title = appTitle
+                for item in appSubmenu.items {
+                    if item.title.contains("VoicesApp") {
+                        item.title = item.title.replacingOccurrences(of: "VoicesApp", with: appTitle)
+                    } else if item.title.contains("Codecaine Audio Studio") {
+                        item.title = item.title.replacingOccurrences(of: "Codecaine Audio Studio", with: appTitle)
+                    }
+                }
+            }
         }
     }
     #endif
@@ -254,6 +269,11 @@ struct VoicesApp: App {
         if let idx = args.firstIndex(of: "--tab"), idx + 1 < args.count, let t = Int(args[idx + 1]) {
             return t
         }
+        if args.contains("--tab-studio") { return 0 }
+        if args.contains("--tab-transcribe") || args.contains("--demo-stt") { return 1 }
+        if args.contains("--tab-audiolab") { return 2 }
+        if args.contains("--tab-localhost") { return 3 }
+        if args.contains("--tab-packages") { return 4 }
         return 0
     }()
 
@@ -267,6 +287,7 @@ struct VoicesApp: App {
         }
         Task { @MainActor in
             #if os(macOS)
+            NSApplication.shared.setActivationPolicy(.regular)
             StudioBrandIconLoader.applyDockIcon()
             #endif
             LocalhostServerManager.shared.startIfNeeded()
@@ -280,13 +301,14 @@ struct VoicesApp: App {
                 .frame(minWidth: 960, minHeight: 720)
                 .onAppear {
                     DispatchQueue.main.async {
+                        NSApplication.shared.setActivationPolicy(.regular)
                         StudioBrandIconLoader.applyDockIcon()
                         NSApplication.shared.activate(ignoringOtherApps: true)
                         for window in NSApplication.shared.windows {
                             window.title = "Codecaine MLX RAD AI Audio Studio"
-                            if window.frame.width < 1340 || window.frame.height < 840 {
+                            if window.frame.width < 1480 || window.frame.height < 880 {
                                 var frame = window.frame
-                                frame.size.width = max(frame.size.width, 1380)
+                                frame.size.width = max(frame.size.width, 1480)
                                 frame.size.height = max(frame.size.height, 880)
                                 window.setFrame(frame, display: true, animate: false)
                                 window.center()
@@ -299,8 +321,8 @@ struct VoicesApp: App {
                             DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
                                 if let window = NSApplication.shared.windows.first(where: { $0.frame.width > 400 }),
                                    let contentView = window.contentView {
-                                    if window.frame.width < 1380 || window.frame.height < 880 {
-                                        window.setContentSize(NSSize(width: 1400, height: 900))
+                                    if window.frame.width < 1480 || window.frame.height < 880 {
+                                        window.setContentSize(NSSize(width: 1480, height: 900))
                                     }
                                     contentView.layoutSubtreeIfNeeded()
                                     let bounds = contentView.bounds
@@ -320,7 +342,7 @@ struct VoicesApp: App {
         }
         #if os(macOS)
         .windowStyle(.hiddenTitleBar)
-        .defaultSize(width: 1380, height: 880)
+        .defaultSize(width: 1480, height: 880)
         .commands {
             CommandMenu("Studio") {
                 Button("Voice Studio (TTS & Cloning)") {
@@ -360,6 +382,56 @@ struct VoicesApp: App {
 
                 Divider()
 
+                Button("Paste & Read Clipboard in Voice Studio") {
+                    selectedTab = 0
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                        NotificationCenter.default.post(name: .pasteAndReadClipboard, object: nil)
+                    }
+                }
+                .keyboardShortcut("v", modifiers: [.command, .shift])
+
+                Button("Multi-Voice Character Casting Table…") {
+                    selectedTab = 0
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                        NotificationCenter.default.post(name: .openCharacterCastingSheet, object: nil)
+                    }
+                }
+                .keyboardShortcut("c", modifiers: [.command, .shift])
+
+                Button("Export Chapterized .M4B Audiobook…") {
+                    selectedTab = 0
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                        NotificationCenter.default.post(name: .openM4BAudiobookSheet, object: nil)
+                    }
+                }
+                .keyboardShortcut("b", modifiers: [.command, .shift])
+
+                Button("Watch-Folder Batch Automation…") {
+                    NotificationCenter.default.post(name: .openWatchFolderSheet, object: nil)
+                }
+                .keyboardShortcut("w", modifiers: [.command, .shift])
+
+                Button("Open Localhost Web Playground (:8080/playground)") {
+                    LocalhostServerManager.shared.startIfNeeded()
+                    let port = LocalhostServerManager.shared.primaryPort
+                    if let url = URL(string: "http://127.0.0.1:\(port)/playground") {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+                .keyboardShortcut("p", modifiers: [.command, .shift])
+
+                Button("Master Command Palette…") {
+                    NotificationCenter.default.post(name: .toggleShortcutsSheet, object: "commandPalette")
+                }
+                .keyboardShortcut("k", modifiers: [.command])
+
+                Button("Keyboard Shortcuts & Studio Guide…") {
+                    NotificationCenter.default.post(name: .toggleShortcutsSheet, object: nil)
+                }
+                .keyboardShortcut("/", modifiers: [.command])
+
+                Divider()
+
                 Button("Purge Metal GPU VRAM Cache") {
                     HardwareGuardInspector.purgeGPUCache()
                     LocalhostServerManager.shared.unloadAllModelsAndPurgeVRAM()
@@ -367,6 +439,13 @@ struct VoicesApp: App {
                 .keyboardShortcut("k", modifiers: [.command, .shift])
             }
         }
+        #endif
+
+        #if os(macOS)
+        MenuBarExtra("Codecaine MLX RAD AI Audio Studio", systemImage: "waveform.circle.fill") {
+            StudioMenuBarMiniReaderView(selectedTab: $selectedTab)
+        }
+        .menuBarExtraStyle(.window)
         #endif
     }
 }
@@ -387,9 +466,14 @@ struct AppleStudioShellView: View {
     @Binding var selectedTab: Int
     @AppStorage("VoicesApp.TTSViewModel.readAlongTheme") private var rawStudioTheme: String = ReadAlongTheme.midnight.rawValue
     @State private var server = LocalhostServerManager.shared
+    @State private var watchFolder = StudioWatchFolderManager.shared
     @State private var hardware = HardwareGuardInspector.inspect()
     @State private var visitedTabs: Set<Int> = []
     @State private var showIconShowcase: Bool = ProcessInfo.processInfo.arguments.contains("--show-icon-showcase")
+    @State private var showShortcutsSheet: Bool = false
+    @State private var showWatchFolderSheet: Bool = ProcessInfo.processInfo.arguments.contains("--open-watch-folder")
+    @State private var showMiniReaderPopover: Bool = ProcessInfo.processInfo.arguments.contains("--open-mini-reader")
+    @State private var showCommandPalette: Bool = ProcessInfo.processInfo.arguments.contains("--open-command-palette")
     @Namespace private var tabNamespace
     private let telemetryTimer = Timer.publish(every: 4.0, on: .main, in: .common).autoconnect()
 
@@ -419,26 +503,28 @@ struct AppleStudioShellView: View {
 
             VStack(spacing: 0) {
                 // Unified Apple Glass Header Bar
-                HStack(spacing: 12) {
+                HStack(spacing: 7) {
                     // Brand identity (clickable to inspect the full-resolution Futuristic Studio Icon)
                     Button {
                         withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
                             showIconShowcase.toggle()
                         }
                     } label: {
-                        HStack(spacing: 10) {
+                        HStack(spacing: 8) {
                             FuturisticStudioEmblemView(
-                                size: 34,
+                                size: 32,
                                 accentColor: theme.activeWordBackground
                             )
 
                             VStack(alignment: .leading, spacing: 1) {
                                 Text("Codecaine MLX RAD AI Audio Studio")
-                                    .font(.system(size: 12.5, weight: .bold))
+                                    .font(.system(size: 11.5, weight: .bold))
                                     .foregroundStyle(.primary)
-                                Text("Apple Silicon MLX · MIT Open Source")
-                                    .font(.system(size: 10, weight: .semibold))
+                                    .lineLimit(1)
+                                Text("Apple Silicon MLX · MIT")
+                                    .font(.system(size: 9.5, weight: .semibold))
                                     .foregroundStyle(theme.activeWordBackground)
+                                    .lineLimit(1)
                             }
                         }
                         .contentShape(Rectangle())
@@ -450,10 +536,10 @@ struct AppleStudioShellView: View {
                     }
                     .fixedSize()
 
-                    Spacer(minLength: 8)
+                    Spacer(minLength: 4)
 
                     // Center: Apple Segmented Glass Pill Switcher
-                    HStack(spacing: 4) {
+                    HStack(spacing: 3) {
                         ForEach(tabs) { tab in
                             let isSelected = selectedTab == tab.id
                             Button {
@@ -461,27 +547,27 @@ struct AppleStudioShellView: View {
                                     selectedTab = tab.id
                                 }
                             } label: {
-                                HStack(spacing: 6) {
+                                HStack(spacing: 4.5) {
                                     Image(systemName: tab.icon)
-                                        .font(.system(size: 12, weight: isSelected ? .semibold : .medium))
+                                        .font(.system(size: 11.5, weight: isSelected ? .semibold : .medium))
                                         .foregroundStyle(isSelected ? theme.activeWordForeground : .secondary)
 
                                     Text(tab.title)
-                                        .font(.system(size: 12, weight: isSelected ? .semibold : .medium))
+                                        .font(.system(size: 11.5, weight: isSelected ? .semibold : .medium))
                                         .foregroundStyle(isSelected ? theme.activeWordForeground : .primary.opacity(0.82))
 
                                     Text("⌘\(tab.id + 1)")
-                                        .font(.system(size: 9.5, weight: .bold, design: .rounded))
+                                        .font(.system(size: 9, weight: .bold, design: .rounded))
                                         .foregroundStyle(isSelected ? theme.activeWordForeground.opacity(0.82) : .secondary.opacity(0.65))
-                                        .padding(.horizontal, 4.5)
+                                        .padding(.horizontal, 4)
                                         .padding(.vertical, 1)
                                         .background(
                                             Capsule()
                                                 .fill(isSelected ? theme.activeWordForeground.opacity(0.15) : Color.primary.opacity(0.06))
                                         )
                                 }
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6.5)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 6)
                                 .background {
                                     if isSelected {
                                         Capsule()
@@ -506,11 +592,10 @@ struct AppleStudioShellView: View {
                                 .contentShape(Capsule())
                             }
                             .buttonStyle(.plain)
-                            .keyboardShortcut(tab.shortcutKey, modifiers: .command)
                             .help("\(tab.title) — \(tab.subtitle) (⌘\(tab.id + 1))")
                         }
                     }
-                    .padding(4)
+                    .padding(3.5)
                     .background(
                         Capsule()
                             .fill(theme.colorScheme == .light ? Color.black.opacity(0.08) : Color.black.opacity(0.32))
@@ -521,7 +606,7 @@ struct AppleStudioShellView: View {
                     )
                     .fixedSize()
 
-                    Spacer(minLength: 8)
+                    Spacer(minLength: 4)
 
                     // Global Studio Theme Quick Switcher Pill
                     Menu {
@@ -541,19 +626,19 @@ struct AppleStudioShellView: View {
                             }
                         }
                     } label: {
-                        HStack(spacing: 5) {
+                        HStack(spacing: 4) {
                             Image(systemName: theme.icon)
-                                .font(.system(size: 10.5, weight: .semibold))
+                                .font(.system(size: 10, weight: .semibold))
                                 .foregroundStyle(theme.activeWordBackground)
                             Text(theme.label)
-                                .font(.system(size: 11, weight: .semibold))
+                                .font(.system(size: 10.5, weight: .semibold))
                                 .foregroundStyle(.primary)
                             Image(systemName: "chevron.down")
-                                .font(.system(size: 8, weight: .bold))
+                                .font(.system(size: 7.5, weight: .bold))
                                 .foregroundStyle(.secondary)
                         }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5.5)
                         .background(
                             Capsule()
                                 .fill(theme.activeWordBackground.opacity(0.15))
@@ -567,44 +652,170 @@ struct AppleStudioShellView: View {
                     .fixedSize()
                     .help("Switch Studio & Read-Along Theme")
 
+                    // Watch-Folder Batch Automation Pill (⇧⌘W)
+                    Button {
+                        showWatchFolderSheet = true
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: watchFolder.isWatching ? "folder.fill.badge.gearshape" : "folder.badge.gearshape")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(watchFolder.isWatching ? .green : .orange)
+                            Text("Watch")
+                                .font(.system(size: 10.5, weight: .semibold))
+                                .foregroundStyle(.primary)
+                            if !watchFolder.jobs.isEmpty {
+                                Text("\(watchFolder.jobs.count)")
+                                    .font(.system(size: 9, weight: .bold, design: .rounded))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 4)
+                                    .padding(.vertical, 1)
+                                    .background(Color.green, in: Capsule())
+                            }
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5.5)
+                        .background(
+                            Capsule()
+                                .fill(theme.cardBackground)
+                                .overlay(
+                                    Capsule()
+                                        .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.8)
+                                )
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .fixedSize()
+                    .help("Watch-Folder Batch Automation — drop .txt/.epub/.pdf files to auto-export .M4B audiobooks & .SRT subtitles (⇧⌘W)")
+
+                    // Menu Bar Mini-Reader Controller Popover Pill
+                    Button {
+                        showMiniReaderPopover.toggle()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "menubar.rectangle")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(.cyan)
+                            Text("Mini-Reader")
+                                .font(.system(size: 10.5, weight: .semibold))
+                                .foregroundStyle(.primary)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5.5)
+                        .background(
+                            Capsule()
+                                .fill(theme.cardBackground)
+                                .overlay(
+                                    Capsule()
+                                        .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.8)
+                                )
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .fixedSize()
+                    .popover(isPresented: $showMiniReaderPopover, arrowEdge: .bottom) {
+                        StudioMenuBarMiniReaderView(selectedTab: $selectedTab)
+                    }
+                    .help("Open the macOS Menu Bar Mini-Reader & Quick Clipboard/Selection Reader")
+
+                    // Master Command Palette Pill (⌘K)
+                    Button {
+                        showCommandPalette = true
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "sparkles")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(.orange)
+                            Text("⌘K Master")
+                                .font(.system(size: 10.5, weight: .bold, design: .rounded))
+                                .foregroundStyle(.primary)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5.5)
+                        .background(
+                            Capsule()
+                                .fill(theme.cardBackground)
+                                .overlay(
+                                    Capsule()
+                                        .strokeBorder(Color.orange.opacity(0.45), lineWidth: 0.9)
+                                )
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .fixedSize()
+                    .sheet(isPresented: $showCommandPalette) {
+                        MasterCommandPaletteSheet(
+                            selectedTab: $selectedTab,
+                            onOpenWatchFolder: { showWatchFolderSheet = true },
+                            onOpenShortcuts: { showShortcutsSheet = true }
+                        )
+                    }
+                    .help("Master Command Palette (⌘K) — Instant fuzzy launcher for Mastering Presets, Surgical Chunk Retake, Cast, M4B Export & Studio Tools")
+
+                    // Keyboard Shortcuts & Quick Guide Pill (⌘/)
+                    Button {
+                        showShortcutsSheet = true
+                    } label: {
+                        HStack(spacing: 3.5) {
+                            Image(systemName: "command")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(theme.activeWordBackground)
+                            Text("⌘/")
+                                .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+                                .foregroundStyle(.primary)
+                        }
+                        .padding(.horizontal, 7.5)
+                        .padding(.vertical, 5.5)
+                        .background(
+                            Capsule()
+                                .fill(theme.cardBackground)
+                                .overlay(
+                                    Capsule()
+                                        .strokeBorder(Color.primary.opacity(0.12), lineWidth: 0.8)
+                                )
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .fixedSize()
+                    .help("Keyboard Shortcuts & Quick Workflow Guide (⌘/)")
+
                     // Right: Live Localhost Drop-In & Hardware Guard Status Pill
                     Button {
                         withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
                             selectedTab = 3
                         }
                     } label: {
-                        HStack(spacing: 8) {
+                        HStack(spacing: 6) {
                             Circle()
                                 .fill(server.isRunning ? Color.green : Color.orange)
-                                .frame(width: 7, height: 7)
-                                .shadow(color: (server.isRunning ? Color.green : Color.orange).opacity(0.6), radius: 4)
+                                .frame(width: 6.5, height: 6.5)
+                                .shadow(color: (server.isRunning ? Color.green : Color.orange).opacity(0.6), radius: 3)
 
                             Text(
                                 server.isRunning
-                                    ? ":\(server.primaryPort) + \(max(1, server.activePorts.count)) APIs"
-                                    : "Server Idle"
+                                    ? ":\(server.primaryPort)"
+                                    : "Idle"
                             )
-                                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                                .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
                                 .foregroundStyle(.primary.opacity(0.9))
 
                             Divider()
-                                .frame(height: 12)
+                                .frame(height: 11)
 
-                            HStack(spacing: 4) {
+                            HStack(spacing: 3.5) {
                                 Image(systemName: "memorychip")
-                                    .font(.system(size: 9.5, weight: .semibold))
+                                    .font(.system(size: 9, weight: .semibold))
                                     .foregroundStyle(theme.activeWordBackground)
                                 Text(
                                     hardware.activeMetalMB >= 10
-                                        ? String(format: "%.0f MB / %.0f GB", hardware.activeMetalMB, hardware.safeBudgetGB)
-                                        : String(format: "%.0f GB Guard", hardware.safeBudgetGB)
+                                        ? String(format: "%.0fMB/%.0fG", hardware.activeMetalMB, hardware.safeBudgetGB)
+                                        : String(format: "%.0fGB", hardware.safeBudgetGB)
                                 )
-                                .font(.system(size: 10.5, weight: .medium, design: .monospaced))
+                                .font(.system(size: 10, weight: .medium, design: .monospaced))
                                 .foregroundStyle(.secondary)
                             }
                         }
-                        .padding(.horizontal, 11)
-                        .padding(.vertical, 6)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 5.5)
                         .background(
                             Capsule()
                                 .fill(theme.cardBackground)
@@ -618,7 +829,7 @@ struct AppleStudioShellView: View {
                     .fixedSize()
                     .help("Standalone Localhost API active on ports 8080, 11434 (Ollama), and 1234 (LM Studio) · Click to inspect VRAM & endpoints (⌘4)")
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, 12)
                 .padding(.top, 28)
                 .padding(.bottom, 10)
                 .background(.ultraThinMaterial)
@@ -687,6 +898,816 @@ struct AppleStudioShellView: View {
                 selectedTab = 0
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .cloneVoiceFromAudio)) { _ in
+            visitedTabs.insert(0)
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                selectedTab = 0
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .sendAudioToTranscribe)) { _ in
+            visitedTabs.insert(1)
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                selectedTab = 1
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleShortcutsSheet)) { note in
+            if (note.object as? String) == "commandPalette" {
+                showCommandPalette.toggle()
+            } else {
+                showShortcutsSheet.toggle()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openWatchFolderSheet)) { _ in
+            showWatchFolderSheet = true
+        }
+        .sheet(isPresented: $showShortcutsSheet) {
+            StudioShortcutsSheetView()
+        }
+        .sheet(isPresented: $showWatchFolderSheet) {
+            WatchFolderAutomationSheet()
+        }
+    }
+}
+
+// MARK: - macOS Menu Bar Mini-Reader & Global Selection Reader View
+
+struct StudioMenuBarMiniReaderView: View {
+    @Binding var selectedTab: Int
+    @State private var coordinator = StudioMiniReaderCoordinator.shared
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                ZStack {
+                    Circle()
+                        .fill(LinearGradient(colors: [.blue, .indigo], startPoint: .topLeading, endPoint: .bottomTrailing))
+                        .frame(width: 32, height: 32)
+                    Image(systemName: coordinator.isPlaying ? "waveform" : "headphones")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(.white)
+                }
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(coordinator.documentTitle)
+                        .font(.system(size: 13, weight: .bold))
+                        .lineLimit(1)
+                    Text("§\(coordinator.activeChunkIndex + 1) of \(coordinator.totalChunkCount) · Voice: \(coordinator.activeVoiceName)")
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Text(String(format: "%.2gx", coordinator.playbackRate))
+                    .font(.system(size: 10.5, weight: .bold, design: .monospaced))
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(Color.blue.opacity(0.16), in: Capsule())
+            }
+
+            Text(coordinator.activeChunkSnippet)
+                .font(.system(size: 11.5))
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(8)
+                .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+
+            // Transport Deck
+            HStack(spacing: 10) {
+                Button {
+                    coordinator.triggerTransport("prevChunk")
+                } label: {
+                    Label("Prev §", systemImage: "backward.end.fill")
+                        .font(.caption.weight(.semibold))
+                }
+                .buttonStyle(.bordered)
+
+                Button {
+                    coordinator.triggerTransport("togglePlayPause")
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: coordinator.isPlaying ? "pause.fill" : "play.fill")
+                        Text(coordinator.isPlaying ? "Pause" : "Play / Speak")
+                    }
+                    .font(.caption.weight(.bold))
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button {
+                    coordinator.triggerTransport("nextChunk")
+                } label: {
+                    Label("Next §", systemImage: "forward.end.fill")
+                        .font(.caption.weight(.semibold))
+                }
+                .buttonStyle(.bordered)
+            }
+
+            // Speed & Clipboard Actions
+            HStack(spacing: 6) {
+                ForEach(["1.0", "1.25", "1.5", "2.0"], id: \.self) { rateStr in
+                    Button("\(rateStr)x") {
+                        coordinator.triggerTransport("rate_\(rateStr)")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.mini)
+                }
+                Spacer()
+                Button {
+                    selectedTab = 0
+                    NotificationCenter.default.post(name: .pasteAndReadClipboard, object: nil)
+                } label: {
+                    Label("Paste & Read", systemImage: "doc.on.clipboard.fill")
+                        .font(.caption.weight(.semibold))
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.indigo)
+                .controlSize(.small)
+            }
+
+            Divider()
+
+            // Quick Speak Scratchpad
+            VStack(alignment: .leading, spacing: 6) {
+                Text("QUICK SPEAK FROM MENU BAR")
+                    .font(.system(size: 9.5, weight: .bold, design: .rounded))
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    TextField("Type or paste any sentence…", text: $coordinator.quickSpeakInput)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.caption)
+                    Button {
+                        selectedTab = 0
+                        coordinator.triggerQuickSpeak()
+                    } label: {
+                        Image(systemName: "waveform.circle.fill")
+                            .font(.system(size: 16))
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .help("Speak this sentence immediately in Voice Studio")
+                }
+            }
+
+            #if os(macOS)
+            HStack {
+                Text("Tip: Select text in any Mac app → Services → Read in Studio")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("Show Studio") {
+                    NSApplication.shared.activate(ignoringOtherApps: true)
+                }
+                .buttonStyle(.link)
+                .font(.caption.weight(.semibold))
+            }
+            #endif
+        }
+        .padding(14)
+        .frame(width: 360)
+    }
+}
+
+// MARK: - Watch-Folder Batch Automation Sheet ("Auto-Watch Studio")
+
+struct WatchFolderAutomationSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var manager = StudioWatchFolderManager.shared
+    @State private var pickingInputFolder = false
+    @State private var pickingOutputFolder = false
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 14) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(manager.isWatching ? Color.green.opacity(0.18) : Color.orange.opacity(0.15))
+                            .frame(width: 48, height: 48)
+                        Image(systemName: manager.isWatching ? "folder.fill.badge.gearshape" : "folder.badge.gearshape")
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundStyle(manager.isWatching ? .green : .orange)
+                    }
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Watch-Folder Batch Automation")
+                            .font(.headline)
+                        Text("Automatically converts any .txt, .md, .epub, or .pdf dropped into your Input folder into chapterized .M4B audiobooks (or .WAV / .MP3) plus synced .SRT subtitles in your Output folder.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    Toggle(
+                        "Live Watch",
+                        isOn: Binding(
+                            get: { manager.isWatching },
+                            set: { manager.toggleWatching($0) }
+                        )
+                    )
+                    .toggleStyle(.switch)
+                }
+                .padding(12)
+                .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
+
+                // Input & Output Folder Paths
+                VStack(spacing: 8) {
+                    HStack(spacing: 8) {
+                        Label("Input Watch Folder:", systemImage: "tray.and.arrow.down.fill")
+                            .font(.caption.weight(.semibold))
+                            .frame(width: 145, alignment: .leading)
+                        Text(manager.inputFolderPath)
+                            .font(.system(size: 11.5, design: .monospaced))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        #if os(macOS)
+                        Button("Choose…") {
+                            pickingInputFolder = true
+                        }
+                        .controlSize(.small)
+                        Button {
+                            NSWorkspace.shared.open(URL(fileURLWithPath: manager.inputFolderPath))
+                        } label: {
+                            Image(systemName: "folder")
+                        }
+                        .controlSize(.small)
+                        .help("Open Input Watch Folder in Finder")
+                        #endif
+                    }
+
+                    HStack(spacing: 8) {
+                        Label("Output Audio Folder:", systemImage: "tray.and.arrow.up.fill")
+                            .font(.caption.weight(.semibold))
+                            .frame(width: 145, alignment: .leading)
+                        Text(manager.outputFolderPath)
+                            .font(.system(size: 11.5, design: .monospaced))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        #if os(macOS)
+                        Button("Choose…") {
+                            pickingOutputFolder = true
+                        }
+                        .controlSize(.small)
+                        Button {
+                            NSWorkspace.shared.open(URL(fileURLWithPath: manager.outputFolderPath))
+                        } label: {
+                            Image(systemName: "folder")
+                        }
+                        .controlSize(.small)
+                        .help("Open Output Folder in Finder")
+                        #endif
+                    }
+                }
+                .padding(10)
+                .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 10))
+
+                // Output Format + Actions Row
+                HStack(spacing: 12) {
+                    Picker("Output Format", selection: $manager.exportFormat) {
+                        ForEach([AudioExportFormat.m4b, .wav, .m4a, .mp3]) { fmt in
+                            Text(fmt.label).tag(fmt)
+                        }
+                    }
+                    .frame(width: 280)
+
+                    Toggle("Also Export .SRT Subtitles", isOn: $manager.generateSRTSubtitles)
+                        .font(.caption.weight(.semibold))
+
+                    Spacer()
+
+                    Button {
+                        Task { await manager.scanAndProcessPendingFiles(forceReprocess: true) }
+                    } label: {
+                        Label("Scan & Run Now", systemImage: "play.fill")
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(manager.isProcessing)
+
+                    Button {
+                        manager.createSampleFileAndRunNow()
+                    } label: {
+                        Label("Drop Sample Chapter & Run", systemImage: "sparkles")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(manager.isProcessing)
+                }
+
+                // Live Status Banner
+                HStack(spacing: 8) {
+                    if manager.isProcessing {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                    }
+                    Text(manager.statusBanner)
+                        .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                    Spacer()
+                }
+                .padding(10)
+                .background(Color.green.opacity(0.09), in: RoundedRectangle(cornerRadius: 9))
+
+                // Completed Jobs Log
+                HStack {
+                    Text("AUTOMATED BATCH JOBS (\(manager.jobs.count))")
+                        .font(.system(size: 10.5, weight: .bold, design: .rounded))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    if !manager.jobs.isEmpty {
+                        Button("Clear Log") {
+                            manager.clearHistory()
+                        }
+                        .font(.caption)
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                    }
+                }
+
+                if manager.jobs.isEmpty {
+                    VStack(spacing: 6) {
+                        Image(systemName: "doc.badge.gearshape")
+                            .font(.system(size: 24))
+                            .foregroundStyle(.tertiary)
+                        Text("No batch jobs processed yet. Click 'Drop Sample Chapter & Run' above to test instant M4B + SRT generation!")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 110)
+                } else {
+                    List(manager.jobs) { job in
+                        HStack(spacing: 10) {
+                            Image(systemName: "checkmark.seal.fill")
+                                .foregroundStyle(.green)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("\(job.sourceFileName) → \(job.outputFileName)")
+                                    .font(.system(size: 12.5, weight: .semibold))
+                                Text("\(job.jobKind)\(job.subtitlePath != nil ? " + .SRT Subtitles" : "") · \(String(format: "%.2fs", job.durationSec))")
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            #if os(macOS)
+                            Button {
+                                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: job.outputPath)])
+                            } label: {
+                                Label("Reveal", systemImage: "folder")
+                                    .font(.caption)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            #endif
+                        }
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+            }
+            .padding(16)
+            .navigationTitle("Watch-Folder Batch Automation")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+            .fileImporter(
+                isPresented: $pickingInputFolder,
+                allowedContentTypes: [.folder],
+                allowsMultipleSelection: false
+            ) { res in
+                if case .success(let urls) = res, let u = urls.first {
+                    manager.inputFolderPath = u.path
+                }
+            }
+            .fileImporter(
+                isPresented: $pickingOutputFolder,
+                allowedContentTypes: [.folder],
+                allowsMultipleSelection: false
+            ) { res in
+                if case .success(let urls) = res, let u = urls.first {
+                    manager.outputFolderPath = u.path
+                }
+            }
+        }
+        #if os(macOS)
+        .frame(width: 720, height: 500)
+        #endif
+    }
+}
+
+// MARK: - Master Command Palette (⌘K)
+
+struct MasterCommandItem: Identifiable {
+    let id: String
+    let category: String
+    let title: String
+    let subtitle: String
+    let icon: String
+    let badge: String
+    let tint: Color
+    let action: () -> Void
+}
+
+struct MasterCommandPaletteSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Binding var selectedTab: Int
+    var onOpenWatchFolder: () -> Void
+    var onOpenShortcuts: () -> Void
+
+    @State private var query: String = ""
+    @State private var coordinator = StudioMiniReaderCoordinator.shared
+
+    private var commands: [MasterCommandItem] {
+        [
+            MasterCommandItem(
+                id: "master_rack",
+                category: "Studio Mastering & Broadcast QC",
+                title: "Open Studio Master Bus DSP Rack & ACX / LUFS QC",
+                subtitle: "Configure -20 dB RMS ACX compliance, -16 LUFS Podcast mastering, tube warmth, de-esser & ambience beds",
+                icon: "slider.vertical.3",
+                badge: "MASTER BUS",
+                tint: .orange
+            ) {
+                selectedTab = 0
+                dismiss()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                    coordinator.triggerTransport("openMasteringRack")
+                }
+            },
+            MasterCommandItem(
+                id: "preset_acx",
+                category: "Studio Mastering & Broadcast QC",
+                title: "Apply ACX / Audible Master (-20 dB RMS · -3.2 dBTP · -72 dB Room Tone)",
+                subtitle: "Instantly masters current audio to pass Audible ACX submission standards",
+                icon: "checkmark.seal.fill",
+                badge: "ACX -20dB",
+                tint: .green
+            ) {
+                selectedTab = 0
+                dismiss()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                    coordinator.triggerTransport("preset_acx")
+                }
+            },
+            MasterCommandItem(
+                id: "preset_podcast",
+                category: "Studio Mastering & Broadcast QC",
+                title: "Apply Podcast Broadcast Master (-16 LUFS · -1.5 dBTP)",
+                subtitle: "Apple Podcasts & Spotify loudness normalization with optical vocal leveling & presence air",
+                icon: "dot.radiowaves.left.and.right",
+                badge: "POD -16 LUFS",
+                tint: .blue
+            ) {
+                selectedTab = 0
+                dismiss()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                    coordinator.triggerTransport("preset_podcast")
+                }
+            },
+            MasterCommandItem(
+                id: "preset_cinema",
+                category: "Studio Mastering & Broadcast QC",
+                title: "Apply Warm Cinema Documentary Master (-18 LUFS · Tube Harmonics)",
+                subtitle: "Rich harmonic saturation, deep low-mid resonance & silk sibilance smoothing",
+                icon: "film.stack.fill",
+                badge: "CINEMA -18",
+                tint: .purple
+            ) {
+                selectedTab = 0
+                dismiss()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                    coordinator.triggerTransport("preset_cinema")
+                }
+            },
+            MasterCommandItem(
+                id: "retake_chunk",
+                category: "Surgical Production & Multi-Voice",
+                title: "Surgical Retake & Splice Active Chunk (§\(coordinator.activeChunkIndex + 1))",
+                subtitle: "Re-synthesizes only §\(coordinator.activeChunkIndex + 1) with fresh prosody and splices into the master WAV with 12ms crossfades",
+                icon: "arrow.triangle.2.circlepath.circle.fill",
+                badge: "SPLICE §\(coordinator.activeChunkIndex + 1)",
+                tint: .orange
+            ) {
+                selectedTab = 0
+                dismiss()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                    coordinator.triggerTransport("retakeActiveChunk")
+                }
+            },
+            MasterCommandItem(
+                id: "cast_studio",
+                category: "Surgical Production & Multi-Voice",
+                title: "Interactive Multi-Voice Character Casting Table…",
+                subtitle: "Auto-detect book characters & dialogue speakers and assign per-character voices & pitch offsets",
+                icon: "person.2.wave.2.fill",
+                badge: "⇧⌘C",
+                tint: .purple
+            ) {
+                selectedTab = 0
+                dismiss()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                    NotificationCenter.default.post(name: .openCharacterCastingSheet, object: nil)
+                }
+            },
+            MasterCommandItem(
+                id: "m4b_export",
+                category: "Surgical Production & Multi-Voice",
+                title: "Export Chapterized .M4B Audiobook (Chapters + 600×600 Cover Art)…",
+                subtitle: "Packages synthesized audio into an Apple Books / Audible .M4B with embedded FFMETADATA1 chapters",
+                icon: "books.vertical.circle.fill",
+                badge: "⇧⌘B",
+                tint: .indigo
+            ) {
+                selectedTab = 0
+                dismiss()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                    NotificationCenter.default.post(name: .openM4BAudiobookSheet, object: nil)
+                }
+            },
+            MasterCommandItem(
+                id: "watch_folder",
+                category: "Automation & Ecosystem",
+                title: "Watch-Folder Batch Automation Studio…",
+                subtitle: "Auto-monitors Input folder for dropped .txt/.epub/.pdf files and batch exports .M4B + .SRT",
+                icon: "folder.fill.badge.gearshape",
+                badge: "⇧⌘W",
+                tint: .teal
+            ) {
+                dismiss()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                    onOpenWatchFolder()
+                }
+            },
+            MasterCommandItem(
+                id: "paste_read",
+                category: "Automation & Ecosystem",
+                title: "Paste & Read Clipboard in Voice Studio",
+                subtitle: "Cleans markdown/URLs from macOS clipboard text and starts gapless neural speech immediately",
+                icon: "doc.on.clipboard.fill",
+                badge: "⇧⌘V",
+                tint: .cyan
+            ) {
+                selectedTab = 0
+                dismiss()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                    NotificationCenter.default.post(name: .pasteAndReadClipboard, object: nil)
+                }
+            },
+            MasterCommandItem(
+                id: "nav_transcribe",
+                category: "Workspace & Hardware",
+                title: "Switch to Transcribe Studio (Click-Word-to-Seek & Karaoke STT)",
+                subtitle: "Interactive word-level timestamp seeking, speaker diarization & 1-click Voice Cloning",
+                icon: "mic.fill",
+                badge: "⌘2",
+                tint: .pink
+            ) {
+                selectedTab = 1
+                dismiss()
+            },
+            MasterCommandItem(
+                id: "nav_audiolab",
+                category: "Workspace & Hardware",
+                title: "Switch to Audio Lab (Stem Separation, Denoise & Voice Transfer)",
+                subtitle: "Isolate vocals/drums/bass, remove background noise, or convert speaker timbre",
+                icon: "tuningfork",
+                badge: "⌘3",
+                tint: .mint
+            ) {
+                selectedTab = 2
+                dismiss()
+            },
+            MasterCommandItem(
+                id: "purge_vram",
+                category: "Workspace & Hardware",
+                title: "Purge Metal GPU VRAM Cache (Zero Idle Footprint)",
+                subtitle: "Unloads cached MLX models and frees unified Apple Silicon memory immediately",
+                icon: "memorychip",
+                badge: "⇧⌘K",
+                tint: .red
+            ) {
+                HardwareGuardInspector.purgeGPUCache()
+                LocalhostServerManager.shared.unloadAllModelsAndPurgeVRAM()
+                dismiss()
+            },
+            MasterCommandItem(
+                id: "rad_copy_curl",
+                category: "RAD Developer & API SDK",
+                title: "Copy TTS cURL Command (POST /v1/audio/speech)",
+                subtitle: "Copies ready-to-run localhost REST cURL command to macOS clipboard",
+                icon: "terminal.fill",
+                badge: "RAD cURL",
+                tint: .cyan
+            ) {
+                #if os(macOS)
+                let port = LocalhostServerManager.shared.primaryPort
+                let cmd = """
+                curl -s http://127.0.0.1:\(port)/v1/audio/speech \\
+                  -H "Content-Type: application/json" \\
+                  -d '{"model":"phonon","voice":"freya","input":"Hello from Codecaine MLX RAD AI Audio Studio!","response_format":"wav"}' \\
+                  --output speech_output.wav && afplay speech_output.wav
+                """
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(cmd, forType: .string)
+                #endif
+                dismiss()
+            },
+            MasterCommandItem(
+                id: "rad_copy_python",
+                category: "RAD Developer & API SDK",
+                title: "Copy Python OpenAI SDK Snippet (http://127.0.0.1:8080/v1)",
+                subtitle: "Copies drop-in OpenAI Python client code for local MLX speech synthesis",
+                icon: "chevron.left.forwardslash.chevron.right",
+                badge: "PYTHON SDK",
+                tint: .blue
+            ) {
+                #if os(macOS)
+                let port = LocalhostServerManager.shared.primaryPort
+                let snippet = """
+                from openai import OpenAI
+
+                client = OpenAI(base_url="http://127.0.0.1:\(port)/v1", api_key="mlx-local")
+                res = client.audio.speech.create(model="phonon", voice="freya", input="Hello from Codecaine MLX RAD AI Audio Studio!")
+                res.stream_to_file("speech_output.wav")
+                """
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(snippet, forType: .string)
+                #endif
+                dismiss()
+            },
+            MasterCommandItem(
+                id: "rad_open_playground",
+                category: "RAD Developer & API SDK",
+                title: "Open Interactive Localhost Web Playground (:8080/playground)",
+                subtitle: "Launches browser-based REST tester for TTS, ASR, Speech Enhancement & Diarization",
+                icon: "safari.fill",
+                badge: "⇧⌘P",
+                tint: .green
+            ) {
+                #if os(macOS)
+                let port = LocalhostServerManager.shared.primaryPort
+                if let url = URL(string: "http://127.0.0.1:\(port)/playground") {
+                    NSWorkspace.shared.open(url)
+                }
+                #endif
+                dismiss()
+            }
+        ]
+    }
+
+    private var filteredCommands: [MasterCommandItem] {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return commands }
+        return commands.filter {
+            $0.title.localizedCaseInsensitiveContains(q) ||
+            $0.subtitle.localizedCaseInsensitiveContains(q) ||
+            $0.category.localizedCaseInsensitiveContains(q) ||
+            $0.badge.localizedCaseInsensitiveContains(q)
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(.orange)
+                TextField("Type a master command, preset (ACX, -16 LUFS, Retake, Cast, M4B, Watch)…", text: $query)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 14, weight: .medium))
+                if !query.isEmpty {
+                    Button {
+                        query = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+                Button("ESC") { dismiss() }
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .buttonStyle(.bordered)
+                    .controlSize(.mini)
+                    .keyboardShortcut(.cancelAction)
+            }
+            .padding(12)
+            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 7) {
+                    ForEach(filteredCommands) { cmd in
+                        Button {
+                            cmd.action()
+                        } label: {
+                            HStack(spacing: 12) {
+                                ZStack {
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .fill(cmd.tint.opacity(0.16))
+                                        .frame(width: 34, height: 34)
+                                    Image(systemName: cmd.icon)
+                                        .font(.system(size: 14, weight: .bold))
+                                        .foregroundStyle(cmd.tint)
+                                }
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    HStack(spacing: 6) {
+                                        Text(cmd.title)
+                                            .font(.system(size: 12.5, weight: .bold))
+                                            .foregroundStyle(.primary)
+                                        Text(cmd.category)
+                                            .font(.system(size: 9.5, weight: .semibold))
+                                            .foregroundStyle(.secondary)
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 1.5)
+                                            .background(Color.primary.opacity(0.06), in: Capsule())
+                                    }
+                                    Text(cmd.subtitle)
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+
+                                Spacer()
+
+                                Text(cmd.badge)
+                                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                    .foregroundStyle(cmd.tint)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(cmd.tint.opacity(0.14), in: Capsule())
+                            }
+                            .padding(9)
+                            .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 10))
+                            .contentShape(RoundedRectangle(cornerRadius: 10))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+        .padding(16)
+        #if os(macOS)
+        .frame(width: 720, height: 490)
+        #endif
+    }
+}
+
+struct StudioShortcutsSheetView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    private let shortcuts: [(keys: String, title: String, detail: String)] = [
+        ("⌘K", "Master Command Palette", "Fuzzy-search launcher for Mastering Presets (ACX, -16 LUFS), Surgical Chunk Retake, Cast, M4B & Watch Folder."),
+        ("⌘↩", "Generate Speech / Transcribe / Separate", "Starts neural synthesis in Voice Studio, transcription in Transcribe, or stem separation in Audio Lab."),
+        ("⇧⌘V", "Paste & Read Clipboard", "Cleans whatever article, email, or text is on your macOS clipboard and immediately reads it aloud."),
+        ("⇧⌘C", "Multi-Voice Character Casting Table", "Auto-detects book characters & dialogue speakers and assigns per-character voices & pitch offsets."),
+        ("⇧⌘B", "Export Chapterized .M4B Audiobook", "Packages synthesized audio into an Apple Books / Audible .M4B with embedded FFMETADATA1 chapters & cover art."),
+        ("⇧⌘W", "Watch-Folder Batch Automation", "Monitors Input folder for dropped .txt/.epub/.pdf files and batch exports .M4B + .SRT."),
+        ("⌘1 … ⌘5", "Switch Studio Workspace Tabs", "Jump between Voice Studio (⌘1), Transcribe (⌘2), Audio Lab (⌘3), Localhost API (⌘4), and Packages (⌘5)."),
+        ("⌥ + Click §Chunk", "Speak Immediately from Chunk §N", "Option-clicking any §Chunk pill in the Chunk Navigator starts gapless speech synthesis from that paragraph."),
+        ("⇧⌘P", "Open Localhost Web Playground", "Opens http://127.0.0.1:8080/playground in your web browser with interactive TTS & OpenAI/Python/cURL snippets."),
+        ("⇧⌘K", "Purge Metal GPU VRAM Cache", "Unloads cached models and frees unified memory (equivalent to Ollama keep_alive: 0)."),
+        ("Drag WAV", "Direct Drag-and-Drop Audio Export", "Drag the 'Drag WAV' chip on any audio player directly into Finder, Logic Pro, Final Cut Pro, or iMessage.")
+    ]
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(shortcuts, id: \.keys) { item in
+                    HStack(alignment: .top, spacing: 14) {
+                        Text(item.keys)
+                            .font(.system(size: 12, weight: .bold, design: .monospaced))
+                            .foregroundStyle(.blue)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .frame(minWidth: 120)
+                            .background(Color.blue.opacity(0.14), in: RoundedRectangle(cornerRadius: 8))
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(item.title)
+                                .font(.system(size: 13.5, weight: .semibold))
+                            Text(item.detail)
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                    }
+                    .padding(10)
+                    .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 10))
+                }
+                Spacer()
+            }
+            .padding(18)
+            .navigationTitle("Keyboard Shortcuts & Quick Workflows")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        #if os(macOS)
+        .frame(minWidth: 620, minHeight: 460)
+        #endif
     }
 }
 
@@ -731,6 +1752,8 @@ struct LocalhostServerView: View {
     @State private var hardware = HardwareGuardInspector.inspect()
     @State private var copiedBanner: String?
     @State private var portString: String = "8080"
+    @State private var selectedSDKTask: String = "tts"
+    @State private var selectedSDKLang: String = "curl"
 
     var body: some View {
         ScrollView {
@@ -777,6 +1800,24 @@ struct LocalhostServerView: View {
                         Spacer()
 
                         HStack(spacing: 8) {
+                            #if os(macOS)
+                            Button {
+                                server.startIfNeeded()
+                                if let url = URL(string: "http://127.0.0.1:\(server.primaryPort)/playground") {
+                                    NSWorkspace.shared.open(url)
+                                }
+                            } label: {
+                                Label("Web Playground", systemImage: "safari.fill")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 7)
+                                    .background(Color.cyan.opacity(0.18), in: Capsule())
+                                    .foregroundStyle(.cyan)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Open http://127.0.0.1:\(server.primaryPort)/playground in your browser")
+                            #endif
+
                             Button {
                                 Task { await runSelfTest() }
                             } label: {
@@ -1066,10 +2107,105 @@ struct LocalhostServerView: View {
                         }
 
                         VStack(spacing: 8) {
-                            EndpointRow(method: "POST", path: "/v1/audio/speech", desc: "Synthesizes WAV speech with 38 Phonon voices (Zoey, etc.) & 54 MLX TTS models")
-                            EndpointRow(method: "POST", path: "/v1/audio/transcriptions", desc: "Transcribes local or base64 audio to JSON, TXT, SRT, or VTT")
-                            EndpointRow(method: "GET", path: "/v1/models  ·  /api/tags  ·  /api/ps", desc: "Enumerates all 81 MLX Audio models, local cache state, and active Metal VRAM")
+                            EndpointRow(method: "POST", path: "/v1/audio/speech", desc: "Synthesizes WAV speech with 41 studio voices & 75 MLX TTS models (Phonon, Maya-2, Audio8, Fish S2, Qwen3-TTS)")
+                            EndpointRow(method: "POST", path: "/v1/audio/transcriptions", desc: "Transcribes local or base64 audio to JSON, TXT, SRT, or VTT across 40 MLX ASR models (Phonon 2.5, Qwen3-ASR, Parakeet, Whisper)")
+                            EndpointRow(method: "POST", path: "/v1/audio/enhance  ·  /v1/audio/diarize", desc: "8–48 kHz speech enhancement (Nemotron RE-USE, MossFormer2, DeepFilterNet) & 8-speaker diarization (Nemotron 3, Sortformer)")
+                            EndpointRow(method: "GET", path: "/v1/models  ·  /api/tags  ·  /api/ps", desc: "Enumerates all 131 MLX Audio models (TTS, STT, Enhancement, Diarization, Separation, LID), cache state & Metal VRAM")
                             EndpointRow(method: "POST", path: "/v1/audio/clean  ·  /v1/audio/subtitles", desc: "Codecaine 6-filter speech cleaner & RMS-aligned SRT/VTT/ASS karaoke subtitle generator")
+                        }
+
+                        Divider().opacity(0.35)
+
+                        // Interactive RAD Developer SDK Snippet Generator (Task x Language Matrix)
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack {
+                                Label("RAD SDK Code Generator (cURL · Python · TypeScript · Swift)", systemImage: "chevron.left.forwardslash.chevron.right")
+                                    .font(.system(size: 13.5, weight: .semibold))
+                                    .foregroundStyle(.cyan)
+                                Spacer()
+
+                                Button {
+                                    copyToClipboard(generatedRADSnippet)
+                                    showBanner("Copied \(selectedSDKTask.uppercased()) \(selectedSDKLang.uppercased()) snippet to clipboard")
+                                } label: {
+                                    Label("Copy \(selectedSDKLang.uppercased()) Snippet", systemImage: "doc.on.doc.fill")
+                                        .font(.system(size: 11.5, weight: .semibold))
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 5.5)
+                                        .background(Color.cyan.opacity(0.20), in: Capsule())
+                                        .foregroundStyle(.cyan)
+                                }
+                                .buttonStyle(.plain)
+                            }
+
+                            HStack(spacing: 8) {
+                                // Task Selector Pills
+                                HStack(spacing: 4) {
+                                    ForEach([
+                                        ("tts", "TTS Speech", "waveform"),
+                                        ("stt", "ASR Transcribe", "mic.fill"),
+                                        ("enhance", "Speech Enhance", "wand.and.stars"),
+                                        ("diarize", "Speaker Diarize", "person.2.wave.2.fill")
+                                    ], id: \.0) { id, label, icon in
+                                        let active = selectedSDKTask == id
+                                        Button {
+                                            selectedSDKTask = id
+                                        } label: {
+                                            HStack(spacing: 4) {
+                                                Image(systemName: icon)
+                                                    .font(.system(size: 10.5))
+                                                Text(label)
+                                                    .font(.system(size: 11, weight: active ? .semibold : .medium))
+                                            }
+                                            .foregroundStyle(active ? .white : .secondary)
+                                            .padding(.horizontal, 9)
+                                            .padding(.vertical, 4.5)
+                                            .background(active ? Color.blue.opacity(0.45) : Color.white.opacity(0.05), in: Capsule())
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                }
+
+                                Spacer()
+
+                                // Language Selector Pills
+                                HStack(spacing: 4) {
+                                    ForEach([
+                                        ("curl", "cURL"),
+                                        ("python", "Python"),
+                                        ("ts", "TypeScript"),
+                                        ("swift", "Swift")
+                                    ], id: \.0) { id, label in
+                                        let active = selectedSDKLang == id
+                                        Button {
+                                            selectedSDKLang = id
+                                        } label: {
+                                            Text(label)
+                                                .font(.system(size: 11, weight: active ? .semibold : .medium, design: .monospaced))
+                                                .foregroundStyle(active ? .white : .secondary)
+                                                .padding(.horizontal, 9)
+                                                .padding(.vertical, 4.5)
+                                                .background(active ? Color.indigo.opacity(0.55) : Color.white.opacity(0.05), in: Capsule())
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                }
+                            }
+
+                            Text(generatedRADSnippet)
+                                .font(.system(size: 11.5, weight: .regular, design: .monospaced))
+                                .foregroundStyle(.primary.opacity(0.92))
+                                .textSelection(.enabled)
+                                .padding(12)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .fill(Color.black.opacity(0.32))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                                .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.8)
+                                        )
+                                )
                         }
                     }
                 }
@@ -1180,6 +2316,159 @@ struct LocalhostServerView: View {
             }
         } catch {
             showBanner("Loopback test error: \(error.localizedDescription)")
+        }
+    }
+
+    private var generatedRADSnippet: String {
+        let port = server.primaryPort
+        let sampleWAV = Bundle.main.url(forResource: "Sophie", withExtension: "wav")?.path ?? "/tmp/sample.wav"
+        switch (selectedSDKTask, selectedSDKLang) {
+        case ("tts", "python"):
+            return """
+            from openai import OpenAI
+
+            client = OpenAI(base_url="http://127.0.0.1:\(port)/v1", api_key="mlx-local")
+            res = client.audio.speech.create(
+                model="phonon",
+                voice="freya",
+                input="Hello from Codecaine MLX RAD AI Audio Studio on Apple Silicon!"
+            )
+            res.stream_to_file("speech_output.wav")
+            """
+        case ("tts", "ts"):
+            return """
+            import fs from "node:fs/promises";
+
+            const res = await fetch("http://127.0.0.1:\(port)/v1/audio/speech", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ model: "phonon", voice: "freya", input: "Hello from Apple Silicon MLX!" })
+            });
+            await fs.writeFile("speech_output.wav", Buffer.from(await res.arrayBuffer()));
+            """
+        case ("tts", "swift"):
+            return """
+            import MLXAudioTTS
+
+            let model = try await PhononModel.fromPretrained("nativ-community/phonon")
+            let audio = try await model.generate(text: "Hello from MLXAudioTTS!", voice: "freya")
+            """
+        case ("tts", _):
+            return """
+            curl -s http://127.0.0.1:\(port)/v1/audio/speech \\
+              -H "Content-Type: application/json" \\
+              -d '{"model":"phonon","voice":"freya","input":"Hello from Codecaine MLX RAD AI Audio Studio!"}' \\
+              --output speech_output.wav && afplay speech_output.wav
+            """
+
+        case ("stt", "python"):
+            return """
+            import requests
+
+            res = requests.post("http://127.0.0.1:\(port)/v1/audio/transcriptions", json={
+                "model": "FermionResearch/Phonon-2.5-English",
+                "file": "\(sampleWAV)",
+                "response_format": "json"
+            })
+            print(res.json()["text"])
+            """
+        case ("stt", "ts"):
+            return """
+            const res = await fetch("http://127.0.0.1:\(port)/v1/audio/transcriptions", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ model: "FermionResearch/Phonon-2.5-English", file: "\(sampleWAV)" })
+            });
+            console.log((await res.json()).text);
+            """
+        case ("stt", "swift"):
+            return """
+            import MLXAudioSTT
+
+            let model = try await Phonon2Model.fromPretrained("FermionResearch/Phonon-2.5-English")
+            let (_, audio) = try loadAudioArray(from: URL(fileURLWithPath: "\(sampleWAV)"))
+            let output = model.generate(audio: audio)
+            print(output.text)
+            """
+        case ("stt", _):
+            return """
+            curl -s http://127.0.0.1:\(port)/v1/audio/transcriptions \\
+              -H "Content-Type: application/json" \\
+              -d '{"model":"FermionResearch/Phonon-2.5-English","file":"\(sampleWAV)"}' | jq .
+            """
+
+        case ("enhance", "python"):
+            return """
+            import requests
+
+            res = requests.post("http://127.0.0.1:\(port)/v1/audio/enhance", json={
+                "model": "nvidia/NVIDIA-NemotronLabs-RE-USE",
+                "file": "\(sampleWAV)"
+            })
+            open("enhanced_48k.wav", "wb").write(res.content)
+            """
+        case ("enhance", "ts"):
+            return """
+            import fs from "node:fs/promises";
+
+            const res = await fetch("http://127.0.0.1:\(port)/v1/audio/enhance", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ model: "nvidia/NVIDIA-NemotronLabs-RE-USE", file: "\(sampleWAV)" })
+            });
+            await fs.writeFile("enhanced_48k.wav", Buffer.from(await res.arrayBuffer()));
+            """
+        case ("enhance", "swift"):
+            return """
+            import MLXAudioSTS
+
+            let model = try await NemotronReuseModel.fromPretrained("nvidia/NVIDIA-NemotronLabs-RE-USE")
+            let (sr, audio) = try loadAudioArray(from: URL(fileURLWithPath: "\(sampleWAV)"))
+            let out = try model.generate(audio: audio, sampleRate: sr)
+            """
+        case ("enhance", _):
+            return """
+            curl -s http://127.0.0.1:\(port)/v1/audio/enhance \\
+              -H "Content-Type: application/json" \\
+              -d '{"model":"nvidia/NVIDIA-NemotronLabs-RE-USE","file":"\(sampleWAV)"}' \\
+              --output enhanced_48k.wav && afplay enhanced_48k.wav
+            """
+
+        case ("diarize", "python"):
+            return """
+            import requests
+
+            res = requests.post("http://127.0.0.1:\(port)/v1/audio/diarize", json={
+                "model": "mlx-community/Nemotron-3-Diarization",
+                "file": "\(sampleWAV)",
+                "threshold": 0.5
+            })
+            print(res.json()["rttm"])
+            """
+        case ("diarize", "ts"):
+            return """
+            const res = await fetch("http://127.0.0.1:\(port)/v1/audio/diarize", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ model: "mlx-community/Nemotron-3-Diarization", file: "\(sampleWAV)" })
+            });
+            console.log(await res.json());
+            """
+        case ("diarize", "swift"):
+            return """
+            import MLXAudioVAD
+
+            let model = try await NemotronDiarizationModel.fromPretrained("mlx-community/Nemotron-3-Diarization")
+            let (sr, audio) = try loadAudioArray(from: URL(fileURLWithPath: "\(sampleWAV)"))
+            let output = try model.generate(audio: audio, sampleRate: sr, threshold: 0.5)
+            print(output.text)
+            """
+        default:
+            return """
+            curl -s http://127.0.0.1:\(port)/v1/audio/diarize \\
+              -H "Content-Type: application/json" \\
+              -d '{"model":"mlx-community/Nemotron-3-Diarization","file":"\(sampleWAV)"}' | jq .
+            """
         }
     }
 

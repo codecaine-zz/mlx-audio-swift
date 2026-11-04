@@ -77,6 +77,8 @@ enum App {
                 try await runMossFormer2SE(model: model, args: args)
             case .deepFilterNet(let model):
                 try await runDeepFilterNet(model: model, args: args)
+            case .nemotronReuse(let model):
+                try await runNemotronReuse(model: model, args: args)
             }
         } catch {
             fputs("Error: \(error)\n", stderr)
@@ -628,6 +630,39 @@ enum App {
             let duration = Double(samples.count) / Double(model.sampleRate)
             print(String(format: "Enhanced %d samples (%.1fs at %dHz)", samples.count, duration, model.sampleRate))
         }
+
+        let elapsed = CFAbsoluteTimeGetCurrent() - started
+        print(String(format: "Done. Elapsed: %.2fs", elapsed))
+    }
+
+    // MARK: - NVIDIA NemotronLabs RE-USE Speech Enhancement
+
+    private static func runNemotronReuse(model: NemotronReuseModel, args: CLI) async throws {
+        guard let audioPath = args.audioPath else {
+            throw AppError.enhanceRequiresAudio
+        }
+
+        let inputURL = resolveURL(path: audioPath)
+        guard FileManager.default.fileExists(atPath: inputURL.path) else {
+            throw AppError.inputFileNotFound(inputURL.path)
+        }
+
+        print("Enhancing audio with NVIDIA NemotronLabs RE-USE")
+        let started = CFAbsoluteTimeGetCurrent()
+        let result = try model.generate(audioURL: inputURL)
+        let samples = result.audio.reshaped([-1]).asArray(Float.self)
+
+        let outputURL: URL
+        if let path = args.outputTargetPath {
+            outputURL = resolveURL(path: path)
+        } else {
+            let stem = inputURL.deletingPathExtension().lastPathComponent
+            outputURL = inputURL.deletingLastPathComponent()
+                .appendingPathComponent("\(stem)\(NemotronReuseModel.outputSuffix).wav")
+        }
+
+        try AudioUtils.writeWavFile(samples: samples, sampleRate: Double(result.sampleRate), fileURL: outputURL)
+        print("Wrote WAV to \(outputURL.path)")
 
         let elapsed = CFAbsoluteTimeGetCurrent() - started
         print(String(format: "Done. Elapsed: %.2fs", elapsed))

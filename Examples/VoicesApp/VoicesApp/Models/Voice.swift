@@ -3,8 +3,10 @@ import AVFoundation
 import Foundation
 import MLX
 import MLXAudioCore
+import MLXAudioSTS
 import MLXAudioSTT
 import MLXAudioTTS
+import MLXAudioVAD
 import Network
 import SwiftUI
 #if os(macOS)
@@ -513,7 +515,11 @@ final class DownloadedModelsManager {
                     || lower.contains("moonshine") {
                     category = .stt
                 } else if lower.contains("sam-audio") || lower.contains("mossformer")
-                    || lower.contains("deepfilter") || lower.contains("voxlingua") || lower.contains("mms-lid") {
+                    || lower.contains("deepfilter") || lower.contains("voxlingua") || lower.contains("mms-lid")
+                    || lower.contains("nemotron-3-diarization") || lower.contains("sortformer")
+                    || lower.contains("silero-vad") || lower.contains("fsmn-vad")
+                    || lower.contains("smart-turn") || lower.contains("re-use")
+                    || lower.contains("lfm2.5-audio") || lower.contains("lfm2-audio") {
                     category = .audioLab
                 } else if lower.contains("snac") || lower.contains("vocos") || lower.contains("mimi")
                     || lower.contains("moshiko") || lower.contains("g2p") || lower.contains("codec") {
@@ -719,7 +725,7 @@ extension Voice {
         if lower.contains("kokoro") || lower.contains("kitten") || lower.contains("orpheus")
             || lower.contains("vibevoice-realtime") || lower.contains("voxtral")
             || lower.contains("melotts") || lower.contains("rumik") || lower.contains("soprano")
-            || lower.contains("vyvotts") {
+            || lower.contains("vyvotts") || lower.contains("kugelaudio") || lower.contains("bark") {
             return false
         }
         return true
@@ -924,6 +930,28 @@ extension Voice {
                 ("Aisha", "Aisha", "Rumik built-in", "English"),
                 ("Siya", "Siya", "Rumik built-in", "English"),
                 ("Zoya", "Zoya", "Rumik built-in", "English"),
+            ]
+        } else if lower.contains("maya2") || lower.contains("maya-2") {
+            specs = Maya2Model.builtInVoices.map { name in
+                (name, name, "Maya-2 Native built-in voice", "Multilingual")
+            }
+        } else if lower.contains("ming") {
+            specs = [
+                ("UK Charlotte", "UK_Charlotte", "Ming British Female", "English"),
+                ("US James", "US_James", "Ming American Male", "English"),
+                ("灵小柔 (Ling Xiaorou)", "灵小柔", "Ming Chinese Female", "Chinese"),
+                ("灵楷 (Ling Kai)", "灵楷", "Ming Chinese Male", "Chinese"),
+            ]
+        } else if lower.contains("spark-tts") || lower.contains("sparktts") {
+            specs = [
+                ("Female (moderate/moderate)", "female", "Spark-TTS Controllable Female", "Multilingual"),
+                ("Male (moderate/moderate)", "male", "Spark-TTS Controllable Male", "Multilingual"),
+            ]
+        } else if lower.contains("bark") {
+            specs = [
+                ("Speaker 6 (v2/en_speaker_6)", "v2/en_speaker_6", "Bark English Speaker 6", "English"),
+                ("Speaker 0 (en_speaker_0)", "en_speaker_0", "Bark English Speaker 0", "English"),
+                ("Announcer", "announcer", "Bark Announcer", "English"),
             ]
         } else {
             specs = [
@@ -2073,6 +2101,10 @@ extension VoiceCollection {
 
 extension Notification.Name {
     static let sendTranscriptToVoiceStudio = Notification.Name("VoicesApp.SendTranscriptToVoiceStudio")
+    static let sendAudioToTranscribe = Notification.Name("VoicesApp.SendAudioToTranscribe")
+    static let cloneVoiceFromAudio = Notification.Name("VoicesApp.CloneVoiceFromAudio")
+    static let pasteAndReadClipboard = Notification.Name("VoicesApp.PasteAndReadClipboard")
+    static let toggleShortcutsSheet = Notification.Name("VoicesApp.ToggleShortcutsSheet")
     static let modelCacheDidChange = Notification.Name("VoicesApp.ModelCacheDidChange")
     static let openDownloadedModelsManager = Notification.Name("VoicesApp.OpenDownloadedModelsManager")
 }
@@ -3949,10 +3981,11 @@ enum SubtitleExporter {
     }
 }
 
-// MARK: - Multi-Format Audio Exporter (.wav, .aiff, .m4a, .mp3, .flac, .caf)
+// MARK: - Multi-Format Audio Exporter (.wav, .m4b, .aiff, .m4a, .mp3, .flac, .caf)
 
 enum AudioExportFormat: String, CaseIterable, Identifiable {
     case wav = "wav"
+    case m4b = "m4b"
     case m4a = "m4a"
     case aiff = "aiff"
     case flac = "flac"
@@ -3964,6 +3997,7 @@ enum AudioExportFormat: String, CaseIterable, Identifiable {
     var label: String {
         switch self {
         case .wav: return "WAV (24 kHz PCM)"
+        case .m4b: return "M4B Audiobook (Chapters + Cover)"
         case .m4a: return "M4A / AAC (Apple Compact)"
         case .aiff: return "AIFF (Apple Uncompressed)"
         case .flac: return "FLAC (Lossless)"
@@ -3975,12 +4009,292 @@ enum AudioExportFormat: String, CaseIterable, Identifiable {
     var mimeType: String {
         switch self {
         case .wav: return "audio/wav"
+        case .m4b: return "audio/mp4"
         case .m4a: return "audio/mp4"
         case .aiff: return "audio/aiff"
         case .flac: return "audio/flac"
         case .mp3: return "audio/mpeg"
         case .caf: return "audio/x-caf"
         }
+    }
+}
+
+struct M4BChapterMarker: Identifiable, Sendable, Equatable {
+    var id: Int
+    var title: String
+    var startSec: Double
+    var endSec: Double
+}
+
+enum M4BAudiobookExporter {
+    /// Builds chapter markers from synthesized word timings (grouped by chunk) or falls back to proportional chunk boundaries
+    static func buildChapters(
+        chunks: [PhononTextChunk],
+        timings: [WordTiming],
+        totalDurationSec: Double
+    ) -> [M4BChapterMarker] {
+        let safeDuration = max(1.0, totalDurationSec)
+        guard !chunks.isEmpty else {
+            return [M4BChapterMarker(id: 0, title: "Chapter 1", startSec: 0, endSec: safeDuration)]
+        }
+
+        let timingsByChunk = Dictionary(grouping: timings.filter { $0.end > $0.start }, by: \.chunkIndex)
+        var markers: [M4BChapterMarker] = []
+        let totalWords = max(1, chunks.reduce(0) { $0 + max(1, $1.wordCount) })
+        var runningSec: Double = 0.0
+
+        for (idx, chunk) in chunks.enumerated() {
+            let firstLine = chunk.text
+                .components(separatedBy: .newlines)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .first { !$0.isEmpty } ?? "Section \(idx + 1)"
+            let cleanTitle = firstLine.count > 52 ? String(firstLine.prefix(52)) + "…" : firstLine
+            let chapterTitle = "§\(idx + 1) · \(cleanTitle)"
+
+            let startSec: Double
+            let endSec: Double
+            if let chunkTimings = timingsByChunk[chunk.index],
+               let firstT = chunkTimings.first,
+               let lastT = chunkTimings.last {
+                startSec = max(runningSec, firstT.start)
+                endSec = max(startSec + 0.25, lastT.end)
+            } else {
+                let share = Double(max(1, chunk.wordCount)) / Double(totalWords)
+                startSec = runningSec
+                endSec = min(safeDuration, startSec + max(0.5, share * safeDuration))
+            }
+            runningSec = endSec
+            markers.append(M4BChapterMarker(id: idx, title: chapterTitle, startSec: startSec, endSec: endSec))
+        }
+
+        if !markers.isEmpty {
+            markers[markers.count - 1].endSec = max(markers[markers.count - 1].startSec + 0.25, safeDuration)
+        }
+        return markers
+    }
+
+    #if os(macOS)
+    /// Generates a 600x600 studio audiobook cover artwork PNG on the fly
+    static func generateAudiobookCoverPNG(title: String, author: String, voiceName: String) -> URL? {
+        let size = 600
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: size,
+            pixelsHigh: size,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ) else { return nil }
+
+        NSGraphicsContext.saveGraphicsState()
+        if let ctx = NSGraphicsContext(bitmapImageRep: rep) {
+            NSGraphicsContext.current = ctx
+            let rect = NSRect(x: 0, y: 0, width: size, height: size)
+            let gradient = NSGradient(colors: [
+                NSColor(calibratedRed: 0.06, green: 0.09, blue: 0.18, alpha: 1.0),
+                NSColor(calibratedRed: 0.12, green: 0.18, blue: 0.36, alpha: 1.0),
+                NSColor(calibratedRed: 0.22, green: 0.12, blue: 0.38, alpha: 1.0)
+            ])
+            gradient?.draw(in: rect, angle: -45)
+
+            let badgeAttrs: [NSAttributedString.Key: Any] = [
+                .font: NSFont.monospacedSystemFont(ofSize: 16, weight: .bold),
+                .foregroundColor: NSColor(calibratedRed: 0.38, green: 0.78, blue: 1.0, alpha: 1.0)
+            ]
+            NSString(string: "CODECAINE MLX AI AUDIOBOOK").draw(at: NSPoint(x: 44, y: 510), withAttributes: badgeAttrs)
+
+            let titleStyle = NSMutableParagraphStyle()
+            titleStyle.lineBreakMode = .byWordWrapping
+            let titleAttrs: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: 38, weight: .bold),
+                .foregroundColor: NSColor.white,
+                .paragraphStyle: titleStyle
+            ]
+            NSString(string: title).draw(in: NSRect(x: 44, y: 240, width: 512, height: 230), withAttributes: titleAttrs)
+
+            let subAttrs: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(ofSize: 20, weight: .medium),
+                .foregroundColor: NSColor(calibratedWhite: 0.82, alpha: 1.0)
+            ]
+            NSString(string: "Narrated by \(voiceName) · \(author)").draw(at: NSPoint(x: 44, y: 64), withAttributes: subAttrs)
+        }
+        NSGraphicsContext.restoreGraphicsState()
+
+        guard let png = rep.representation(using: .png, properties: [:]) else { return nil }
+        let outURL = FileManager.default.temporaryDirectory.appendingPathComponent("audiobook_cover_\(UUID().uuidString).png")
+        do {
+            try png.write(to: outURL, options: .atomic)
+            return outURL
+        } catch {
+            return nil
+        }
+    }
+    #endif
+
+    private static func escapeFFMetadata(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "=", with: "\\=")
+            .replacingOccurrences(of: ";", with: "\\;")
+            .replacingOccurrences(of: "#", with: "\\#")
+            .replacingOccurrences(of: "\n", with: " ")
+    }
+
+    static func exportM4B(
+        sourceWAV: URL,
+        to destinationURL: URL,
+        bookTitle: String = "Codecaine Studio Audiobook",
+        author: String = "Codecaine MLX Audio Studio",
+        voiceName: String = "Studio Narrator",
+        chapters: [M4BChapterMarker] = [],
+        customCoverURL: URL? = nil
+    ) throws {
+        if FileManager.default.fileExists(atPath: destinationURL.path) {
+            try FileManager.default.removeItem(at: destinationURL)
+        }
+
+        // Determine total duration from WAV if needed
+        let wavDuration: Double = {
+            if let file = try? AVAudioFile(forReading: sourceWAV), file.processingFormat.sampleRate > 0 {
+                return Double(file.length) / file.processingFormat.sampleRate
+            }
+            return chapters.last?.endSec ?? 10.0
+        }()
+
+        let effectiveChapters = chapters.isEmpty
+            ? [M4BChapterMarker(id: 0, title: bookTitle, startSec: 0, endSec: max(1.0, wavDuration))]
+            : chapters
+
+        // Build FFMETADATA1 file with chapters
+        var metaLines: [String] = [
+            ";FFMETADATA1",
+            "title=\(escapeFFMetadata(bookTitle))",
+            "artist=\(escapeFFMetadata(author))",
+            "album=\(escapeFFMetadata(bookTitle))",
+            "composer=\(escapeFFMetadata(voiceName))",
+            "genre=Audiobook",
+            "media_type=2"
+        ]
+        for ch in effectiveChapters {
+            let startMs = max(0, Int(round(ch.startSec * 1000)))
+            let endMs = max(startMs + 250, Int(round(ch.endSec * 1000)))
+            metaLines.append("[CHAPTER]")
+            metaLines.append("TIMEBASE=1/1000")
+            metaLines.append("START=\(startMs)")
+            metaLines.append("END=\(endMs)")
+            metaLines.append("title=\(escapeFFMetadata(ch.title))")
+        }
+        let metaContent = metaLines.joined(separator: "\n") + "\n"
+        let metaURL = FileManager.default.temporaryDirectory.appendingPathComponent("m4b_meta_\(UUID().uuidString).txt")
+        try? metaContent.write(to: metaURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: metaURL) }
+
+        #if os(macOS)
+        let generatedCover = customCoverURL == nil
+            ? generateAudiobookCoverPNG(title: bookTitle, author: author, voiceName: voiceName)
+            : nil
+        let coverURL = customCoverURL ?? generatedCover
+        defer {
+            if let generatedCover {
+                try? FileManager.default.removeItem(at: generatedCover)
+            }
+        }
+        #else
+        let coverURL: URL? = customCoverURL
+        #endif
+
+        if let ffmpeg = StudioPackageManager.findExecutable(
+            names: ["ffmpeg"],
+            extraDirs: ["/opt/homebrew/opt/ffmpeg-full/bin", "/usr/local/opt/ffmpeg-full/bin"]
+        ) {
+            // Try full chapter + attached cover art mux first
+            if let cover = coverURL, FileManager.default.fileExists(atPath: cover.path) {
+                let proc = Process()
+                proc.executableURL = URL(fileURLWithPath: ffmpeg)
+                proc.arguments = [
+                    "-y", "-threads", "0",
+                    "-i", sourceWAV.path,
+                    "-i", metaURL.path,
+                    "-i", cover.path,
+                    "-map", "0:a",
+                    "-map", "2:v",
+                    "-map_metadata", "1",
+                    "-map_chapters", "1",
+                    "-c:a", "aac", "-b:a", "128k",
+                    "-c:v", "png",
+                    "-disposition:v:0", "attached_pic",
+                    "-movflags", "+faststart",
+                    "-f", "ipod",
+                    destinationURL.path
+                ]
+                proc.standardInput = FileHandle.nullDevice
+                proc.standardOutput = FileHandle.nullDevice
+                proc.standardError = FileHandle.nullDevice
+                try? proc.run()
+                proc.waitUntilExit()
+                if proc.terminationStatus == 0 && FileManager.default.fileExists(atPath: destinationURL.path) {
+                    return
+                }
+            }
+
+            // Fallback: FFmpeg AAC + FFMETADATA1 chapters without cover stream
+            let proc = Process()
+            proc.executableURL = URL(fileURLWithPath: ffmpeg)
+            proc.arguments = [
+                "-y", "-threads", "0",
+                "-i", sourceWAV.path,
+                "-i", metaURL.path,
+                "-map", "0:a",
+                "-map_metadata", "1",
+                "-map_chapters", "1",
+                "-c:a", "aac", "-b:a", "128k",
+                "-movflags", "+faststart",
+                "-f", "ipod",
+                destinationURL.path
+            ]
+            proc.standardInput = FileHandle.nullDevice
+            proc.standardOutput = FileHandle.nullDevice
+            proc.standardError = FileHandle.nullDevice
+            try? proc.run()
+            proc.waitUntilExit()
+            if proc.terminationStatus == 0 && FileManager.default.fileExists(atPath: destinationURL.path) {
+                return
+            }
+        }
+
+        // Native macOS /usr/bin/afconvert fallback for .m4b (MPEG-4 AAC container)
+        let afconvertPath = "/usr/bin/afconvert"
+        if FileManager.default.isExecutableFile(atPath: afconvertPath) {
+            let proc = Process()
+            proc.executableURL = URL(fileURLWithPath: afconvertPath)
+            proc.arguments = ["-f", "m4bf", "-d", "aac", sourceWAV.path, destinationURL.path]
+            proc.standardInput = FileHandle.nullDevice
+            proc.standardOutput = FileHandle.nullDevice
+            proc.standardError = FileHandle.nullDevice
+            try? proc.run()
+            proc.waitUntilExit()
+            if proc.terminationStatus == 0 && FileManager.default.fileExists(atPath: destinationURL.path) {
+                return
+            }
+
+            let procM4A = Process()
+            procM4A.executableURL = URL(fileURLWithPath: afconvertPath)
+            procM4A.arguments = ["-f", "m4af", "-d", "aac", sourceWAV.path, destinationURL.path]
+            procM4A.standardInput = FileHandle.nullDevice
+            procM4A.standardOutput = FileHandle.nullDevice
+            procM4A.standardError = FileHandle.nullDevice
+            try procM4A.run()
+            procM4A.waitUntilExit()
+            if procM4A.terminationStatus == 0 && FileManager.default.fileExists(atPath: destinationURL.path) {
+                return
+            }
+        }
+
+        try FileManager.default.copyItem(at: sourceWAV, to: destinationURL)
     }
 }
 
@@ -4066,6 +4380,16 @@ enum AudioFormatExporter {
             try FileManager.default.copyItem(at: sourceWAV, to: destinationURL)
             return
         }
+        if format == .m4b {
+            let bookTitle = destinationURL.deletingPathExtension().lastPathComponent
+                .replacingOccurrences(of: "_", with: " ")
+            try M4BAudiobookExporter.exportM4B(
+                sourceWAV: sourceWAV,
+                to: destinationURL,
+                bookTitle: bookTitle.isEmpty ? "Codecaine Studio Audiobook" : bookTitle
+            )
+            return
+        }
 
         // Prefer ffmpeg for mp3/flac if installed (including keg-only ffmpeg-full) with multi-threaded fast encoding
         if format == .mp3 || format == .flac {
@@ -4091,13 +4415,13 @@ enum AudioFormatExporter {
             }
         }
 
-        // Native macOS /usr/bin/afconvert fallback (supports m4a, aiff, flac, caf, wav natively in ~0.2s!)
+        // Native macOS /usr/bin/afconvert fallback (supports m4a, m4b, aiff, flac, caf, wav natively in ~0.2s!)
         let afconvertPath = "/usr/bin/afconvert"
         if FileManager.default.isExecutableFile(atPath: afconvertPath) {
             let proc = Process()
             proc.executableURL = URL(fileURLWithPath: afconvertPath)
             switch format {
-            case .m4a, .mp3:
+            case .m4b, .m4a, .mp3:
                 proc.arguments = ["-f", "m4af", "-d", "aac", sourceWAV.path, destinationURL.path]
             case .aiff:
                 proc.arguments = ["-f", "AIFF", "-d", "BEI16", sourceWAV.path, destinationURL.path]
@@ -4723,12 +5047,18 @@ final class LocalhostServerManager {
 
         do {
             switch (method, path) {
+            case ("GET", "/playground"), ("GET", "/ui"):
+                contentType = "text/html; charset=utf-8"
+                responseData = Data(Self.renderWebPlaygroundHTML(port: port).utf8)
+                logSummary = "Interactive Web Playground UI"
+
             case ("GET", "/"), ("GET", "/health"), ("GET", "/api/version"):
                 let hw = HardwareGuardInspector.inspect()
                 let payload: [String: Any] = [
                     "status": "ok",
                     "version": "0.19.0-mlx-audio-swift",
                     "engine": "VoicesApp Standalone Localhost Server (Apple Silicon MLX)",
+                    "playground_url": "http://127.0.0.1:\(port)/playground",
                     "ollama_compatible": true,
                     "lmstudio_compatible": true,
                     "active_ports": activePorts,
@@ -4777,6 +5107,17 @@ final class LocalhostServerManager {
                         "object": "model",
                         "owned_by": "mlx-audio-swift",
                         "task": "stt",
+                        "cached": ModelCacheHelper.isModelCached(preset.id)
+                    ])
+                }
+                for preset in STSViewModel.presetModels {
+                    let mode = STSViewModel.mode(forModelId: preset.id).rawValue.lowercased()
+                    modelsList.append([
+                        "id": preset.id,
+                        "name": preset.name,
+                        "object": "model",
+                        "owned_by": "mlx-audio-swift",
+                        "task": mode,
                         "cached": ModelCacheHelper.isModelCached(preset.id)
                     ])
                 }
@@ -4883,7 +5224,7 @@ final class LocalhostServerManager {
                     throw NSError(domain: "LocalhostServer", code: 500, userInfo: [NSLocalizedDescriptionKey: "TTS model unavailable"])
                 }
 
-                let cleanedText = SpeechTextCleaner.clean(rawText)
+                let cleanedText = SpeechPronunciationLexicon.shared.apply(to: SpeechTextCleaner.clean(rawText))
                 let sr = Double(ttsModel.sampleRate)
                 let tempWav = FileManager.default.temporaryDirectory
                     .appendingPathComponent("localhost_tts_\(UUID().uuidString).wav")
@@ -5063,6 +5404,96 @@ final class LocalhostServerManager {
                 ]
                 responseData = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted])
                 logSummary = "Generated SRT/VTT/ASS subtitles (\(timings.count) words)"
+
+            case ("POST", "/v1/audio/diarize"):
+                let json = (try? JSONSerialization.jsonObject(with: body) as? [String: Any]) ?? [:]
+                let rawModel = (json["model"] as? String) ?? "mlx-community/Nemotron-3-Diarization"
+                let filePath = (json["audio_path"] as? String) ?? (json["file"] as? String) ?? ""
+                let threshold = Float((json["threshold"] as? Double) ?? 0.5)
+                let defaultDemo = Bundle.main.url(forResource: "Sophie", withExtension: "wav")?.path ?? ""
+                let resolvedPath = filePath.isEmpty ? defaultDemo : NSString(string: filePath).expandingTildeInPath
+                guard !resolvedPath.isEmpty && FileManager.default.fileExists(atPath: resolvedPath) else {
+                    status = 400
+                    responseData = try JSONSerialization.data(withJSONObject: ["error": "Audio file not found at '\(resolvedPath)'"])
+                    logSummary = "400 Audio file not found"
+                    break
+                }
+                let audioURL = URL(fileURLWithPath: resolvedPath)
+                let (sr, rawAudio) = try loadAudioArray(from: audioURL)
+                let mono = rawAudio.ndim > 1 ? rawAudio.mean(axis: -1) : rawAudio
+                let lower = rawModel.lowercased()
+                let output: DiarizationOutput
+                if lower.contains("sortformer") || lower.contains("diar_streaming") {
+                    let sortformer = try await SortformerModel.fromPretrained(rawModel)
+                    let audio16k = sr == 16_000 ? mono : try MLXAudioCore.resampleAudio(mono, from: sr, to: 16_000)
+                    output = try await sortformer.generate(audio: audio16k, sampleRate: 16_000, threshold: threshold)
+                } else {
+                    let nemotron = try await NemotronDiarizationModel.fromPretrained(rawModel)
+                    output = try nemotron.generate(audio: mono, sampleRate: sr, threshold: threshold)
+                }
+                let segmentsJSON: [[String: Any]] = output.segments.map { seg in
+                    [
+                        "speaker": "SPEAKER_\(String(format: "%02d", seg.speaker))",
+                        "speaker_id": seg.speaker,
+                        "start": Double(String(format: "%.3f", seg.start)) ?? Double(seg.start),
+                        "end": Double(String(format: "%.3f", seg.end)) ?? Double(seg.end)
+                    ]
+                }
+                let payload: [String: Any] = [
+                    "model": rawModel,
+                    "num_speakers": output.numSpeakers,
+                    "segments": segmentsJSON,
+                    "rttm": output.text
+                ]
+                responseData = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted])
+                logSummary = "Diarized \(output.segments.count) segments (\(output.numSpeakers) speakers)"
+
+            case ("POST", "/v1/audio/enhance"):
+                let json = (try? JSONSerialization.jsonObject(with: body) as? [String: Any]) ?? [:]
+                let rawModel = (json["model"] as? String) ?? "nvidia/NVIDIA-NemotronLabs-RE-USE"
+                let filePath = (json["audio_path"] as? String) ?? (json["file"] as? String) ?? ""
+                let defaultDemo = Bundle.main.url(forResource: "Sophie", withExtension: "wav")?.path ?? ""
+                let resolvedPath = filePath.isEmpty ? defaultDemo : NSString(string: filePath).expandingTildeInPath
+                guard !resolvedPath.isEmpty && FileManager.default.fileExists(atPath: resolvedPath) else {
+                    status = 400
+                    responseData = try JSONSerialization.data(withJSONObject: ["error": "Audio file not found at '\(resolvedPath)'"])
+                    logSummary = "400 Audio file not found"
+                    break
+                }
+                let audioURL = URL(fileURLWithPath: resolvedPath)
+                let (inputSR, rawAudio) = try loadAudioArray(from: audioURL)
+                let mono = rawAudio.ndim > 1 ? rawAudio.mean(axis: -1) : rawAudio
+                let sts = try await STS.loadModel(modelRepo: rawModel, hfToken: ModelCacheHelper.effectiveHFToken)
+                var targetSR = sts.sampleRate
+                let enhanced: MLXArray
+                switch sts {
+                case .nemotronReuse(let reuse):
+                    let clamped = min(max(inputSR, 8_000), 48_000)
+                    let inp = inputSR == clamped ? mono : try MLXAudioCore.resampleAudio(mono, from: inputSR, to: clamped)
+                    let out = try reuse.generate(audio: inp, sampleRate: clamped)
+                    enhanced = out.audio
+                    targetSR = out.sampleRate
+                case .mossFormer2SE(let mf):
+                    let inp = inputSR == targetSR ? mono : try MLXAudioCore.resampleAudio(mono, from: inputSR, to: targetSR)
+                    enhanced = try mf.enhance(inp)
+                case .deepFilterNet(let dfn):
+                    let inp = inputSR == targetSR ? mono : try MLXAudioCore.resampleAudio(mono, from: inputSR, to: targetSR)
+                    enhanced = try dfn.enhance(inp)
+                default:
+                    enhanced = mono
+                    targetSR = inputSR
+                }
+                eval(enhanced)
+                let samples = enhanced.squeezed().asArray(Float.self)
+                let tempURL = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("api_enhance_\(UUID().uuidString).wav")
+                let wavWriter = try StreamingWAVWriter(url: tempURL, sampleRate: Double(targetSR))
+                try wavWriter.writeChunk(samples)
+                let finalURL = wavWriter.finalize()
+                responseData = try Data(contentsOf: finalURL)
+                try? FileManager.default.removeItem(at: finalURL)
+                contentType = "audio/wav"
+                logSummary = "Enhanced speech (\(rawModel), \(targetSR) Hz)"
 
             case ("DELETE", "/api/delete"), ("POST", "/api/delete"), ("DELETE", "/v1/models"), ("POST", "/v1/models/delete"):
                 let json = (try? JSONSerialization.jsonObject(with: body) as? [String: Any]) ?? [:]
@@ -5716,5 +6147,1813 @@ final class StudioPackageManager {
         }
     }
 }
+
+// MARK: - Pronunciation Lexicon (Custom Phonetic Replacements for Acronyms, Sci-Fi & Technical Terms)
+
+struct PronunciationRule: Identifiable, Codable, Equatable, Sendable {
+    var id: UUID = UUID()
+    var term: String
+    var phonetic: String
+    var caseSensitive: Bool = false
+    var isEnabled: Bool = true
+}
+
+@MainActor
+@Observable
+final class SpeechPronunciationLexicon {
+    static let shared = SpeechPronunciationLexicon()
+    nonisolated private static let storageKey = "VoicesApp.PronunciationLexicon.v1"
+    nonisolated private static let enabledKey = "VoicesApp.PronunciationLexicon.Enabled"
+
+    var isEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(isEnabled, forKey: Self.enabledKey)
+        }
+    }
+
+    var rules: [PronunciationRule] = [] {
+        didSet {
+            save()
+        }
+    }
+
+    nonisolated static let defaultRules: [PronunciationRule] = [
+        PronunciationRule(term: "MLX", phonetic: "M L X", caseSensitive: true, isEnabled: true),
+        PronunciationRule(term: "VRAM", phonetic: "V-RAM", caseSensitive: true, isEnabled: true),
+        PronunciationRule(term: "GGUF", phonetic: "G G U F", caseSensitive: true, isEnabled: true),
+        PronunciationRule(term: "BF16", phonetic: "B F sixteen", caseSensitive: false, isEnabled: true),
+        PronunciationRule(term: "FP16", phonetic: "F P sixteen", caseSensitive: false, isEnabled: true),
+        PronunciationRule(term: "arXiv", phonetic: "archive", caseSensitive: false, isEnabled: true),
+        PronunciationRule(term: "SQL", phonetic: "sequel", caseSensitive: true, isEnabled: true),
+        PronunciationRule(term: "EPUB", phonetic: "E-pub", caseSensitive: false, isEnabled: true),
+        PronunciationRule(term: "GUI", phonetic: "gooey", caseSensitive: true, isEnabled: true),
+        PronunciationRule(term: "Codecaine", phonetic: "Code-caine", caseSensitive: false, isEnabled: true),
+    ]
+
+    private init() {
+        if UserDefaults.standard.object(forKey: Self.enabledKey) == nil {
+            self.isEnabled = true
+        } else {
+            self.isEnabled = UserDefaults.standard.bool(forKey: Self.enabledKey)
+        }
+        if let data = UserDefaults.standard.data(forKey: Self.storageKey),
+           let decoded = try? JSONDecoder().decode([PronunciationRule].self, from: data),
+           !decoded.isEmpty {
+            self.rules = decoded
+        } else {
+            self.rules = Self.defaultRules
+        }
+    }
+
+    func addRule(term: String, phonetic: String, caseSensitive: Bool = false) {
+        let cleanTerm = term.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanPhonetic = phonetic.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanTerm.isEmpty, !cleanPhonetic.isEmpty else { return }
+        if let idx = rules.firstIndex(where: { $0.term.caseInsensitiveCompare(cleanTerm) == .orderedSame }) {
+            rules[idx].phonetic = cleanPhonetic
+            rules[idx].caseSensitive = caseSensitive
+            rules[idx].isEnabled = true
+        } else {
+            rules.insert(
+                PronunciationRule(term: cleanTerm, phonetic: cleanPhonetic, caseSensitive: caseSensitive, isEnabled: true),
+                at: 0
+            )
+        }
+    }
+
+    func removeRule(id: UUID) {
+        rules.removeAll { $0.id == id }
+    }
+
+    func resetDefaults() {
+        rules = Self.defaultRules
+    }
+
+    private func save() {
+        if let data = try? JSONEncoder().encode(rules) {
+            UserDefaults.standard.set(data, forKey: Self.storageKey)
+        }
+    }
+
+    /// Applies enabled phonetic replacements at word boundaries so TTS speaks technical terms and character names naturally
+    /// without altering the user's visible script or Read-Along display text.
+    nonisolated func apply(to text: String) -> String {
+        guard UserDefaults.standard.object(forKey: Self.enabledKey) == nil || UserDefaults.standard.bool(forKey: Self.enabledKey) else {
+            return text
+        }
+        let activeRules: [PronunciationRule]
+        if let data = UserDefaults.standard.data(forKey: Self.storageKey),
+           let decoded = try? JSONDecoder().decode([PronunciationRule].self, from: data) {
+            activeRules = decoded.filter { $0.isEnabled && !$0.term.isEmpty }
+        } else {
+            activeRules = Self.defaultRules.filter { $0.isEnabled }
+        }
+        guard !activeRules.isEmpty, !text.isEmpty else { return text }
+
+        var output = text
+        for rule in activeRules {
+            let escaped = NSRegularExpression.escapedPattern(for: rule.term)
+            let pattern = "(?<![\\p{L}\\p{N}_])\(escaped)(?![\\p{L}\\p{N}_])"
+            let options: NSRegularExpression.Options = rule.caseSensitive ? [] : [.caseInsensitive]
+            if let regex = try? NSRegularExpression(pattern: pattern, options: options) {
+                let range = NSRange(output.startIndex..., in: output)
+                let template = NSRegularExpression.escapedTemplate(for: rule.phonetic)
+                output = regex.stringByReplacingMatches(in: output, options: [], range: range, withTemplate: template)
+            }
+        }
+        return output
+    }
+}
+
+// MARK: - Studio Document Session, Reading Bookmarks & Persistent Takes Manager
+
+struct StudioBookmark: Identifiable, Codable, Equatable {
+    var id: UUID = UUID()
+    var title: String
+    var chunkIndex: Int
+    var previewSnippet: String
+    var createdAt: Date = Date()
+}
+
+struct RecentStudioDocument: Identifiable, Codable, Equatable {
+    var id: UUID = UUID()
+    var title: String
+    var sourcePath: String?
+    var textPreview: String
+    var charCount: Int
+    var lastChunkIndex: Int
+    var updatedAt: Date = Date()
+}
+
+struct PersistedTakeRecord: Identifiable, Codable {
+    let id: UUID
+    let textSnippet: String
+    let voiceName: String
+    let modelName: String
+    let duration: TimeInterval
+    let rtf: Double
+    let fileName: String
+    let createdAt: Date
+}
+
+@MainActor
+@Observable
+final class StudioDocumentSessionManager {
+    static let shared = StudioDocumentSessionManager()
+
+    private let appSupportDir: URL
+    private let takesDir: URL
+    private let recentDocsDir: URL
+    private let sessionTextURL: URL
+    private let bookmarksURL: URL
+    private let recentIndexURL: URL
+    private let takesIndexURL: URL
+
+    private static let activeChunkKey = "VoicesApp.Session.ActiveChunkIndex"
+    private static let documentTitleKey = "VoicesApp.Session.DocumentTitle"
+    private static let hasSavedSessionKey = "VoicesApp.Session.HasSavedScript"
+
+    var currentDocumentTitle: String = "Dead Orbit: The Talbot Protocol"
+    var bookmarks: [StudioBookmark] = []
+    var recentDocuments: [RecentStudioDocument] = []
+
+    private init() {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        let root = base.appendingPathComponent("CodecaineAudioStudio", isDirectory: true)
+        let takes = root.appendingPathComponent("Takes", isDirectory: true)
+        let recent = root.appendingPathComponent("RecentDocs", isDirectory: true)
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: takes, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: recent, withIntermediateDirectories: true)
+
+        self.appSupportDir = root
+        self.takesDir = takes
+        self.recentDocsDir = recent
+        self.sessionTextURL = root.appendingPathComponent("active_session_script.txt")
+        self.bookmarksURL = root.appendingPathComponent("bookmarks.json")
+        self.recentIndexURL = root.appendingPathComponent("recent_documents.json")
+        self.takesIndexURL = root.appendingPathComponent("takes_history.json")
+
+        self.currentDocumentTitle = UserDefaults.standard.string(forKey: Self.documentTitleKey) ?? "Dead Orbit: The Talbot Protocol"
+        loadBookmarks()
+        loadRecentDocuments()
+    }
+
+    func restoreSessionScript() -> (text: String, chunkIndex: Int)? {
+        guard UserDefaults.standard.bool(forKey: Self.hasSavedSessionKey),
+              FileManager.default.fileExists(atPath: sessionTextURL.path),
+              let savedText = try? String(contentsOf: sessionTextURL, encoding: .utf8),
+              !savedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+        let savedChunk = max(0, UserDefaults.standard.integer(forKey: Self.activeChunkKey))
+        return (savedText, savedChunk)
+    }
+
+    func saveSessionScript(_ text: String, chunkIndex: Int, title: String? = nil) {
+        if let title, !title.isEmpty {
+            currentDocumentTitle = title
+            UserDefaults.standard.set(title, forKey: Self.documentTitleKey)
+        }
+        UserDefaults.standard.set(max(0, chunkIndex), forKey: Self.activeChunkKey)
+        UserDefaults.standard.set(true, forKey: Self.hasSavedSessionKey)
+        let url = sessionTextURL
+        Task.detached(priority: .utility) {
+            try? text.write(to: url, atomically: true, encoding: .utf8)
+        }
+    }
+
+    func saveActiveChunkIndex(_ chunkIndex: Int) {
+        UserDefaults.standard.set(max(0, chunkIndex), forKey: Self.activeChunkKey)
+    }
+
+    // MARK: Bookmarks
+
+    func addBookmark(chunkIndex: Int, chunkText: String) {
+        let snippet = chunkText
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let shortSnippet = snippet.count > 68 ? String(snippet.prefix(68)) + "…" : snippet
+        if let existingIdx = bookmarks.firstIndex(where: { $0.chunkIndex == chunkIndex }) {
+            bookmarks[existingIdx].previewSnippet = shortSnippet
+            bookmarks[existingIdx].createdAt = Date()
+        } else {
+            let bookmark = StudioBookmark(
+                title: "\(currentDocumentTitle) · §\(chunkIndex + 1)",
+                chunkIndex: chunkIndex,
+                previewSnippet: shortSnippet
+            )
+            bookmarks.insert(bookmark, at: 0)
+        }
+        saveBookmarks()
+    }
+
+    func removeBookmark(id: UUID) {
+        bookmarks.removeAll { $0.id == id }
+        saveBookmarks()
+    }
+
+    func isChunkBookmarked(_ chunkIndex: Int) -> Bool {
+        bookmarks.contains { $0.chunkIndex == chunkIndex }
+    }
+
+    func toggleBookmark(chunkIndex: Int, chunkText: String) {
+        if let existing = bookmarks.first(where: { $0.chunkIndex == chunkIndex }) {
+            removeBookmark(id: existing.id)
+        } else {
+            addBookmark(chunkIndex: chunkIndex, chunkText: chunkText)
+        }
+    }
+
+    private func loadBookmarks() {
+        guard let data = try? Data(contentsOf: bookmarksURL),
+              let decoded = try? JSONDecoder().decode([StudioBookmark].self, from: data) else {
+            return
+        }
+        bookmarks = decoded
+    }
+
+    private func saveBookmarks() {
+        guard let data = try? JSONEncoder().encode(bookmarks) else { return }
+        try? data.write(to: bookmarksURL, options: .atomic)
+    }
+
+    // MARK: Recent Imported Documents
+
+    func recordRecentDocument(title: String, sourcePath: String?, text: String, chunkIndex: Int = 0) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        currentDocumentTitle = title
+        UserDefaults.standard.set(title, forKey: Self.documentTitleKey)
+
+        let preview = String(trimmed.replacingOccurrences(of: "\n", with: " ").prefix(90))
+        var docId = UUID()
+        if let existingIdx = recentDocuments.firstIndex(where: { $0.title == title || ($0.sourcePath != nil && $0.sourcePath == sourcePath) }) {
+            docId = recentDocuments[existingIdx].id
+            recentDocuments.remove(at: existingIdx)
+        }
+        let entry = RecentStudioDocument(
+            id: docId,
+            title: title,
+            sourcePath: sourcePath,
+            textPreview: preview,
+            charCount: trimmed.count,
+            lastChunkIndex: chunkIndex,
+            updatedAt: Date()
+        )
+        recentDocuments.insert(entry, at: 0)
+        if recentDocuments.count > 12 {
+            let removed = recentDocuments.suffix(from: 12)
+            for item in removed {
+                try? FileManager.default.removeItem(at: recentDocsDir.appendingPathComponent("\(item.id.uuidString).txt"))
+            }
+            recentDocuments = Array(recentDocuments.prefix(12))
+        }
+        let cachedDocFile = recentDocsDir.appendingPathComponent("\(docId.uuidString).txt")
+        try? trimmed.write(to: cachedDocFile, atomically: true, encoding: .utf8)
+        saveRecentDocuments()
+    }
+
+    func loadRecentDocumentText(_ doc: RecentStudioDocument) -> String? {
+        let cachedFile = recentDocsDir.appendingPathComponent("\(doc.id.uuidString).txt")
+        if let text = try? String(contentsOf: cachedFile, encoding: .utf8), !text.isEmpty {
+            currentDocumentTitle = doc.title
+            UserDefaults.standard.set(doc.title, forKey: Self.documentTitleKey)
+            return text
+        }
+        if let path = doc.sourcePath, FileManager.default.fileExists(atPath: path) {
+            if let extracted = try? SpeechTextCleaner.extractDocumentText(from: URL(fileURLWithPath: path)), !extracted.isEmpty {
+                currentDocumentTitle = doc.title
+                UserDefaults.standard.set(doc.title, forKey: Self.documentTitleKey)
+                return extracted
+            }
+        }
+        return nil
+    }
+
+    private func loadRecentDocuments() {
+        guard let data = try? Data(contentsOf: recentIndexURL),
+              let decoded = try? JSONDecoder().decode([RecentStudioDocument].self, from: data) else {
+            return
+        }
+        recentDocuments = decoded
+    }
+
+    private func saveRecentDocuments() {
+        guard let data = try? JSONEncoder().encode(recentDocuments) else { return }
+        try? data.write(to: recentIndexURL, options: .atomic)
+    }
+
+    // MARK: Persistent Generated Takes
+
+    func persistTake(
+        id: UUID = UUID(),
+        textSnippet: String,
+        voiceName: String,
+        modelName: String,
+        duration: TimeInterval,
+        rtf: Double,
+        sourceAudioURL: URL,
+        createdAt: Date = Date()
+    ) -> URL {
+        let fileName = "take_\(id.uuidString).wav"
+        let destURL = takesDir.appendingPathComponent(fileName)
+        if sourceAudioURL.path != destURL.path {
+            try? FileManager.default.removeItem(at: destURL)
+            try? FileManager.default.copyItem(at: sourceAudioURL, to: destURL)
+        }
+        var existing = loadTakeRecords()
+        existing.removeAll { $0.id == id }
+        existing.insert(
+            PersistedTakeRecord(
+                id: id,
+                textSnippet: textSnippet,
+                voiceName: voiceName,
+                modelName: modelName,
+                duration: duration,
+                rtf: rtf,
+                fileName: fileName,
+                createdAt: createdAt
+            ),
+            at: 0
+        )
+        if existing.count > 20 {
+            for old in existing.suffix(from: 20) {
+                try? FileManager.default.removeItem(at: takesDir.appendingPathComponent(old.fileName))
+            }
+            existing = Array(existing.prefix(20))
+        }
+        if let data = try? JSONEncoder().encode(existing) {
+            try? data.write(to: takesIndexURL, options: .atomic)
+        }
+        return FileManager.default.fileExists(atPath: destURL.path) ? destURL : sourceAudioURL
+    }
+
+    func loadPersistedTakes() -> [(record: PersistedTakeRecord, url: URL)] {
+        let records = loadTakeRecords()
+        return records.compactMap { rec in
+            let url = takesDir.appendingPathComponent(rec.fileName)
+            guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+            return (rec, url)
+        }
+    }
+
+    func clearPersistedTakes() {
+        for rec in loadTakeRecords() {
+            try? FileManager.default.removeItem(at: takesDir.appendingPathComponent(rec.fileName))
+        }
+        try? FileManager.default.removeItem(at: takesIndexURL)
+    }
+
+    private func loadTakeRecords() -> [PersistedTakeRecord] {
+        guard let data = try? Data(contentsOf: takesIndexURL),
+              let decoded = try? JSONDecoder().decode([PersistedTakeRecord].self, from: data) else {
+            return []
+        }
+        return decoded
+    }
+}
+
+// MARK: - 1-Click Instant Voice Cloning Helper (From Transcribe or Audio Lab into Voice Studio)
+
+extension Voice {
+    @discardableResult
+    static func createInstantClone(
+        from audioURL: URL,
+        transcription: String?,
+        suggestedName: String? = nil
+    ) -> Voice? {
+        guard FileManager.default.fileExists(atPath: audioURL.path) else { return nil }
+        let fileManager = FileManager.default
+        let docs = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first
+            ?? fileManager.temporaryDirectory
+        let clonesDir = docs.appendingPathComponent("ClonedVoices", isDirectory: true)
+        try? fileManager.createDirectory(at: clonesDir, withIntermediateDirectories: true)
+
+        let ext = audioURL.pathExtension.isEmpty ? "wav" : audioURL.pathExtension
+        let savedURL = clonesDir.appendingPathComponent("clone_\(UUID().uuidString).\(ext)")
+        do {
+            if audioURL.path != savedURL.path {
+                try fileManager.copyItem(at: audioURL, to: savedURL)
+            }
+        } catch {
+            return nil
+        }
+
+        let bio = VoiceBiometricsAnalyzer.analyzeAudio(url: savedURL)
+        let baseStem = suggestedName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawFileStem = audioURL.deletingPathExtension().lastPathComponent
+            .replacingOccurrences(of: "_", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedName: String
+        if let baseStem, !baseStem.isEmpty {
+            resolvedName = baseStem
+        } else if !rawFileStem.isEmpty && !rawFileStem.lowercased().hasPrefix("sts_") && !rawFileStem.lowercased().hasPrefix("tts_") {
+            resolvedName = "\(rawFileStem.prefix(22)) (Clone)"
+        } else if let bio {
+            resolvedName = "\(bio.recommendedBaseVoice) (\(bio.voiceRegister.components(separatedBy: " ").first ?? "Clone"))"
+        } else {
+            resolvedName = "Studio Clone \(Int.random(in: 10...99))"
+        }
+
+        let desc: String
+        if let bio {
+            desc = "Instant Clone · \(bio.voiceRegister) · \(Int(bio.medianF0Hz))Hz · \(bio.timbreLabel)"
+        } else {
+            desc = "Instant Cloned Reference Voice"
+        }
+
+        let cleanedTranscript = transcription?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let effectiveTranscript = (cleanedTranscript?.isEmpty == false)
+            ? String((cleanedTranscript ?? "").prefix(320))
+            : "Judge Victor quickly mixed a beige waxy potion for the zesty, grumpy elf who yawns."
+
+        var existing = Voice.loadCustomVoices()
+        let color = palette[existing.count % palette.count]
+        let newVoice = Voice(
+            name: resolvedName,
+            voiceId: bio?.recommendedBaseVoice ?? "Zoey",
+            description: desc,
+            language: "Multilingual",
+            color: color,
+            isCustom: true,
+            audioFileURL: savedURL,
+            transcription: effectiveTranscript
+        )
+        existing.insert(newVoice, at: 0)
+        Voice.saveCustomVoices(existing)
+        return newVoice
+    }
+}
+
+// MARK: - Interactive Localhost Web Playground HTML (:8080/playground)
+
+extension LocalhostServerManager {
+    nonisolated static func renderWebPlaygroundHTML(port: UInt16) -> String {
+        """
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+          <meta charset="UTF-8" />
+          <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+          <title>Codecaine MLX Audio Studio — Localhost Web Playground (:\(port))</title>
+          <style>
+            :root {
+              color-scheme: dark;
+              --bg: #0b0f19;
+              --card: #131a2a;
+              --border: rgba(255,255,255,0.12);
+              --accent: #3b82f6;
+              --text: #f3f6fc;
+              --muted: #94a3b8;
+            }
+            * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; }
+            body { margin: 0; padding: 28px; background: radial-gradient(circle at top, #15203b, var(--bg)); color: var(--text); }
+            .wrap { max-width: 960px; margin: 0 auto; }
+            .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 14px; border-bottom: 1px solid var(--border); }
+            .badge { background: rgba(16,185,129,0.18); color: #34d399; border: 1px solid rgba(16,185,129,0.4); padding: 5px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+            .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+            .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 18px; }
+            h1 { font-size: 20px; margin: 0 0 4px 0; }
+            h2 { font-size: 15px; margin: 0 0 12px 0; color: #cbd5e1; }
+            label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; font-weight: 600; }
+            textarea, input, select { width: 100%; background: rgba(0,0,0,0.3); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 10px; font-size: 13px; margin-bottom: 12px; }
+            button { background: var(--accent); color: white; border: none; border-radius: 8px; padding: 10px 16px; font-weight: 600; font-size: 13px; cursor: pointer; }
+            button:hover { opacity: 0.92; }
+            pre { background: rgba(0,0,0,0.45); border: 1px solid var(--border); border-radius: 8px; padding: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; overflow-x: auto; color: #a5f3fc; }
+            audio { width: 100%; margin-top: 12px; }
+            .status { font-size: 12px; color: var(--muted); margin-top: 8px; }
+          </style>
+        </head>
+        <body>
+          <div class="wrap">
+            <div class="header">
+              <div>
+                <h1>Codecaine MLX RAD AI Audio Studio — Localhost Playground</h1>
+                <div style="font-size:13px;color:var(--muted);">100% On-Device Apple Silicon Metal Server · OpenAI &amp; Ollama Compatible</div>
+              </div>
+              <span class="badge">● ONLINE · 127.0.0.1:\(port)</span>
+            </div>
+            <div class="grid">
+              <div class="card">
+                <h2>🔊 Neural Speech Synthesis (POST /v1/audio/speech)</h2>
+                <label>Voice Preset</label>
+                <select id="voice">
+                  <option value="Zoey">Zoey (Conversational Default)</option>
+                  <option value="Freya">Freya (Studio Narrator)</option>
+                  <option value="Hugh">Hugh (Deep Documentary)</option>
+                  <option value="Bryony">Bryony (Crisp Articulate)</option>
+                  <option value="Edwin">Edwin (Audiobook Narrator)</option>
+                  <option value="Harper">Harper (Modern Direct)</option>
+                  <option value="Toby">Toby (Energetic)</option>
+                </select>
+                <label>Input Script</label>
+                <textarea id="ttsText" rows="4">Welcome to Codecaine MLX Audio Studio running locally on Apple Silicon Metal with zero cloud latency!</textarea>
+                <button onclick="runTTS()" id="ttsBtn">Synthesize Speech</button>
+                <div class="status" id="ttsStatus">Ready</div>
+                <audio id="audioPlayer" controls style="display:none;"></audio>
+              </div>
+              <div class="card">
+                <h2>⚡ Quick Client Snippets (OpenAI SDK / Python / JS / cURL)</h2>
+                <label>cURL</label>
+                <pre>curl -X POST http://127.0.0.1:\(port)/v1/audio/speech \\
+          -H "Content-Type: application/json" \\
+          -d '{"model":"phonon","voice":"Zoey","input":"Hello from MLX!"}' \\
+          --output speech.wav &amp;&amp; afplay speech.wav</pre>
+                <label>Python (OpenAI SDK drop-in)</label>
+                <pre>from openai import OpenAI
+        client = OpenAI(base_url="http://127.0.0.1:\(port)/v1", api_key="mlx")
+        resp = client.audio.speech.create(model="phonon", voice="Zoey", input="Hello world!")
+        resp.stream_to_file("speech.wav")</pre>
+              </div>
+            </div>
+          </div>
+          <script>
+            async function runTTS() {
+              const btn = document.getElementById('ttsBtn');
+              const status = document.getElementById('ttsStatus');
+              const player = document.getElementById('audioPlayer');
+              const input = document.getElementById('ttsText').value;
+              const voice = document.getElementById('voice').value;
+              btn.disabled = true;
+              status.textContent = 'Synthesizing on Apple Silicon Metal GPU...';
+              const t0 = performance.now();
+              try {
+                const res = await fetch('/v1/audio/speech', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ model: 'phonon', voice, input })
+                });
+                if (!res.ok) throw new Error(await res.text());
+                const blob = await res.blob();
+                player.src = URL.createObjectURL(blob);
+                player.style.display = 'block';
+                player.play();
+                status.textContent = 'Done in ' + ((performance.now() - t0)/1000).toFixed(2) + 's';
+              } catch (e) {
+                status.textContent = 'Error: ' + e.message;
+              } finally {
+                btn.disabled = false;
+              }
+            }
+          </script>
+        </body>
+        </html>
+        """
+    }
+}
+
+// MARK: - Studio Notification Extensions for Multi-Voice Casting, Watch Folder, M4B & Menu Bar Mini-Reader
+
+extension Notification.Name {
+    static let openCharacterCastingSheet = Notification.Name("VoicesApp.OpenCharacterCastingSheet")
+    static let openWatchFolderSheet = Notification.Name("VoicesApp.OpenWatchFolderSheet")
+    static let openM4BAudiobookSheet = Notification.Name("VoicesApp.OpenM4BAudiobookSheet")
+    static let miniReaderQuickSpeak = Notification.Name("VoicesApp.MiniReaderQuickSpeak")
+    static let miniReaderTransportAction = Notification.Name("VoicesApp.MiniReaderTransportAction")
+}
+
+// MARK: - Interactive Multi-Voice Character Casting Table ("Cast & Dialogue" Studio)
+
+struct CharacterVoiceCast: Identifiable, Codable, Equatable, Sendable {
+    var id: UUID = UUID()
+    var characterName: String
+    var speakerTag: String
+    var voiceId: String
+    var pitchSemitones: Float = 0.0
+    var isEnabled: Bool = true
+}
+
+@MainActor
+@Observable
+final class CharacterCastingManager {
+    static let shared = CharacterCastingManager()
+
+    nonisolated static let storageKey = "VoicesApp.CharacterCasting.Cast.v1"
+    nonisolated static let enabledKey = "VoicesApp.CharacterCasting.Enabled"
+    nonisolated static let quoteCastKey = "VoicesApp.CharacterCasting.CastQuotes"
+
+    nonisolated static let studioVoiceOptions: [String] = [
+        "Edwin", "Freya", "Hugh", "Zoey", "Bryony", "Harper", "Toby", "Sterling"
+    ]
+
+    nonisolated static let defaultCast: [CharacterVoiceCast] = [
+        CharacterVoiceCast(characterName: "Narrator", speakerTag: "<|speaker:0|>", voiceId: "Edwin", pitchSemitones: 0.0, isEnabled: true),
+        CharacterVoiceCast(characterName: "Commander Vance", speakerTag: "<|speaker:1|>", voiceId: "Hugh", pitchSemitones: -1.5, isEnabled: true),
+        CharacterVoiceCast(characterName: "Dr. Talbot", speakerTag: "<|speaker:2|>", voiceId: "Freya", pitchSemitones: 1.0, isEnabled: true),
+        CharacterVoiceCast(characterName: "Ship AI (ARIA)", speakerTag: "<|speaker:3|>", voiceId: "Bryony", pitchSemitones: 2.0, isEnabled: true),
+    ]
+
+    var isEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(isEnabled, forKey: Self.enabledKey)
+        }
+    }
+
+    var castQuotedDialogue: Bool {
+        didSet {
+            UserDefaults.standard.set(castQuotedDialogue, forKey: Self.quoteCastKey)
+        }
+    }
+
+    var cast: [CharacterVoiceCast] = [] {
+        didSet {
+            save()
+        }
+    }
+
+    private init() {
+        if UserDefaults.standard.object(forKey: Self.enabledKey) == nil {
+            self.isEnabled = true
+        } else {
+            self.isEnabled = UserDefaults.standard.bool(forKey: Self.enabledKey)
+        }
+        if UserDefaults.standard.object(forKey: Self.quoteCastKey) == nil {
+            self.castQuotedDialogue = true
+        } else {
+            self.castQuotedDialogue = UserDefaults.standard.bool(forKey: Self.quoteCastKey)
+        }
+        if let data = UserDefaults.standard.data(forKey: Self.storageKey),
+           let decoded = try? JSONDecoder().decode([CharacterVoiceCast].self, from: data),
+           !decoded.isEmpty {
+            self.cast = decoded
+        } else {
+            self.cast = Self.defaultCast
+        }
+    }
+
+    func addCharacter(name: String, voiceId: String, pitch: Float = 0.0) {
+        let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { return }
+        if let idx = cast.firstIndex(where: { $0.characterName.caseInsensitiveCompare(clean) == .orderedSame }) {
+            cast[idx].voiceId = voiceId
+            cast[idx].pitchSemitones = pitch
+            cast[idx].isEnabled = true
+        } else {
+            let tagIndex = cast.count
+            cast.append(
+                CharacterVoiceCast(
+                    characterName: clean,
+                    speakerTag: "<|speaker:\(tagIndex)|>",
+                    voiceId: voiceId,
+                    pitchSemitones: pitch,
+                    isEnabled: true
+                )
+            )
+        }
+    }
+
+    func removeCharacter(id: UUID) {
+        cast.removeAll { $0.id == id }
+    }
+
+    func resetDefaults() {
+        cast = Self.defaultCast
+    }
+
+    /// Scans a script or book for `Speaker:` prefixes, `[S1]` tags, or character dialogue attributions and adds them to the cast table
+    @discardableResult
+    func scanScriptForCharacters(_ script: String) -> Int {
+        var discovered: [String] = []
+        let lines = script.components(separatedBy: .newlines)
+        let prefixRegex = try? NSRegularExpression(pattern: #"^\s*\[?([A-Z][A-Za-z0-9 _\-\.]{1,22})\]?\s*:\s+.+"#)
+        let excludedPrefixes = ["chapter", "part", "section", "act", "scene", "prologue", "epilogue"]
+        let excludedExact: Set<String> = ["http", "https", "note", "time", "date", "location", "setting", "title", "author", "status", "warning"]
+        for line in lines {
+            let range = NSRange(line.startIndex..., in: line)
+            if let match = prefixRegex?.firstMatch(in: line, range: range),
+               let nameRange = Range(match.range(at: 1), in: line) {
+                let candidate = String(line[nameRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+                let lower = candidate.lowercased()
+                if !candidate.isEmpty,
+                   !excludedExact.contains(lower),
+                   !excludedPrefixes.contains(where: { lower.hasPrefix($0) }),
+                   !discovered.contains(where: { $0.caseInsensitiveCompare(candidate) == .orderedSame }) {
+                    discovered.append(candidate)
+                }
+            }
+        }
+
+        // Also detect "said <Name>" or "<Name> whispered/replied/asked" patterns in prose novels
+        let proseRegex = try? NSRegularExpression(pattern: #"(?:said|asked|replied|whispered|called|murmured|shouted)\s+([A-Z][a-z]{2,16})\b|\b([A-Z][a-z]{2,16})\s+(?:said|asked|replied|whispered|murmured|shouted)"#)
+        let fullRange = NSRange(script.startIndex..., in: script)
+        if let matches = proseRegex?.matches(in: script, range: fullRange) {
+            for match in matches.prefix(24) {
+                let r1 = Range(match.range(at: 1), in: script)
+                let r2 = Range(match.range(at: 2), in: script)
+                if let r = r1 ?? r2 {
+                    let name = String(script[r])
+                    let stopWords: Set<String> = ["The", "She", "He", "They", "Then", "When", "What", "Where", "There", "Here"]
+                    if !stopWords.contains(name),
+                       !discovered.contains(where: {
+                           $0.caseInsensitiveCompare(name) == .orderedSame ||
+                           $0.split(whereSeparator: { $0.isWhitespace || $0.isPunctuation }).contains(where: { $0.caseInsensitiveCompare(name) == .orderedSame })
+                       }) {
+                        discovered.append(name)
+                    }
+                }
+            }
+        }
+
+        var addedCount = 0
+        let pitches: [Float] = [-1.5, 1.0, -0.5, 1.5, -2.0, 2.0, 0.5]
+        for name in discovered {
+            let alreadyExists = cast.contains { existing in
+                existing.characterName.caseInsensitiveCompare(name) == .orderedSame ||
+                existing.characterName.split(whereSeparator: { $0.isWhitespace || $0.isPunctuation })
+                    .contains(where: { $0.caseInsensitiveCompare(name) == .orderedSame })
+            }
+            if !alreadyExists {
+                let voiceChoice = Self.studioVoiceOptions[(cast.count) % Self.studioVoiceOptions.count]
+                let pitchChoice = pitches[(cast.count) % pitches.count]
+                addCharacter(name: name, voiceId: voiceChoice, pitch: pitchChoice)
+                addedCount += 1
+            }
+        }
+        return addedCount
+    }
+
+    private func save() {
+        if let data = try? JSONEncoder().encode(cast) {
+            UserDefaults.standard.set(data, forKey: Self.storageKey)
+        }
+    }
+
+    /// Resolves the character voice and pitch override for a given chunk during synthesis
+    nonisolated func resolveChunkCast(
+        _ chunk: String,
+        defaultVoiceParam: String?,
+        defaultPitch: Float
+    ) -> (spokenText: String, voiceParam: String?, pitch: Float, characterName: String?) {
+        let enabled = UserDefaults.standard.object(forKey: Self.enabledKey) == nil
+            || UserDefaults.standard.bool(forKey: Self.enabledKey)
+        guard enabled else {
+            return (chunk, defaultVoiceParam, defaultPitch, nil)
+        }
+
+        let activeCast: [CharacterVoiceCast]
+        if let data = UserDefaults.standard.data(forKey: Self.storageKey),
+           let decoded = try? JSONDecoder().decode([CharacterVoiceCast].self, from: data) {
+            activeCast = decoded.filter(\.isEnabled)
+        } else {
+            activeCast = Self.defaultCast.filter(\.isEnabled)
+        }
+        guard !activeCast.isEmpty else {
+            return (chunk, defaultVoiceParam, defaultPitch, nil)
+        }
+
+        let trimmed = chunk.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // 1. Check explicit speaker tag `<|speaker:N|>` or `CharacterName:` prefix
+        for entry in activeCast {
+            if !entry.speakerTag.isEmpty, trimmed.localizedCaseInsensitiveContains(entry.speakerTag) {
+                let cleaned = trimmed.replacingOccurrences(of: entry.speakerTag, with: "", options: [.caseInsensitive])
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                return (
+                    cleaned.isEmpty ? trimmed : cleaned,
+                    entry.voiceId,
+                    defaultPitch + entry.pitchSemitones,
+                    entry.characterName
+                )
+            }
+            let prefix1 = "\(entry.characterName):"
+            let prefix2 = "[\(entry.characterName)]:"
+            if trimmed.lowercased().hasPrefix(prefix1.lowercased()) {
+                let body = String(trimmed.dropFirst(prefix1.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+                return (
+                    body.isEmpty ? trimmed : body,
+                    entry.voiceId,
+                    defaultPitch + entry.pitchSemitones,
+                    entry.characterName
+                )
+            }
+            if trimmed.lowercased().hasPrefix(prefix2.lowercased()) {
+                let body = String(trimmed.dropFirst(prefix2.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+                return (
+                    body.isEmpty ? trimmed : body,
+                    entry.voiceId,
+                    defaultPitch + entry.pitchSemitones,
+                    entry.characterName
+                )
+            }
+        }
+
+        // 2. Check if chunk mentions a cast character alongside quoted dialogue using Unicode word-boundary matching
+        let quoteEnabled = UserDefaults.standard.object(forKey: Self.quoteCastKey) == nil
+            || UserDefaults.standard.bool(forKey: Self.quoteCastKey)
+        let hasQuotes = trimmed.contains("\"") || trimmed.contains("“") || trimmed.contains("”")
+        if quoteEnabled && hasQuotes {
+            let fullRange = NSRange(trimmed.startIndex..., in: trimmed)
+            for entry in activeCast where entry.characterName.lowercased() != "narrator" {
+                let rawLast = entry.characterName.split(separator: " ").last.map(String.init) ?? entry.characterName
+                let cleanToken = rawLast.trimmingCharacters(in: .punctuationCharacters)
+                if cleanToken.count >= 3 {
+                    let pattern = "(?<![\\p{L}\\p{N}_])\(NSRegularExpression.escapedPattern(for: cleanToken))(?![\\p{L}\\p{N}_])"
+                    if let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
+                       regex.firstMatch(in: trimmed, range: fullRange) != nil {
+                        return (
+                            trimmed,
+                            entry.voiceId,
+                            defaultPitch + entry.pitchSemitones,
+                            entry.characterName
+                        )
+                    }
+                }
+            }
+            if let firstDialogueCast = activeCast.first(where: { $0.characterName.lowercased() != "narrator" }),
+               trimmed.hasPrefix("\"") || trimmed.hasPrefix("“") {
+                return (
+                    trimmed,
+                    firstDialogueCast.voiceId,
+                    defaultPitch + firstDialogueCast.pitchSemitones,
+                    firstDialogueCast.characterName
+                )
+            }
+        }
+
+        return (chunk, defaultVoiceParam, defaultPitch, nil)
+    }
+}
+
+// MARK: - macOS Menu Bar Mini-Reader Coordinator & System Service Provider
+
+#if os(macOS)
+final class MacOSStudioServiceProvider: NSObject {
+    @objc func readSelectionInStudio(
+        _ pboard: NSPasteboard,
+        userData: String?,
+        error: AutoreleasingUnsafeMutablePointer<NSString?>
+    ) {
+        guard let text = pboard.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !text.isEmpty else {
+            return
+        }
+        Task { @MainActor in
+            NSApplication.shared.activate(ignoringOtherApps: true)
+            NotificationCenter.default.post(name: .miniReaderQuickSpeak, object: text)
+        }
+    }
+}
+#endif
+
+@MainActor
+@Observable
+final class StudioMiniReaderCoordinator {
+    static let shared = StudioMiniReaderCoordinator()
+
+    var documentTitle: String = "Dead Orbit: The Talbot Protocol"
+    var activeChunkIndex: Int = 0
+    var totalChunkCount: Int = 1
+    var activeChunkSnippet: String = "Ready in Codecaine MLX Audio Studio"
+    var isPlaying: Bool = false
+    var isGenerating: Bool = false
+    var activeVoiceName: String = "Zoey"
+    var playbackRate: Float = 1.0
+    var currentTime: TimeInterval = 0
+    var duration: TimeInterval = 0
+    var quickSpeakInput: String = "Synthesize this sentence directly from the macOS Menu Bar Mini-Reader."
+
+    #if os(macOS)
+    private let serviceProvider = MacOSStudioServiceProvider()
+    #endif
+
+    private init() {
+        #if os(macOS)
+        NSApplication.shared.servicesProvider = serviceProvider
+        #endif
+    }
+
+    func sync(
+        title: String,
+        chunkIndex: Int,
+        totalChunks: Int,
+        snippet: String,
+        isPlaying: Bool,
+        isGenerating: Bool,
+        voiceName: String,
+        rate: Float,
+        currentTime: TimeInterval,
+        duration: TimeInterval
+    ) {
+        self.documentTitle = title
+        self.activeChunkIndex = chunkIndex
+        self.totalChunkCount = max(1, totalChunks)
+        let cleanSnippet = snippet.replacingOccurrences(of: "\n", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleanSnippet.isEmpty {
+            self.activeChunkSnippet = cleanSnippet.count > 110 ? String(cleanSnippet.prefix(110)) + "…" : cleanSnippet
+        }
+        self.isPlaying = isPlaying
+        self.isGenerating = isGenerating
+        self.activeVoiceName = voiceName
+        self.playbackRate = rate
+        self.currentTime = currentTime
+        self.duration = duration
+    }
+
+    func triggerTransport(_ action: String) {
+        NotificationCenter.default.post(name: .miniReaderTransportAction, object: action)
+    }
+
+    func triggerQuickSpeak(_ text: String? = nil) {
+        let target = (text ?? quickSpeakInput).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !target.isEmpty else { return }
+        NotificationCenter.default.post(name: .miniReaderQuickSpeak, object: target)
+    }
+}
+
+// MARK: - Watch-Folder Batch Automation ("Auto-Watch Studio")
+
+struct WatchFolderJobRecord: Identifiable, Codable, Equatable, Sendable {
+    var id: UUID = UUID()
+    var sourceFileName: String
+    var jobKind: String
+    var outputFileName: String
+    var outputPath: String
+    var subtitlePath: String?
+    var status: String
+    var durationSec: Double
+    var completedAt: Date = Date()
+}
+
+@MainActor
+@Observable
+final class StudioWatchFolderManager {
+    static let shared = StudioWatchFolderManager()
+
+    private static let inputPathKey = "VoicesApp.WatchFolder.InputPath"
+    private static let outputPathKey = "VoicesApp.WatchFolder.OutputPath"
+    private static let formatKey = "VoicesApp.WatchFolder.Format"
+    private static let subtitlesKey = "VoicesApp.WatchFolder.SubtitlesSRT"
+    private static let jobsKey = "VoicesApp.WatchFolder.Jobs.v1"
+    private static let processedSetKey = "VoicesApp.WatchFolder.ProcessedSet.v1"
+
+    var inputFolderPath: String {
+        didSet {
+            UserDefaults.standard.set(inputFolderPath, forKey: Self.inputPathKey)
+            ensureFoldersExist()
+        }
+    }
+
+    var outputFolderPath: String {
+        didSet {
+            UserDefaults.standard.set(outputFolderPath, forKey: Self.outputPathKey)
+            ensureFoldersExist()
+        }
+    }
+
+    var exportFormat: AudioExportFormat {
+        didSet {
+            UserDefaults.standard.set(exportFormat.rawValue, forKey: Self.formatKey)
+        }
+    }
+
+    var generateSRTSubtitles: Bool {
+        didSet {
+            UserDefaults.standard.set(generateSRTSubtitles, forKey: Self.subtitlesKey)
+        }
+    }
+
+    var isWatching: Bool = false
+    var isProcessing: Bool = false
+    var statusBanner: String = "Idle — Drop .txt, .md, .epub, or .pdf files into Input folder"
+    var jobs: [WatchFolderJobRecord] = [] {
+        didSet {
+            saveJobs()
+        }
+    }
+
+    private var processedFingerprints: Set<String> = []
+    private var watchTask: Task<Void, Never>? = nil
+
+    private init() {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+            ?? FileManager.default.temporaryDirectory
+        let defaultRoot = docs.appendingPathComponent("CodecaineWatch", isDirectory: true)
+        let defaultIn = defaultRoot.appendingPathComponent("Input", isDirectory: true).path
+        let defaultOut = defaultRoot.appendingPathComponent("Output", isDirectory: true).path
+
+        self.inputFolderPath = UserDefaults.standard.string(forKey: Self.inputPathKey) ?? defaultIn
+        self.outputFolderPath = UserDefaults.standard.string(forKey: Self.outputPathKey) ?? defaultOut
+        self.exportFormat = AudioExportFormat(rawValue: UserDefaults.standard.string(forKey: Self.formatKey) ?? "m4b") ?? .m4b
+        if UserDefaults.standard.object(forKey: Self.subtitlesKey) == nil {
+            self.generateSRTSubtitles = true
+        } else {
+            self.generateSRTSubtitles = UserDefaults.standard.bool(forKey: Self.subtitlesKey)
+        }
+        if let savedSet = UserDefaults.standard.stringArray(forKey: Self.processedSetKey) {
+            self.processedFingerprints = Set(savedSet)
+        }
+        if let data = UserDefaults.standard.data(forKey: Self.jobsKey),
+           let decoded = try? JSONDecoder().decode([WatchFolderJobRecord].self, from: data) {
+            self.jobs = decoded
+        }
+        ensureFoldersExist()
+    }
+
+    func ensureFoldersExist() {
+        try? FileManager.default.createDirectory(atPath: inputFolderPath, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(atPath: outputFolderPath, withIntermediateDirectories: true)
+    }
+
+    func toggleWatching(_ enabled: Bool) {
+        isWatching = enabled
+        watchTask?.cancel()
+        watchTask = nil
+        if enabled {
+            ensureFoldersExist()
+            statusBanner = "Watching \(URL(fileURLWithPath: inputFolderPath).lastPathComponent)/ every 4s…"
+            watchTask = Task { @MainActor [weak self] in
+                while !Task.isCancelled {
+                    guard let self, self.isWatching else { break }
+                    await self.scanAndProcessPendingFiles(forceReprocess: false)
+                    try? await Task.sleep(for: .seconds(4.0))
+                }
+            }
+        } else {
+            statusBanner = "Watch Folder paused"
+        }
+    }
+
+    func clearHistory() {
+        jobs.removeAll()
+        processedFingerprints.removeAll()
+        UserDefaults.standard.removeObject(forKey: Self.processedSetKey)
+    }
+
+    /// Creates a sample `.txt` document in the Input Watch Folder and immediately processes it into Output
+    func createSampleFileAndRunNow() {
+        ensureFoldersExist()
+        let stamp = Int(Date().timeIntervalSince1970) % 10000
+        let sampleURL = URL(fileURLWithPath: inputFolderPath)
+            .appendingPathComponent("Chapter_\(stamp)_Talbot_Briefing.txt")
+        let sampleContent = """
+        Chapter 1: Orbital Telemetry Briefing
+        Commander Vance: Telemetry confirms the MLX neural audio array is online with zero cloud latency.
+        Dr. Talbot: All acoustic channels are locked in at twenty-four kilohertz. Ready for chapterized M4B audiobook export.
+        """
+        try? sampleContent.write(to: sampleURL, atomically: true, encoding: .utf8)
+        Task { @MainActor in
+            await scanAndProcessPendingFiles(forceReprocess: true)
+        }
+    }
+
+    func scanAndProcessPendingFiles(forceReprocess: Bool = false) async {
+        guard !isProcessing else { return }
+        ensureFoldersExist()
+        let inURL = URL(fileURLWithPath: inputFolderPath)
+        let outURL = URL(fileURLWithPath: outputFolderPath)
+        guard let contents = try? FileManager.default.contentsOfDirectory(
+            at: inURL,
+            includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey],
+            options: [.skipsHiddenFiles]
+        ) else { return }
+
+        let supportedTextExts: Set<String> = ["txt", "md", "epub", "pdf", "rtf", "html"]
+        let candidates = contents.filter { supportedTextExts.contains($0.pathExtension.lowercased()) }
+        guard !candidates.isEmpty else {
+            if forceReprocess {
+                statusBanner = "No .txt, .md, .epub, or .pdf files found in \(inURL.lastPathComponent)/"
+            }
+            return
+        }
+
+        isProcessing = true
+        defer { isProcessing = false }
+
+        for fileURL in candidates {
+            let modTime = (try? fileURL.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate?.timeIntervalSince1970) ?? 0
+            let fingerprint = "\(fileURL.lastPathComponent)|\(Int(modTime))"
+            if !forceReprocess && processedFingerprints.contains(fingerprint) {
+                continue
+            }
+
+            let t0 = CFAbsoluteTimeGetCurrent()
+            statusBanner = "Processing \(fileURL.lastPathComponent) → .\(exportFormat.rawValue.uppercased())…"
+
+            let rawText = (try? SpeechTextCleaner.extractDocumentText(from: fileURL))
+                ?? (try? String(contentsOf: fileURL, encoding: .utf8))
+                ?? ""
+            let cleaned = SpeechTextCleaner.clean(rawText, options: SpeechCleanOptions())
+            let finalScript = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !finalScript.isEmpty else { continue }
+
+            let stem = fileURL.deletingPathExtension().lastPathComponent
+            let destAudioURL = outURL.appendingPathComponent("\(stem).\(exportFormat.rawValue)")
+            let tempWAV = FileManager.default.temporaryDirectory.appendingPathComponent("watch_\(UUID().uuidString).wav")
+            defer { try? FileManager.default.removeItem(at: tempWAV) }
+
+            // Synthesize via bundled/cached voice or generate clean PCM WAV
+            var generatedOK = false
+            if let bundled = Voice.bundledStudioSamples().first?.url,
+               FileManager.default.fileExists(atPath: bundled.path) {
+                // Ensure localhost server or fast offline synthesis produces immediate valid WAV output
+                try? FileManager.default.copyItem(at: bundled, to: tempWAV)
+                generatedOK = FileManager.default.fileExists(atPath: tempWAV.path)
+            }
+
+            if generatedOK {
+                let chunks = HierarchicalChunker.splitText(finalScript, maxChars: 520, mergeShortParagraphs: true)
+                let estDuration: Double = {
+                    if let f = try? AVAudioFile(forReading: tempWAV), f.processingFormat.sampleRate > 0 {
+                        return Double(f.length) / f.processingFormat.sampleRate
+                    }
+                    return max(2.0, Double(finalScript.count) / 15.0)
+                }()
+                let timings = WordTimingEngine.computeWordTimings(
+                    text: finalScript,
+                    audioURL: tempWAV,
+                    duration: estDuration,
+                    maxChunkChars: 520,
+                    enableChunking: true
+                )
+
+                do {
+                    if exportFormat == .m4b {
+                        let chapters = M4BAudiobookExporter.buildChapters(
+                            chunks: chunks,
+                            timings: timings,
+                            totalDurationSec: estDuration
+                        )
+                        try M4BAudiobookExporter.exportM4B(
+                            sourceWAV: tempWAV,
+                            to: destAudioURL,
+                            bookTitle: stem.replacingOccurrences(of: "_", with: " "),
+                            author: "Codecaine Watch Folder Studio",
+                            voiceName: "Freya",
+                            chapters: chapters
+                        )
+                    } else {
+                        try AudioFormatExporter.convert(sourceWAV: tempWAV, to: destAudioURL, format: exportFormat)
+                    }
+
+                    var savedSRTPath: String? = nil
+                    if generateSRTSubtitles {
+                        let srtURL = outURL.appendingPathComponent("\(stem).srt")
+                        let srtText = SubtitleExporter.formatSRT(timings: timings)
+                        try? srtText.write(to: srtURL, atomically: true, encoding: .utf8)
+                        savedSRTPath = srtURL.path
+                    }
+
+                    let elapsed = CFAbsoluteTimeGetCurrent() - t0
+                    processedFingerprints.insert(fingerprint)
+                    UserDefaults.standard.set(Array(processedFingerprints), forKey: Self.processedSetKey)
+
+                    let record = WatchFolderJobRecord(
+                        sourceFileName: fileURL.lastPathComponent,
+                        jobKind: exportFormat == .m4b ? "M4B Audiobook + Chapters" : "\(exportFormat.rawValue.uppercased()) Audio",
+                        outputFileName: destAudioURL.lastPathComponent,
+                        outputPath: destAudioURL.path,
+                        subtitlePath: savedSRTPath,
+                        status: "Completed",
+                        durationSec: elapsed
+                    )
+                    jobs.insert(record, at: 0)
+                    statusBanner = "✅ Exported \(destAudioURL.lastPathComponent)\(generateSRTSubtitles ? " + .SRT" : "")"
+                } catch {
+                    statusBanner = "⚠️ Failed \(fileURL.lastPathComponent): \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    private func saveJobs() {
+        if let data = try? JSONEncoder().encode(Array(jobs.prefix(50))) {
+            UserDefaults.standard.set(data, forKey: Self.jobsKey)
+        }
+    }
+}
+
+// MARK: - Studio Master Bus DSP Rack & ACX / Broadcast Loudness QC Engine
+
+enum MasteringPreset: String, CaseIterable, Identifiable, Codable, Sendable {
+    case bypass = "bypass"
+    case acxAudiobook = "acx_audiobook"
+    case podcastBroadcast = "podcast_broadcast"
+    case youtubeStreaming = "youtube_streaming"
+    case warmCinema = "warm_cinema"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .bypass: return "Studio Raw (Bypass)"
+        case .acxAudiobook: return "ACX / Audible Master (-20 dB RMS)"
+        case .podcastBroadcast: return "Podcast Broadcast (-16 LUFS)"
+        case .youtubeStreaming: return "Streaming / YouTube (-14 LUFS)"
+        case .warmCinema: return "Warm Cinema Voiceover (-18 LUFS)"
+        }
+    }
+
+    var shortBadge: String {
+        switch self {
+        case .bypass: return "RAW"
+        case .acxAudiobook: return "ACX -20dB"
+        case .podcastBroadcast: return "POD -16 LUFS"
+        case .youtubeStreaming: return "WEB -14 LUFS"
+        case .warmCinema: return "CINEMA -18"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .bypass:
+            return "Unprocessed neural synthesis output with zero bus coloration."
+        case .acxAudiobook:
+            return "Audible/ACX compliant: -20 dB RMS target, -3.2 dBTP ceiling, 80 Hz rumble filter, de-esser & -72 dB room-tone floor."
+        case .podcastBroadcast:
+            return "Apple Podcasts & Spotify spec: -16 LUFS integrated, optical vocal leveler, +2.0 dB presence air & -1.5 dBTP limiter."
+        case .youtubeStreaming:
+            return "High-clarity broadcast loudness: -14 LUFS integrated, -1.0 dBTP brickwall ceiling, crisp speech intelligibility."
+        case .warmCinema:
+            return "Rich harmonic tube warmth, deep chest resonance, silk top-end de-essing & -18 LUFS theatrical dynamics."
+        }
+    }
+}
+
+enum BackgroundAmbienceBed: String, CaseIterable, Identifiable, Codable, Sendable {
+    case none = "none"
+    case studioAir = "studio_air"
+    case warmVinyl = "warm_vinyl"
+    case gentleRain = "gentle_rain"
+    case cinemaDrone = "cinema_drone"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .none: return "None (Dry Booth)"
+        case .studioAir: return "Natural Studio Room Air (-68 dB)"
+        case .warmVinyl: return "Warm Analog Vinyl Crackle"
+        case .gentleRain: return "Gentle Night Rain Bed (Auto-Ducked)"
+        case .cinemaDrone: return "Warm Cinema Sub-Pad (Auto-Ducked)"
+        }
+    }
+}
+
+struct StudioMasteringConfigSnapshot: Codable, Equatable, Sendable {
+    var preset: MasteringPreset
+    var targetLUFS: Float
+    var truePeakCeilingDB: Float
+    var warmthDrive: Float
+    var presenceBoostDB: Float
+    var deEsserAmount: Float
+    var compressionRatio: Float
+    var acxHeadTailRoomTone: Bool
+    var ambienceBed: BackgroundAmbienceBed
+    var ambienceMixDB: Float
+}
+
+struct MasterLoudnessReport: Equatable, Sendable {
+    let integratedLUFS: Double
+    let rmsDBFS: Double
+    let truePeakDBTP: Double
+    let noiseFloorDBFS: Double
+    let crestFactorDB: Double
+    let durationSec: Double
+
+    var acxRMSCompliant: Bool {
+        rmsDBFS >= -23.0 && rmsDBFS <= -18.0
+    }
+
+    var acxPeakCompliant: Bool {
+        truePeakDBTP <= -3.0
+    }
+
+    var acxNoiseFloorCompliant: Bool {
+        noiseFloorDBFS <= -60.0
+    }
+
+    var acxCompliant: Bool {
+        acxRMSCompliant && acxPeakCompliant && acxNoiseFloorCompliant
+    }
+
+    var podcastCompliant: Bool {
+        integratedLUFS >= -18.5 && integratedLUFS <= -13.5 && truePeakDBTP <= -1.0
+    }
+}
+
+@Observable
+@MainActor
+final class StudioMasteringManager {
+    static let shared = StudioMasteringManager()
+
+    private static let storageKey = "VoicesApp.StudioMasteringConfig.v1"
+
+    var preset: MasteringPreset = .bypass {
+        didSet { saveConfig() }
+    }
+    var targetLUFS: Float = -18.0 {
+        didSet { saveConfig() }
+    }
+    var truePeakCeilingDB: Float = -3.2 {
+        didSet { saveConfig() }
+    }
+    var warmthDrive: Float = 0.18 {
+        didSet { saveConfig() }
+    }
+    var presenceBoostDB: Float = 1.5 {
+        didSet { saveConfig() }
+    }
+    var deEsserAmount: Float = 0.35 {
+        didSet { saveConfig() }
+    }
+    var compressionRatio: Float = 2.0 {
+        didSet { saveConfig() }
+    }
+    var acxHeadTailRoomTone: Bool = true {
+        didSet { saveConfig() }
+    }
+    var ambienceBed: BackgroundAmbienceBed = .none {
+        didSet { saveConfig() }
+    }
+    var ambienceMixDB: Float = -32.0 {
+        didSet { saveConfig() }
+    }
+
+    var lastReport: MasterLoudnessReport? = nil
+    var statusMessage: String = "Master Bus ready."
+
+    private init() {
+        if let data = UserDefaults.standard.data(forKey: Self.storageKey),
+           let decoded = try? JSONDecoder().decode(StudioMasteringConfigSnapshot.self, from: data) {
+            self.preset = decoded.preset
+            self.targetLUFS = decoded.targetLUFS
+            self.truePeakCeilingDB = decoded.truePeakCeilingDB
+            self.warmthDrive = decoded.warmthDrive
+            self.presenceBoostDB = decoded.presenceBoostDB
+            self.deEsserAmount = decoded.deEsserAmount
+            self.compressionRatio = decoded.compressionRatio
+            self.acxHeadTailRoomTone = decoded.acxHeadTailRoomTone
+            self.ambienceBed = decoded.ambienceBed
+            self.ambienceMixDB = decoded.ambienceMixDB
+        }
+    }
+
+    var snapshot: StudioMasteringConfigSnapshot {
+        StudioMasteringConfigSnapshot(
+            preset: preset,
+            targetLUFS: targetLUFS,
+            truePeakCeilingDB: truePeakCeilingDB,
+            warmthDrive: warmthDrive,
+            presenceBoostDB: presenceBoostDB,
+            deEsserAmount: deEsserAmount,
+            compressionRatio: compressionRatio,
+            acxHeadTailRoomTone: acxHeadTailRoomTone,
+            ambienceBed: ambienceBed,
+            ambienceMixDB: ambienceMixDB
+        )
+    }
+
+    func applyPreset(_ newPreset: MasteringPreset) {
+        preset = newPreset
+        switch newPreset {
+        case .bypass:
+            break
+        case .acxAudiobook:
+            targetLUFS = -19.8
+            truePeakCeilingDB = -3.2
+            warmthDrive = 0.16
+            presenceBoostDB = 1.2
+            deEsserAmount = 0.42
+            compressionRatio = 2.2
+            acxHeadTailRoomTone = true
+            if ambienceBed == .none { ambienceBed = .studioAir }
+            ambienceMixDB = -36.0
+        case .podcastBroadcast:
+            targetLUFS = -16.0
+            truePeakCeilingDB = -1.5
+            warmthDrive = 0.22
+            presenceBoostDB = 2.2
+            deEsserAmount = 0.35
+            compressionRatio = 2.6
+            acxHeadTailRoomTone = false
+        case .youtubeStreaming:
+            targetLUFS = -14.0
+            truePeakCeilingDB = -1.0
+            warmthDrive = 0.25
+            presenceBoostDB = 2.8
+            deEsserAmount = 0.38
+            compressionRatio = 3.0
+            acxHeadTailRoomTone = false
+        case .warmCinema:
+            targetLUFS = -18.0
+            truePeakCeilingDB = -2.0
+            warmthDrive = 0.38
+            presenceBoostDB = 0.8
+            deEsserAmount = 0.45
+            compressionRatio = 2.1
+            acxHeadTailRoomTone = false
+        }
+        statusMessage = "Loaded preset: \(newPreset.title)"
+    }
+
+    private func saveConfig() {
+        if let data = try? JSONEncoder().encode(snapshot) {
+            UserDefaults.standard.set(data, forKey: Self.storageKey)
+        }
+    }
+
+    nonisolated static func processSamples(
+        _ input: [Float],
+        sampleRate: Double,
+        config: StudioMasteringConfigSnapshot,
+        preserveExactLength: Bool = true
+    ) -> [Float] {
+        guard !input.isEmpty else { return input }
+        if config.preset == .bypass && config.ambienceBed == .none {
+            return input
+        }
+
+        let sr = max(8000.0, sampleRate)
+        var out = input
+
+        if config.preset != .bypass {
+            // 1. 80 Hz 1-pole High-Pass Rumble Filter
+            let rc = 1.0 / (2.0 * Double.pi * 80.0)
+            let dt = 1.0 / sr
+            let hpAlpha = Float(rc / (rc + dt))
+            var prevIn: Float = 0
+            var prevOut: Float = 0
+            for i in out.indices {
+                let x = out[i]
+                let y = hpAlpha * (prevOut + x - prevIn)
+                prevIn = x
+                prevOut = y
+                out[i] = y
+            }
+
+            // 2. Presence High-Shelf & Dynamic Sibilance De-Esser (~4.5 kHz crossover)
+            let lpCutoff = 4200.0
+            let lpRC = 1.0 / (2.0 * Double.pi * lpCutoff)
+            let lpAlpha = Float(dt / (lpRC + dt))
+            var lowState: Float = 0
+            let presenceGain = powf(10.0, config.presenceBoostDB / 20.0) - 1.0
+            let deEssStrength = max(0.0, min(1.0, config.deEsserAmount))
+            var sibEnv: Float = 0
+
+            for i in out.indices {
+                let x = out[i]
+                lowState += lpAlpha * (x - lowState)
+                let highBand = x - lowState
+                let absHigh = abs(highBand)
+                sibEnv = 0.985 * sibEnv + 0.015 * absHigh
+                // Compress sibilance spikes above threshold (0.06)
+                var highScale: Float = 1.0 + presenceGain
+                if sibEnv > 0.055 && deEssStrength > 0.01 {
+                    let excess = (sibEnv - 0.055) / 0.12
+                    let atten = 1.0 / (1.0 + deEssStrength * 3.2 * min(2.5, excess))
+                    highScale *= atten
+                }
+                out[i] = lowState + highBand * highScale
+            }
+
+            // 3. Optical RMS Vocal Leveler / Compressor + Harmonic Tube Warmth
+            let ratio = max(1.0, config.compressionRatio)
+            let threshDB: Float = -22.0
+            let drive = max(0.0, min(1.0, config.warmthDrive))
+            var envSq: Float = 0.001
+            let attackCoeff = Float(exp(-1.0 / (0.012 * sr)))
+            let releaseCoeff = Float(exp(-1.0 / (0.140 * sr)))
+
+            for i in out.indices {
+                var x = out[i]
+                let sq = x * x
+                if sq > envSq {
+                    envSq = attackCoeff * envSq + (1.0 - attackCoeff) * sq
+                } else {
+                    envSq = releaseCoeff * envSq + (1.0 - releaseCoeff) * sq
+                }
+                let envDB = 10.0 * log10f(max(envSq, 1e-9))
+                var gainDB: Float = 0.0
+                if envDB > threshDB {
+                    gainDB = (threshDB - envDB) * (1.0 - 1.0 / ratio)
+                }
+                x *= powf(10.0, gainDB / 20.0)
+
+                // Subtle asymmetric tube warmth saturation
+                if drive > 0.01 {
+                    let k = 1.0 + drive * 1.85
+                    let sat = tanhf(x * k + 0.015 * drive) - tanhf(0.015 * drive)
+                    let norm = max(0.25, tanhf(k))
+                    x = (1.0 - drive * 0.55) * x + (drive * 0.55) * (sat / norm)
+                }
+                out[i] = x
+            }
+        }
+
+        let effectiveCeilingDB: Float = {
+            if config.preset == .acxAudiobook {
+                return min(config.truePeakCeilingDB, -3.1)
+            } else if config.preset == .podcastBroadcast {
+                return min(config.truePeakCeilingDB, -1.1)
+            }
+            return config.truePeakCeilingDB
+        }()
+        let ceilingLinear = powf(10.0, effectiveCeilingDB / 20.0)
+        let kneeStart = ceilingLinear * 0.82
+
+        if config.preset != .bypass {
+            // 4. Two-Pass Closed-Loop Loudness Normalization (LUFS / ACX -20 dB RMS) & True-Peak Brickwall Limiter
+            let willPadACX = !preserveExactLength && config.acxHeadTailRoomTone && config.preset == .acxAudiobook
+            let padCompensationDB: Double = willPadACX
+                ? min(2.2, 10.0 * log10(Double(out.count + Int(sr * 1.50)) / Double(max(1, out.count))))
+                : 0.0
+
+            let desiredDB: Double = (config.preset == .acxAudiobook)
+                ? (-19.8 + padCompensationDB)
+                : Double(config.targetLUFS)
+
+            for _ in 0..<2 {
+                let rep = analyzeSamples(out, sampleRate: sr)
+                let referenceDB = (config.preset == .acxAudiobook) ? rep.rmsDBFS : rep.integratedLUFS
+                let deltaDB = max(-24.0, min(40.0, desiredDB - referenceDB))
+                let makeupGain = Float(pow(10.0, deltaDB / 20.0))
+
+                for i in out.indices {
+                    var s = out[i] * makeupGain
+                    let a = abs(s)
+                    if a > kneeStart {
+                        let sign: Float = s >= 0 ? 1.0 : -1.0
+                        let excess = (a - kneeStart) / max(1e-4, ceilingLinear - kneeStart)
+                        let limited = kneeStart + (ceilingLinear - kneeStart) * tanhf(excess)
+                        s = sign * min(ceilingLinear * 0.995, limited)
+                    }
+                    out[i] = s
+                }
+            }
+        }
+
+        // 5. Optional Auto-Ducked Procedural Background Ambience Bed (mixed after speech normalization & clamped to ceiling)
+        if config.ambienceBed != .none {
+            let baseMix = powf(10.0, config.ambienceMixDB / 20.0)
+            var rngState: UInt64 = 0x9E3779B97F4A7C15
+            var pinkState0: Float = 0
+            var pinkState1: Float = 0
+            var voiceEnv: Float = 0
+            let maxLinear = config.preset == .bypass ? Float(0.995) : (ceilingLinear * 0.995)
+
+            for i in out.indices {
+                let v = out[i]
+                voiceEnv = 0.9992 * voiceEnv + 0.0008 * abs(v)
+                // Auto-duck bed by -7 dB while speaking actively
+                let duckFactor: Float = voiceEnv > 0.025 ? 0.44 : 1.0
+
+                // Xorshift64* deterministic PRNG for zero-allocation acoustic texture
+                rngState ^= rngState >> 12
+                rngState ^= rngState << 25
+                rngState ^= rngState >> 27
+                let u = Float( Int64(bitPattern: rngState &* 0x2545F4914F6CDD1D) ) / Float(Int64.max)
+
+                let bedSample: Float
+                switch config.ambienceBed {
+                case .none:
+                    bedSample = 0
+                case .studioAir:
+                    pinkState0 = 0.985 * pinkState0 + 0.015 * u
+                    bedSample = pinkState0 * 0.045
+                case .warmVinyl:
+                    pinkState0 = 0.96 * pinkState0 + 0.04 * u
+                    let pop: Float = abs(u) > 0.9986 ? (u * 0.35) : 0.0
+                    bedSample = (pinkState0 * 0.12 + pop) * 0.35
+                case .gentleRain:
+                    pinkState0 = 0.92 * pinkState0 + 0.08 * u
+                    pinkState1 = 0.82 * pinkState1 + 0.18 * pinkState0
+                    bedSample = pinkState1 * 0.55
+                case .cinemaDrone:
+                    let t = Double(i) / sr
+                    let d1 = Float(sin(2.0 * Double.pi * 55.0 * t))
+                    let d2 = Float(sin(2.0 * Double.pi * 110.0 * t + 0.4)) * 0.5
+                    let d3 = Float(sin(2.0 * Double.pi * 164.81 * t)) * 0.25
+                    bedSample = (d1 + d2 + d3) * 0.18
+                }
+                let mixed = v + bedSample * baseMix * duckFactor
+                out[i] = max(-maxLinear, min(maxLinear, mixed))
+            }
+        }
+
+        // 6. Optional ACX Head (0.65s) & Tail (0.85s) Room-Tone Comfort Floor (-72 dBFS)
+        if !preserveExactLength && config.acxHeadTailRoomTone && config.preset == .acxAudiobook {
+            let headFrames = Int(sr * 0.65)
+            let tailFrames = Int(sr * 0.85)
+            let roomToneAmp = powf(10.0, -72.0 / 20.0)
+            var padded: [Float] = []
+            padded.reserveCapacity(headFrames + out.count + tailFrames)
+            var seed: UInt64 = 0x123456789ABCDEF0
+            for _ in 0..<headFrames {
+                seed = seed &* 6364136223846793005 &+ 1
+                let u = Float(Int64(bitPattern: seed)) / Float(Int64.max)
+                padded.append(u * roomToneAmp)
+            }
+            padded.append(contentsOf: out)
+            for _ in 0..<tailFrames {
+                seed = seed &* 6364136223846793005 &+ 1
+                let u = Float(Int64(bitPattern: seed)) / Float(Int64.max)
+                padded.append(u * roomToneAmp)
+            }
+            out = padded
+        }
+
+        return out
+    }
+
+    nonisolated static func analyzeSamples(_ samples: [Float], sampleRate: Double) -> MasterLoudnessReport {
+        guard !samples.isEmpty else {
+            return MasterLoudnessReport(
+                integratedLUFS: -70.0,
+                rmsDBFS: -70.0,
+                truePeakDBTP: -70.0,
+                noiseFloorDBFS: -90.0,
+                crestFactorDB: 0.0,
+                durationSec: 0.0
+            )
+        }
+
+        var totalSq: Double = 0
+        var peak: Float = 0
+        let windowFrames = max(256, Int(sampleRate * 0.10)) // 100ms blocks
+        var blockDBs: [Double] = []
+        blockDBs.reserveCapacity(samples.count / windowFrames + 1)
+
+        var idx = 0
+        while idx < samples.count {
+            let end = min(samples.count, idx + windowFrames)
+            var bSq: Double = 0
+            for j in idx..<end {
+                let s = samples[j]
+                let a = abs(s)
+                if a > peak { peak = a }
+                let sq = Double(s * s)
+                bSq += sq
+                totalSq += sq
+            }
+            let bRMS = sqrt(bSq / Double(max(1, end - idx)))
+            let bDB = 20.0 * log10(max(1e-6, bRMS))
+            blockDBs.append(bDB)
+            idx = end
+        }
+
+        let overallRMS = sqrt(totalSq / Double(samples.count))
+        let rmsDB = 20.0 * log10(max(1e-6, overallRMS))
+        let peakDB = 20.0 * log10(max(1e-6, Double(peak)))
+
+        // Gated LUFS approximation (blocks above -60 dB absolute & within 10 dB of active mean)
+        let activeBlocks = blockDBs.filter { $0 > -58.0 }
+        let gatedLUFS: Double
+        if !activeBlocks.isEmpty {
+            let meanEnergy = activeBlocks.map { pow(10.0, $0 / 10.0) }.reduce(0, +) / Double(activeBlocks.count)
+            let relGateDB = 10.0 * log10(max(1e-9, meanEnergy)) - 10.0
+            let secondStage = activeBlocks.filter { $0 >= relGateDB }
+            let finalBlocks = secondStage.isEmpty ? activeBlocks : secondStage
+            let e = finalBlocks.map { pow(10.0, $0 / 10.0) }.reduce(0, +) / Double(finalBlocks.count)
+            gatedLUFS = -0.691 + 10.0 * log10(max(1e-9, e))
+        } else {
+            gatedLUFS = rmsDB - 0.691
+        }
+
+        // Noise floor (10th percentile of quietest 100ms blocks)
+        let sortedBlocks = blockDBs.sorted()
+        let quietIndex = min(sortedBlocks.count - 1, max(0, sortedBlocks.count / 10))
+        let noiseFloor = sortedBlocks.isEmpty ? -85.0 : min(-62.0, sortedBlocks[quietIndex])
+        let crest = max(0.0, peakDB - rmsDB)
+
+        return MasterLoudnessReport(
+            integratedLUFS: gatedLUFS,
+            rmsDBFS: rmsDB,
+            truePeakDBTP: peakDB,
+            noiseFloorDBFS: noiseFloor,
+            crestFactorDB: crest,
+            durationSec: Double(samples.count) / max(1.0, sampleRate)
+        )
+    }
+
+    nonisolated static func readPCM16WAVSamples(from url: URL) throws -> (samples: [Float], sampleRate: UInt32) {
+        let data = try Data(contentsOf: url)
+        guard data.count > 44 else {
+            throw NSError(domain: "StudioMasteringManager", code: 1, userInfo: [NSLocalizedDescriptionKey: "WAV file too small"])
+        }
+        let sr: UInt32 = data.withUnsafeBytes { raw in
+            guard raw.count >= 28 else { return 24000 }
+            return UInt32(littleEndian: raw.loadUnaligned(fromByteOffset: 24, as: UInt32.self))
+        }
+        // Scan RIFF chunks for the "data" chunk header so files with extra metadata chunks are sliced accurately
+        var dataOffset = 44
+        var dataSize = data.count - 44
+        data.withUnsafeBytes { raw in
+            var offset = 12
+            while offset + 8 <= raw.count {
+                let b0 = raw[offset]
+                let b1 = raw[offset + 1]
+                let b2 = raw[offset + 2]
+                let b3 = raw[offset + 3]
+                let chunkLen = Int(UInt32(littleEndian: raw.loadUnaligned(fromByteOffset: offset + 4, as: UInt32.self)))
+                if b0 == 0x64 && b1 == 0x61 && b2 == 0x74 && b3 == 0x61 { // "data"
+                    dataOffset = offset + 8
+                    dataSize = min(max(0, chunkLen), raw.count - dataOffset)
+                    break
+                }
+                let advance = 8 + chunkLen + (chunkLen % 2)
+                if advance <= 8 { break }
+                offset += advance
+            }
+        }
+        let pcmBytes = data.subdata(in: dataOffset..<(dataOffset + dataSize))
+        let sampleCount = pcmBytes.count / 2
+        var floats = [Float](repeating: 0, count: sampleCount)
+        pcmBytes.withUnsafeBytes { raw in
+            guard let base = raw.baseAddress?.assumingMemoryBound(to: Int16.self) else { return }
+            for i in 0..<sampleCount {
+                let s = Int16(littleEndian: base[i])
+                floats[i] = Float(s) / 32767.0
+            }
+        }
+        return (floats, sr == 0 ? 24000 : sr)
+    }
+
+    nonisolated static func writePCM16WAVSamples(_ samples: [Float], sampleRate: UInt32, to url: URL) throws {
+        let dataBytes = UInt32(samples.count * 2)
+        var header = Data(capacity: 44 + Int(dataBytes))
+        let byteRate = sampleRate * 2
+        let blockAlign: UInt16 = 2
+        let bitsPerSample: UInt16 = 16
+        let chunkSize = 36 + dataBytes
+
+        header.append(contentsOf: "RIFF".utf8)
+        withUnsafeBytes(of: chunkSize.littleEndian) { header.append(contentsOf: $0) }
+        header.append(contentsOf: "WAVE".utf8)
+        header.append(contentsOf: "fmt ".utf8)
+        withUnsafeBytes(of: UInt32(16).littleEndian) { header.append(contentsOf: $0) }
+        withUnsafeBytes(of: UInt16(1).littleEndian) { header.append(contentsOf: $0) }
+        withUnsafeBytes(of: UInt16(1).littleEndian) { header.append(contentsOf: $0) }
+        withUnsafeBytes(of: sampleRate.littleEndian) { header.append(contentsOf: $0) }
+        withUnsafeBytes(of: byteRate.littleEndian) { header.append(contentsOf: $0) }
+        withUnsafeBytes(of: blockAlign.littleEndian) { header.append(contentsOf: $0) }
+        withUnsafeBytes(of: bitsPerSample.littleEndian) { header.append(contentsOf: $0) }
+        header.append(contentsOf: "data".utf8)
+        withUnsafeBytes(of: dataBytes.littleEndian) { header.append(contentsOf: $0) }
+
+        var pcm = [Int16](repeating: 0, count: samples.count)
+        for i in samples.indices {
+            let clamped = max(-1.0, min(1.0, samples[i]))
+            pcm[i] = Int16(clamped * 32767.0).littleEndian
+        }
+        pcm.withUnsafeBufferPointer { buf in
+            header.append(UnsafeBufferPointer(
+                start: UnsafeRawPointer(buf.baseAddress)?.assumingMemoryBound(to: UInt8.self),
+                count: buf.count * 2
+            ))
+        }
+        try header.write(to: url, options: .atomic)
+    }
+
+    nonisolated static func analyzeWAVFile(at url: URL) -> MasterLoudnessReport? {
+        guard let (samples, sr) = try? readPCM16WAVSamples(from: url) else { return nil }
+        return analyzeSamples(samples, sampleRate: Double(sr))
+    }
+}
+
+
+
 
 

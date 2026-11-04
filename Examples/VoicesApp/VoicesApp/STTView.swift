@@ -16,6 +16,9 @@ struct STTView: View {
     @State private var transcriptSearch = ""
     @State private var copiedRecently = false
     @State private var autoSyncToVoiceStudio = false
+    @State private var isEditingTranscript = false
+    @State private var findSpeakerText = "S1"
+    @State private var replaceSpeakerText = "Host"
 
     private var activeTheme: ReadAlongTheme {
         ReadAlongTheme(rawValue: rawStudioTheme) ?? .midnight
@@ -110,97 +113,166 @@ struct STTView: View {
                     .help("This song file contains readable lyrics (\(source)). Using the real song lyrics instead of AI transcription.")
                 }
 
-                Spacer()
+                Spacer(minLength: 8)
 
-                if !viewModel.transcriptionText.isEmpty {
-                    let cleanTranscript = STTViewModel.cleanTranscriptForVoiceStudio(viewModel.transcriptionText)
-                    let cleanWordCount = cleanTranscript.split { $0.isWhitespace || $0.isNewline }.count
-                    let matchCount = transcriptSearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        ? transcriptSegments.count
-                        : transcriptSegments.filter {
-                            $0.text.localizedCaseInsensitiveContains(transcriptSearch) ||
-                            $0.speaker.localizedCaseInsensitiveContains(transcriptSearch)
-                        }.count
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        if !viewModel.transcriptionText.isEmpty {
+                            let cleanTranscript = STTViewModel.cleanTranscriptForVoiceStudio(viewModel.transcriptionText)
+                            let cleanWordCount = cleanTranscript.split { $0.isWhitespace || $0.isNewline }.count
+                            let matchCount = transcriptSearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                ? transcriptSegments.count
+                                : transcriptSegments.filter {
+                                    $0.text.localizedCaseInsensitiveContains(transcriptSearch) ||
+                                    $0.speaker.localizedCaseInsensitiveContains(transcriptSearch)
+                                }.count
 
-                    // Word & Segment Summary Pill
-                    Text(
-                        transcriptSegments.isEmpty
-                            ? "\(cleanWordCount) words"
-                            : (transcriptSearch.isEmpty
-                                ? "\(cleanWordCount) words · \(transcriptSegments.count) segments"
-                                : "\(matchCount)/\(transcriptSegments.count) matches")
-                    )
-                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(activeTheme.pillFill, in: Capsule())
-
-                    // Search Transcript Filter
-                    HStack(spacing: 6) {
-                        Image(systemName: "magnifyingglass")
-                            .font(.system(size: 11))
+                            // Word & Segment Summary Pill
+                            Text(
+                                transcriptSegments.isEmpty
+                                    ? "\(cleanWordCount)w"
+                                    : (transcriptSearch.isEmpty
+                                        ? "\(cleanWordCount)w · \(transcriptSegments.count) segs"
+                                        : "\(matchCount)/\(transcriptSegments.count) matches")
+                            )
+                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
                             .foregroundStyle(.secondary)
-                        TextField("Filter transcript…", text: $transcriptSearch)
-                            .font(.system(size: 11.5))
-                            .textFieldStyle(.plain)
-                            .frame(width: 140)
-                        if !transcriptSearch.isEmpty {
-                            Button {
-                                transcriptSearch = ""
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .font(.system(size: 11))
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 5)
+                            .background(activeTheme.pillFill, in: Capsule())
+
+                            // Click-Word-to-Seek Indicator Pill
+                            HStack(spacing: 4) {
+                                Image(systemName: "cursorarrow.click.badge.clock")
+                                    .font(.system(size: 10.5, weight: .semibold))
+                                    .foregroundStyle(.cyan)
+                                Text("Click Word to Seek")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(.cyan)
+                            }
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 5)
+                            .background(Color.cyan.opacity(0.13), in: Capsule())
+                            .help("Click any individual word or timestamp in the transcript to jump the audio player directly to that moment")
+
+                            // Search Transcript Filter
+                            HStack(spacing: 6) {
+                                Image(systemName: "magnifyingglass")
+                                    .font(.system(size: 10.5))
                                     .foregroundStyle(.secondary)
+                                TextField("Filter transcript…", text: $transcriptSearch)
+                                    .font(.system(size: 11))
+                                    .textFieldStyle(.plain)
+                                    .frame(width: 115)
+                                if !transcriptSearch.isEmpty {
+                                    Button {
+                                        transcriptSearch = ""
+                                    } label: {
+                                        Image(systemName: "xmark.circle.fill")
+                                            .font(.system(size: 10.5))
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 5)
+                            .background(activeTheme.pillFill, in: Capsule())
+
+                            // Edit Transcript / Rename Speakers Toggle
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.18)) {
+                                    isEditingTranscript.toggle()
+                                }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: isEditingTranscript ? "checkmark.circle.fill" : "pencil.line")
+                                        .font(.system(size: 10.5))
+                                    Text(isEditingTranscript ? "Done" : "Edit Text")
+                                        .font(.system(size: 11, weight: .semibold))
+                                }
+                                .foregroundStyle(isEditingTranscript ? .white : .primary)
+                                .padding(.horizontal, 9)
+                                .padding(.vertical, 5.5)
+                                .background(isEditingTranscript ? Color.orange : activeTheme.pillFill, in: Capsule())
                             }
                             .buttonStyle(.plain)
-                        }
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(activeTheme.pillFill, in: Capsule())
+                            .help("Edit transcribed text or rename speaker tags (e.g. S1 → Host) before exporting subtitles")
 
-                    // Send Transcript to Voice Studio
-                    Button {
-                        if viewModel.isGenerating {
-                            autoSyncToVoiceStudio = true
+                            // Send Transcript to Voice Studio
+                            Button {
+                                if viewModel.isGenerating {
+                                    autoSyncToVoiceStudio = true
+                                }
+                                let payload = cleanTranscript.isEmpty ? viewModel.transcriptionText : cleanTranscript
+                                UserDefaults.standard.set(payload, forKey: "VoicesApp.VoiceStudio.pendingTranscript")
+                                NotificationCenter.default.post(
+                                    name: .sendTranscriptToVoiceStudio,
+                                    object: payload
+                                )
+                            } label: {
+                                HStack(spacing: 5) {
+                                    Image(systemName: "waveform.and.person.filled")
+                                        .font(.system(size: 10.5))
+                                    Text(
+                                        viewModel.isGenerating
+                                            ? "Live-Sync to Studio (\(cleanWordCount)w)"
+                                            : "Send to Studio (\(cleanWordCount)w)"
+                                    )
+                                        .font(.system(size: 11, weight: .semibold))
+                                }
+                                .foregroundStyle(.blue)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5.5)
+                                .background(Color.blue.opacity(0.14), in: Capsule())
+                            }
+                            .buttonStyle(.plain)
+                            .help("Send the entire transcribed text (\(cleanWordCount) words) to Voice Studio for editing, Read-Along Karaoke, or re-synthesis")
                         }
-                        let payload = cleanTranscript.isEmpty ? viewModel.transcriptionText : cleanTranscript
-                        UserDefaults.standard.set(payload, forKey: "VoicesApp.VoiceStudio.pendingTranscript")
-                        NotificationCenter.default.post(
-                            name: .sendTranscriptToVoiceStudio,
-                            object: payload
-                        )
-                    } label: {
-                        HStack(spacing: 5) {
-                            Image(systemName: "waveform.and.person.filled")
-                                .font(.system(size: 11))
-                            Text(
-                                viewModel.isGenerating
-                                    ? "Send & Live-Sync to Voice Studio (\(cleanWordCount)w)"
-                                    : "Send to Voice Studio (\(cleanWordCount)w)"
-                            )
-                                .font(.system(size: 11.5, weight: .semibold))
-                        }
-                        .foregroundStyle(.blue)
-                        .padding(.horizontal, 11)
-                        .padding(.vertical, 6)
-                        .background(Color.blue.opacity(0.14), in: Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .help("Send the entire transcribed text (\(cleanWordCount) words) to Voice Studio for editing, Read-Along Karaoke, or re-synthesis")
-                }
 
-                if viewModel.tokensPerSecond > 0 {
-                    HStack(spacing: 10) {
-                        Label(String(format: "%.1f tok/s", viewModel.tokensPerSecond), systemImage: "speedometer")
-                        Label(String(format: "%.1f GB Peak", viewModel.peakMemory), systemImage: "memorychip")
+                        // 1-Click Clone Voice from Audio & Transcript into Voice Studio
+                        if let audioURL = viewModel.selectedAudioURL {
+                            Button {
+                                let cleanText = STTViewModel.cleanTranscriptForVoiceStudio(viewModel.transcriptionText)
+                                if let cloned = Voice.createInstantClone(
+                                    from: audioURL,
+                                    transcription: cleanText.isEmpty ? viewModel.transcriptionText : cleanText,
+                                    suggestedName: nil
+                                ) {
+                                    NotificationCenter.default.post(name: .cloneVoiceFromAudio, object: cloned)
+                                }
+                            } label: {
+                                HStack(spacing: 5) {
+                                    Image(systemName: "person.crop.circle.badge.plus")
+                                        .font(.system(size: 11, weight: .semibold))
+                                    Text("1-Click Clone Voice")
+                                        .font(.system(size: 11, weight: .semibold))
+                                }
+                                .foregroundStyle(.purple)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5.5)
+                                .background(Color.purple.opacity(0.15), in: Capsule())
+                                .overlay(
+                                    Capsule()
+                                        .strokeBorder(Color.purple.opacity(0.35), lineWidth: 0.8)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                            .help("Instantly clone this speaker's voice using the audio file + transcript and open it in Voice Studio")
+                        }
+
+                        if viewModel.tokensPerSecond > 0 {
+                            HStack(spacing: 8) {
+                                Label(String(format: "%.1f tok/s", viewModel.tokensPerSecond), systemImage: "speedometer")
+                                Label(String(format: "%.1f GB", viewModel.peakMemory), systemImage: "memorychip")
+                            }
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5.5)
+                            .background(Color.white.opacity(0.04), in: Capsule())
+                        }
                     }
-                    .font(.system(size: 11.5, weight: .medium, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(Color.white.opacity(0.04), in: Capsule())
                 }
             }
             .padding(.horizontal, 20)
@@ -363,6 +435,44 @@ struct STTView: View {
                         } else if viewModel.transcriptionText.isEmpty && viewModel.isRecording {
                             RecordingTranscriptPlaceholder(supportsRealtime: viewModel.supportsRealtimeRecording)
                                 .padding(24)
+                        } else if isEditingTranscript {
+                            VStack(alignment: .leading, spacing: 10) {
+                                HStack(spacing: 8) {
+                                    Label("Find / Rename Speaker:", systemImage: "person.text.rectangle")
+                                        .font(.system(size: 11.5, weight: .semibold))
+                                        .foregroundStyle(.secondary)
+                                    TextField("Find (e.g. S1)", text: $findSpeakerText)
+                                        .textFieldStyle(.roundedBorder)
+                                        .frame(width: 110)
+                                    Image(systemName: "arrow.right")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    TextField("Replace (e.g. Host)", text: $replaceSpeakerText)
+                                        .textFieldStyle(.roundedBorder)
+                                        .frame(width: 130)
+                                    Button("Replace All") {
+                                        guard !findSpeakerText.isEmpty else { return }
+                                        viewModel.transcriptionText = viewModel.transcriptionText
+                                            .replacingOccurrences(of: findSpeakerText, with: replaceSpeakerText)
+                                    }
+                                    .buttonStyle(.borderedProminent)
+                                    .controlSize(.small)
+                                    Spacer()
+                                    Text("Edits apply directly to .SRT / .VTT / .ASS exports & Voice Studio")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .padding(10)
+                                .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
+
+                                TextEditor(text: $viewModel.transcriptionText)
+                                    .font(bodyFont)
+                                    .scrollContentBackground(.hidden)
+                                    .frame(minHeight: 280)
+                                    .padding(8)
+                                    .background(Color.primary.opacity(0.03), in: RoundedRectangle(cornerRadius: 10))
+                            }
+                            .padding(18)
                         } else {
                             let filteredSegments = transcriptSearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                                 ? transcriptSegments
@@ -376,9 +486,14 @@ struct STTView: View {
                                 font: bodyFont,
                                 segments: filteredSegments,
                                 activeSegmentID: activeTranscriptSegmentID,
+                                currentTime: viewModel.currentTime,
+                                totalDuration: viewModel.duration,
                                 onSelectSegment: { seconds in
                                     if viewModel.selectedAudioURL != nil {
                                         viewModel.seek(to: seconds)
+                                        if !viewModel.isPlaying {
+                                            viewModel.play()
+                                        }
                                     }
                                 }
                             )
@@ -628,24 +743,51 @@ struct STTView: View {
                                 )
                         )
 
-                        // Quick STT Model Picker
+                        // Quick STT Model Picker (Categorized + Cached Pinned)
                         Menu {
-                            Section("Select MLX ASR Model (\(STTViewModel.presetModels.count) Models)") {
-                                ForEach(STTViewModel.presetModels, id: \.id) { preset in
-                                    let cached = modelsManager.isModelCached(preset.id)
-                                    let sizeStr = modelsManager.cachedModelSizeString(preset.id)
-                                    let labelText = cached
-                                        ? "✓ \(preset.name) [Cached\(sizeStr.map { " · \($0)" } ?? "")]"
-                                        : "\(preset.name) (\(preset.id))"
-                                    Button {
-                                        viewModel.modelId = preset.id
-                                        Task { await viewModel.reloadModel() }
-                                    } label: {
-                                        if viewModel.modelId == preset.id {
-                                            Label(labelText, systemImage: "checkmark")
-                                        } else {
-                                            Text(labelText)
+                            let cachedPresets = STTViewModel.presetModels.filter { modelsManager.isModelCached($0.id) }
+                            if !cachedPresets.isEmpty {
+                                Section("✓ Downloaded & Ready on Disk (\(cachedPresets.count))") {
+                                    ForEach(cachedPresets, id: \.id) { preset in
+                                        let sizeStr = modelsManager.cachedModelSizeString(preset.id)
+                                        let labelText = "✓ \(preset.name)\(sizeStr.map { " · \($0)" } ?? "")"
+                                        Button {
+                                            viewModel.modelId = preset.id
+                                            Task { await viewModel.reloadModel() }
+                                        } label: {
+                                            if viewModel.modelId == preset.id {
+                                                Label(labelText, systemImage: "checkmark")
+                                            } else {
+                                                Text(labelText)
+                                            }
                                         }
+                                    }
+                                }
+                                Divider()
+                            }
+
+                            Section("Browse \(STTViewModel.presetModels.count) MLX ASR Models by Category") {
+                                ForEach(STTViewModel.categorizedPresetModels, id: \.category) { group in
+                                    Menu {
+                                        ForEach(group.models, id: \.id) { preset in
+                                            let cached = modelsManager.isModelCached(preset.id)
+                                            let sizeStr = modelsManager.cachedModelSizeString(preset.id)
+                                            let labelText = cached
+                                                ? "✓ \(preset.name) [Cached\(sizeStr.map { " · \($0)" } ?? "")]"
+                                                : preset.name
+                                            Button {
+                                                viewModel.modelId = preset.id
+                                                Task { await viewModel.reloadModel() }
+                                            } label: {
+                                                if viewModel.modelId == preset.id {
+                                                    Label(labelText, systemImage: "checkmark")
+                                                } else {
+                                                    Text(labelText)
+                                                }
+                                            }
+                                        }
+                                    } label: {
+                                        Label("\(group.category) (\(group.models.count))", systemImage: group.icon)
                                     }
                                 }
                             }
@@ -715,6 +857,68 @@ struct STTView: View {
                                 )
                         }
                         .buttonStyle(.plain)
+
+                        // 1-Click RAD Developer ASR API Menu
+                        Menu {
+                            let port = LocalhostServerManager.shared.primaryPort
+                            let audioPath = (viewModel.originalAudioURL ?? viewModel.selectedAudioURL)?.path
+                            Section("Copy Live ASR RAD Snippet (\(viewModel.modelId.split(separator: "/").last.map(String.init) ?? viewModel.modelId))") {
+                                Button {
+                                    #if os(macOS)
+                                    NSPasteboard.general.clearContents()
+                                    NSPasteboard.general.setString(viewModel.radCodeSnippet(language: "curl", audioPath: audioPath, port: port), forType: .string)
+                                    #endif
+                                } label: {
+                                    Label("Copy cURL Command (POST /v1/audio/transcriptions)", systemImage: "terminal.fill")
+                                }
+                                Button {
+                                    #if os(macOS)
+                                    NSPasteboard.general.clearContents()
+                                    NSPasteboard.general.setString(viewModel.radCodeSnippet(language: "python", audioPath: audioPath, port: port), forType: .string)
+                                    #endif
+                                } label: {
+                                    Label("Copy Python Snippet (requests)", systemImage: "chevron.left.forwardslash.chevron.right")
+                                }
+                                Button {
+                                    #if os(macOS)
+                                    NSPasteboard.general.clearContents()
+                                    NSPasteboard.general.setString(viewModel.radCodeSnippet(language: "typescript", audioPath: audioPath, port: port), forType: .string)
+                                    #endif
+                                } label: {
+                                    Label("Copy TypeScript / Node.js Snippet (fetch)", systemImage: "curlybraces")
+                                }
+                                Button {
+                                    #if os(macOS)
+                                    NSPasteboard.general.clearContents()
+                                    NSPasteboard.general.setString(viewModel.radCodeSnippet(language: "swift", audioPath: audioPath, port: port), forType: .string)
+                                    #endif
+                                } label: {
+                                    Label("Copy Swift async/await Snippet (URLSession)", systemImage: "swift")
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 5) {
+                                Image(systemName: "chevron.left.forwardslash.chevron.right")
+                                    .font(.system(size: 11.5, weight: .bold))
+                                    .foregroundStyle(.cyan)
+                                Text("RAD API")
+                                    .font(.system(size: 11.5, weight: .semibold))
+                                    .foregroundStyle(.primary)
+                            }
+                            .padding(.horizontal, 12)
+                            .frame(height: 44)
+                            .background(
+                                Capsule()
+                                    .fill(Color.cyan.opacity(0.10))
+                                    .overlay(
+                                        Capsule()
+                                            .strokeBorder(Color.cyan.opacity(0.32), lineWidth: 0.8)
+                                    )
+                            )
+                        }
+                        .menuStyle(.borderlessButton)
+                        .fixedSize()
+                        .help("1-click copy ready-to-run cURL, Python, TypeScript, or Swift code for the active ASR model")
 
                         if !viewModel.transcriptionText.isEmpty {
                             Button(action: {
@@ -918,6 +1122,34 @@ struct STTView: View {
         } message: { target in
             Text("Remove '\(target.name)' (\(target.id)) from your local HuggingFace cache and free \(target.size) of disk space? You can re-download it at any time.")
         }
+        .onReceive(NotificationCenter.default.publisher(for: .sendAudioToTranscribe)) { note in
+            if let incomingURL = note.object as? URL, FileManager.default.fileExists(atPath: incomingURL.path) {
+                UserDefaults.standard.removeObject(forKey: "VoicesApp.Transcribe.pendingAudioPath")
+                viewModel.selectAudioFile(incomingURL)
+            } else if let pendingPath = UserDefaults.standard.string(forKey: "VoicesApp.Transcribe.pendingAudioPath"),
+                      FileManager.default.fileExists(atPath: pendingPath) {
+                UserDefaults.standard.removeObject(forKey: "VoicesApp.Transcribe.pendingAudioPath")
+                viewModel.selectAudioFile(URL(fileURLWithPath: pendingPath))
+            }
+        }
+        .onAppear {
+            if ProcessInfo.processInfo.arguments.contains("--demo-stt") {
+                if let sample = Voice.bundledStudioSamples().first {
+                    viewModel.selectAudioFile(sample.url)
+                }
+                viewModel.transcriptionText = """
+                [0.00][S1] Welcome back to the Codecaine MLX Audio Studio telemetry briefing on Apple Silicon Metal. [3.40]
+                [3.40][S2] Click any individual word or timestamp pill below to seek the waveform playhead directly to that exact word! [7.20]
+                [7.20][S1] All speech recognition, speaker renaming, zero-shot voice cloning, and subtitle exports run one hundred percent on-device. [11.50]
+                """
+                viewModel.tokensPerSecond = 142.8
+                viewModel.peakMemory = 1.4
+            } else if let pendingPath = UserDefaults.standard.string(forKey: "VoicesApp.Transcribe.pendingAudioPath"),
+               FileManager.default.fileExists(atPath: pendingPath) {
+                UserDefaults.standard.removeObject(forKey: "VoicesApp.Transcribe.pendingAudioPath")
+                viewModel.selectAudioFile(URL(fileURLWithPath: pendingPath))
+            }
+        }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .background:
@@ -937,7 +1169,14 @@ struct STTView: View {
     }
 }
 
-// MARK: - Transcript Output
+// MARK: - Transcript Output (With Interactive Click-Word-to-Seek)
+
+private struct TranscriptWordToken: Identifiable {
+    let id: Int
+    let word: String
+    let start: TimeInterval
+    let end: TimeInterval
+}
 
 private struct TranscriptOutputView: View {
     let text: String
@@ -945,37 +1184,39 @@ private struct TranscriptOutputView: View {
     let font: Font
     let segments: [TaggedTranscriptSegment]
     let activeSegmentID: TaggedTranscriptSegment.ID?
+    var currentTime: TimeInterval = 0
+    var totalDuration: TimeInterval = 0
     var onSelectSegment: ((TimeInterval) -> Void)? = nil
 
     var body: some View {
-        if segments.isEmpty {
-            let displayedText: String = {
-                let q = searchFilter.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !q.isEmpty else { return text }
+        let effectiveSegments: [TaggedTranscriptSegment] = {
+            if !segments.isEmpty { return segments }
+            let q = searchFilter.trimmingCharacters(in: .whitespacesAndNewlines)
+            let baseText: String
+            if q.isEmpty {
+                baseText = text
+            } else {
                 let matchingLines = text
                     .components(separatedBy: .newlines)
                     .filter { $0.localizedCaseInsensitiveContains(q) }
-                return matchingLines.isEmpty ? text : matchingLines.joined(separator: "\n")
-            }()
-            Text(displayedText)
-                .font(font)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding()
-        } else {
-            LazyVStack(alignment: .leading, spacing: 8) {
-                ForEach(segments) { segment in
-                    TaggedTranscriptSegmentRow(
-                        segment: segment,
-                        font: font,
-                        isActive: segment.id == activeSegmentID,
-                        onSelect: { onSelectSegment?(segment.startSeconds) }
-                    )
-                    .id(segment.id)
-                }
+                baseText = matchingLines.isEmpty ? text : matchingLines.joined(separator: "\n")
             }
-            .padding()
-            .textSelection(.enabled)
+            return TaggedTranscriptParser.synthesizeVirtualSegments(from: baseText, totalDuration: max(3.0, totalDuration))
+        }()
+
+        LazyVStack(alignment: .leading, spacing: 8) {
+            ForEach(effectiveSegments) { segment in
+                TaggedTranscriptSegmentRow(
+                    segment: segment,
+                    font: font,
+                    isActive: segment.id == activeSegmentID || (currentTime >= segment.startSeconds && currentTime < (segment.endSeconds ?? segment.startSeconds + 4.0) && currentTime > 0.01),
+                    currentTime: currentTime,
+                    onSelectTime: { sec in
+                        onSelectSegment?(sec)
+                    }
+                )
+                .id(segment.id)
+            }
         }
     }
 }
@@ -984,20 +1225,45 @@ private struct TaggedTranscriptSegmentRow: View {
     let segment: TaggedTranscriptSegment
     let font: Font
     let isActive: Bool
-    var onSelect: (() -> Void)? = nil
+    var currentTime: TimeInterval = 0
+    var onSelectTime: ((TimeInterval) -> Void)? = nil
+
+    private var wordTokens: [TranscriptWordToken] {
+        let rawWords = segment.text
+            .split(whereSeparator: { $0.isWhitespace })
+            .map(String.init)
+            .filter { !$0.isEmpty }
+        guard !rawWords.isEmpty else { return [] }
+        let start = segment.startSeconds
+        let end = max(start + 0.5, segment.endSeconds ?? (start + max(1.8, Double(rawWords.count) * 0.32)))
+        let span = max(0.2, end - start)
+        let totalChars = max(1, rawWords.reduce(0) { $0 + max(1, $1.count) })
+        var cursor = start
+        var tokens: [TranscriptWordToken] = []
+        tokens.reserveCapacity(rawWords.count)
+        for (idx, w) in rawWords.enumerated() {
+            let weight = Double(max(1, w.count)) / Double(totalChars)
+            let wDur = span * weight
+            let wEnd = (idx == rawWords.count - 1) ? end : (cursor + wDur)
+            tokens.append(TranscriptWordToken(id: idx, word: w, start: cursor, end: wEnd))
+            cursor = wEnd
+        }
+        return tokens
+    }
 
     var body: some View {
-        Button {
-            onSelect?()
-        } label: {
-            HStack(alignment: .top, spacing: 10) {
-                Capsule()
-                    .fill(speakerColor)
-                    .frame(width: 4)
-                    .padding(.vertical, 2)
-                    .opacity(isActive ? 1 : 0)
+        let tokens = wordTokens
+        HStack(alignment: .top, spacing: 10) {
+            Capsule()
+                .fill(speakerColor)
+                .frame(width: 4)
+                .padding(.vertical, 2)
+                .opacity(isActive ? 1 : 0.35)
 
-                VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 8) {
+                Button {
+                    onSelectTime?(segment.startSeconds)
+                } label: {
                     HStack(spacing: 8) {
                         Text(segment.speaker)
                             .font(.caption.monospaced().weight(.semibold))
@@ -1011,35 +1277,56 @@ private struct TaggedTranscriptSegmentRow: View {
                             .font(.caption.monospacedDigit())
                             .foregroundStyle(isActive ? .primary : .secondary)
 
+                        Text("Click word to seek")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.secondary.opacity(0.75))
+
                         Spacer(minLength: 0)
 
-                        Image(systemName: "play.circle")
+                        Image(systemName: "play.circle.fill")
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(speakerColor)
                     }
-
-                    Text(segment.text)
-                        .font(font)
-                        .foregroundStyle(.primary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .multilineTextAlignment(.leading)
                 }
+                .buttonStyle(.plain)
+                .help("Seek audio to start of segment (\(segment.formattedTimeRange))")
+
+                // Interactive Click-Word-to-Seek Flow Layout
+                KaraokeWrappingWordFlow(spacing: 5, lineSpacing: 5) {
+                    ForEach(tokens) { token in
+                        let isWordActive = currentTime > 0.02 && currentTime >= token.start && currentTime < token.end
+                        Button {
+                            onSelectTime?(token.start)
+                        } label: {
+                            Text(token.word)
+                                .font(font)
+                                .foregroundStyle(isWordActive ? .white : .primary)
+                                .padding(.horizontal, 4.5)
+                                .padding(.vertical, 2)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                        .fill(isWordActive ? speakerColor : Color.primary.opacity(0.04))
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .help(String(format: "Seek to \"%@\" (%d:%05.2f)", token.word, Int(token.start) / 60, token.start.truncatingRemainder(dividingBy: 60)))
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isActive ? speakerColor.opacity(0.12) : Color.primary.opacity(0.035))
-            )
-            .overlay {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(speakerColor.opacity(isActive ? 0.6 : 0.14), lineWidth: isActive ? 1.5 : 1)
-            }
-            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
-        .buttonStyle(.plain)
-        .help("Click to seek audio to \(segment.formattedTimeRange)")
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(isActive ? speakerColor.opacity(0.12) : Color.primary.opacity(0.035))
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(speakerColor.opacity(isActive ? 0.6 : 0.14), lineWidth: isActive ? 1.5 : 1)
+        }
         .animation(.easeOut(duration: 0.16), value: isActive)
     }
 
@@ -1054,6 +1341,52 @@ private struct TaggedTranscriptSegmentRow: View {
         ]
         let number = Int(segment.speaker.drop { !$0.isNumber }) ?? 1
         return palette[(max(number, 1) - 1) % palette.count]
+    }
+}
+
+private struct KaraokeWrappingWordFlow: Layout {
+    var spacing: CGFloat = 5
+    var lineSpacing: CGFloat = 5
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let proposed = proposal.width ?? 680
+        let maxWidth = (proposed.isFinite && proposed > 40) ? proposed : 680
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        var usedWidth: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x + size.width > maxWidth && x > 0 {
+                x = 0
+                y += rowHeight + lineSpacing
+                rowHeight = 0
+            }
+            usedWidth = max(usedWidth, min(maxWidth, x + size.width))
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
+        let finalWidth = (proposal.width?.isFinite == true) ? maxWidth : max(usedWidth, min(maxWidth, 200))
+        return CGSize(width: finalWidth, height: y + rowHeight)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX
+        var y = bounds.minY
+        var rowHeight: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x + size.width > bounds.maxX && x > bounds.minX {
+                x = bounds.minX
+                y += rowHeight + lineSpacing
+                rowHeight = 0
+            }
+            subview.place(at: CGPoint(x: x, y: y), anchor: .topLeading, proposal: ProposedViewSize(size))
+            x += size.width + spacing
+            rowHeight = max(rowHeight, size.height)
+        }
     }
 }
 
@@ -1158,6 +1491,47 @@ private enum TaggedTranscriptParser {
         }
 
         return nil
+    }
+
+    static func synthesizeVirtualSegments(from text: String, totalDuration: TimeInterval) -> [TaggedTranscriptSegment] {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+        let rawBlocks = trimmed
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        let blocks: [String]
+        if rawBlocks.count == 1, let single = rawBlocks.first, single.count > 120 {
+            blocks = single
+                .components(separatedBy: ". ")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .map { $0.hasSuffix(".") ? $0 : "\($0)." }
+        } else {
+            blocks = rawBlocks
+        }
+        guard !blocks.isEmpty else { return [] }
+        let totalChars = max(1, blocks.reduce(0) { $0 + max(1, $1.count) })
+        let safeDur = max(2.0, totalDuration)
+        var cursor: Double = 0
+        var out: [TaggedTranscriptSegment] = []
+        for (idx, line) in blocks.enumerated() {
+            let share = Double(max(1, line.count)) / Double(totalChars)
+            let end = (idx == blocks.count - 1) ? safeDur : min(safeDur, cursor + max(0.5, share * safeDur))
+            out.append(
+                TaggedTranscriptSegment(
+                    id: idx,
+                    speaker: "S1",
+                    startTime: String(format: "%.2f", cursor),
+                    startSeconds: cursor,
+                    endTime: String(format: "%.2f", end),
+                    endSeconds: end,
+                    text: line
+                )
+            )
+            cursor = end
+        }
+        return out
     }
 
     private static func stripTrailingTimestamp(from text: inout String) -> String? {

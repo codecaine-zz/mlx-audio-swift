@@ -20,27 +20,117 @@ class STTViewModel {
         ("Qwen3-ASR 0.6B (4-bit)", "mlx-community/Qwen3-ASR-0.6B-4bit"),
         ("Qwen3-ASR 1.7B (BF16)", "mlx-community/Qwen3-ASR-1.7B-bf16"),
         ("Parakeet TDT 0.6B v3", "mlx-community/parakeet-tdt-0.6b-v3"),
+        ("Parakeet TDT 1.1B", "mlx-community/parakeet-tdt-1.1b"),
         ("Parakeet Redux", "moondream/parakeet-redux"),
         ("Whisper Large v3 Turbo", "mlx-community/whisper-large-v3-turbo"),
         ("SenseVoice Small", "mlx-community/SenseVoiceSmall"),
+        ("FireRedASR2 AED (MLX)", "mlx-community/FireRedASR2-AED-mlx"),
         ("Cohere Transcribe (FP16)", "beshkenadze/cohere-transcribe-03-2026-mlx-fp16"),
         ("GLM-ASR Nano (4-bit)", "mlx-community/GLM-ASR-Nano-2512-4bit"),
         ("Voxtral Mini 3B (BF16)", "mlx-community/Voxtral-Mini-3B-2507-bf16"),
         ("Voxtral Mini 4B Realtime (FP16)", "mlx-community/Voxtral-Mini-4B-Realtime-2602-fp16"),
+        ("Voxtral Mini 4B Realtime (4-bit)", "mlx-community/Voxtral-Mini-4B-Realtime-2602-4bit"),
+        ("VibeVoice ASR Long-Form (4-bit)", "mlx-community/VibeVoice-ASR-4bit"),
         ("VibeVoice ASR Streaming 1.5B", "microsoft/VibeVoice-ASR-Streaming-1.5B"),
+        ("VibeVoice ASR Streaming 7B", "microsoft/VibeVoice-ASR-Streaming-7B"),
         ("Higgs-Audio v3 STT", "bosonai/higgs-audio-v3-stt"),
         ("Mega-ASR (BF16)", "mlx-community/Mega-ASR-bf16"),
         ("Qwen2-Audio 7B Instruct (4-bit)", "mlx-community/Qwen2-Audio-7B-Instruct-4bit"),
         ("MOSS-Transcribe-Diarize", "OpenMOSS-Team/MOSS-Transcribe-Diarize"),
+        ("MOSS-Music 8B Instruct (4-bit)", "rtikw/MOSS-Music-8B-Instruct-4bit"),
+        ("MOSS-Music 8B Thinking (4-bit)", "mlx-community/MOSS-Music-8B-Thinking-4bit"),
         ("Ming-3.0 ASR Tiny (4-bit)", "mlx-community/Ming-3.0-asr-tiny-4bit"),
         ("MiMo-V2.5-ASR", "mlx-community/MiMo-V2.5-ASR-MLX"),
         ("Nemotron 3.5 ASR Streaming 0.6B (8-bit)", "mlx-community/nemotron-3.5-asr-streaming-0.6b-8bit"),
+        ("Nemotron Speech Streaming EN 0.6B (8-bit)", "animaslabs/nemotron-speech-streaming-en-0.6b-mlx-8bit"),
         ("Nemotron 3.5 Transcribe 30B-A4B (4-bit)", "nativ-community/Nemotron-3.5-Transcribe-30B-A4B-EA-4bit"),
+        ("Nemotron 3.5 Transcribe 30B-A4B (NVFP4)", "nvidia/NVIDIA-Nemotron-3.5-Transcribe-30B-A4B-NVFP4"),
         ("Fun-ASR-Nano", "mlx-community/Fun-ASR-Nano-2512"),
+        ("Granite Speech 5.0 2B", "ibm-granite/granite-speech-5.0-2b"),
         ("Granite Speech 5.0 470M TurboCTC", "ibm-granite/granite-speech-5.0-470m-turboctc"),
+        ("Granite Speech 4.1 2B Plus", "ibm-granite/granite-speech-4.1-2b-plus"),
+        ("Granite Speech 4.1 2B NAR (5-bit)", "mlx-community/granite-speech-4.1-2b-nar-mlx-5bit"),
         ("Canary 1B v2 (q8)", "Mediform/canary-1b-v2-mlx-q8"),
         ("Moonshine Tiny", "UsefulSensors/moonshine-tiny"),
+        ("Wav2Vec2 Base 960h CTC", "facebook/wav2vec2-base-960h"),
+        ("Meta MMS 1B FL102 (Multilingual CTC)", "facebook/mms-1b-fl102"),
     ]
+
+    static var categorizedPresetModels: [(category: String, icon: String, models: [(name: String, id: String)])] {
+        var featured: [(name: String, id: String)] = []
+        var streamingDiarize: [(name: String, id: String)] = []
+        var multilingual: [(name: String, id: String)] = []
+        var audioUnderstanding: [(name: String, id: String)] = []
+
+        for item in presetModels {
+            let l = item.id.lowercased()
+            if l.contains("phonon") || l.contains("qwen3-asr") || l.contains("parakeet") {
+                featured.append(item)
+            } else if l.contains("realtime") || l.contains("streaming") || l.contains("diarize") || l.contains("vibevoice") || l.contains("cohere") || l.contains("nemotron") {
+                streamingDiarize.append(item)
+            } else if l.contains("music") || l.contains("qwen2-audio") || l.contains("higgs") || l.contains("mega-asr") || l.contains("mimo") {
+                audioUnderstanding.append(item)
+            } else {
+                multilingual.append(item)
+            }
+        }
+
+        return [
+            ("Featured & Fast Default (Phonon 2.5 / Qwen3 / Parakeet)", "bolt.fill", featured),
+            ("Realtime Streaming & Speaker Diarization", "waveform.badge.mic", streamingDiarize),
+            ("Multilingual ASR (Whisper / SenseVoice / Granite / MMS)", "globe", multilingual),
+            ("Music, Lyrics & Multimodal Audio Understanding", "music.note.list", audioUnderstanding),
+        ]
+    }
+
+    func radCodeSnippet(language: String, audioPath: String? = nil, port: UInt16 = 8080) -> String {
+        let pathStr = (audioPath ?? "sample.wav")
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        switch language.lowercased() {
+        case "python":
+            return """
+            import requests
+
+            resp = requests.post(
+                "http://127.0.0.1:\(port)/v1/audio/transcriptions",
+                json={"model": "\(modelId)", "audio_path": "\(pathStr)"}
+            )
+            print(resp.json()["text"])
+            """
+        case "typescript", "javascript", "ts", "js":
+            return """
+            const res = await fetch("http://127.0.0.1:\(port)/v1/audio/transcriptions", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ model: "\(modelId)", audio_path: "\(pathStr)" })
+            });
+            const data = await res.json();
+            console.log(data.text);
+            """
+        case "swift":
+            return """
+            import Foundation
+
+            let url = URL(string: "http://127.0.0.1:\(port)/v1/audio/transcriptions")!
+            var req = URLRequest(url: url)
+            req.httpMethod = "POST"
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.httpBody = #\"\"\"
+            {"model":"\(modelId)","audio_path":"\(pathStr)"}
+            \"\"\"#.data(using: .utf8)
+
+            let (data, _) = try await URLSession.shared.data(for: req)
+            print(String(data: data, encoding: .utf8) ?? "")
+            """
+        default:
+            return """
+            curl -s http://127.0.0.1:\(port)/v1/audio/transcriptions \\
+              -H "Content-Type: application/json" \\
+              -d '{"model":"\(modelId)","audio_path":"\(pathStr)"}' | jq .
+            """
+        }
+    }
     private static let defaultMaxTokens = 8192
     private static let defaultTemperature: Float = 0.0
     private static let defaultLanguage = "English"

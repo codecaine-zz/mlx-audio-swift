@@ -8,6 +8,9 @@ Supported models:
 | --- | --- |
 | Audio8 0.1B, Falcon-H1 hybrid | [mlx-community/Audio8-TTS-Preview-0.1b-bf16](https://huggingface.co/mlx-community/Audio8-TTS-Preview-0.1b-bf16) |
 | Audio8 0.6B, attention | [mlx-community/Audio8-TTS-Preview-0.6b-bf16](https://huggingface.co/mlx-community/Audio8-TTS-Preview-0.6b-bf16) |
+| Audio8 Realistic 0.6B (BF16) | [nativ-community/Audio8-TTS-Realistic-0.6b-bf16](https://huggingface.co/nativ-community/Audio8-TTS-Realistic-0.6b-bf16) |
+| Audio8 Realistic 0.6B (8-bit) | [nativ-community/Audio8-TTS-Realistic-0.6b-8bit](https://huggingface.co/nativ-community/Audio8-TTS-Realistic-0.6b-8bit) |
+| Audio8 Realistic 0.6B (4-bit) | [nativ-community/Audio8-TTS-Realistic-0.6b-4bit](https://huggingface.co/nativ-community/Audio8-TTS-Realistic-0.6b-4bit) |
 
 ```swift
 import Foundation

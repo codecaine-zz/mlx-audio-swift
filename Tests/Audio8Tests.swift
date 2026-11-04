@@ -21,6 +21,16 @@ struct Audio8Tests {
         #expect(throws: (any Error).self) { try invalid.validate() }
         #expect(TTS.resolveModelType(modelRepo: "mlx-community/Audio8-TTS-Preview-0.1b-bf16") == "arktts")
         #expect(TTS.resolveModelType(modelRepo: "mlx-community/Audio8-TTS-Preview-0.6b-bf16") == "arktts")
+        #expect(TTS.resolveModelType(modelRepo: "nativ-community/Audio8-TTS-Realistic-0.6b-bf16") == "arktts")
+        #expect(TTS.resolveModelType(modelRepo: "nativ-community/Audio8-TTS-Realistic-0.6b-8bit") == "arktts")
+        #expect(TTS.resolveModelType(modelRepo: "nativ-community/Audio8-TTS-Realistic-0.6b-4bit") == "arktts")
+        let realistic = try JSONDecoder().decode(
+            Audio8Config.self,
+            from: Data(#"{"codec_filename":"model.safetensors","quantization":{"group_size":64,"bits":4}}"#.utf8)
+        )
+        try realistic.validate()
+        #expect(realistic.codecFilename == "model.safetensors")
+        #expect(realistic.quantization?.bits == 4 && realistic.quantization?.groupSize == 64)
     }
 
     private func tinyHybrid() -> Audio8Config {

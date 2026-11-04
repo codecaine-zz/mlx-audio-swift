@@ -521,7 +521,7 @@ private class SortformerModules: Module {
 
 // MARK: - Main Model
 
-public class SortformerModel: Module {
+public class SortformerModel: Module, @unchecked Sendable {
     public let config: SortformerConfig
 
     @ModuleInfo(key: "fc_encoder") private var fcEncoder: FastConformerEncoder

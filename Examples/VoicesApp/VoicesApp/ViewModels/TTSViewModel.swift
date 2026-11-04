@@ -31,7 +31,7 @@ enum SynthesisScope: String, CaseIterable, Identifiable {
 
     var shortBadge: String {
         switch self {
-        case .fullDocument: return "♾️ Unlimited Book (1s)"
+        case .fullDocument: return "♾️ Unlimited (1s)"
         case .fastSection: return "⚡ 4-Chunk Section"
         case .activeChunk: return "🎯 1 Chunk (1.5s)"
         }
@@ -194,6 +194,12 @@ class TTSViewModel {
         ("Phonon 40M German", "gradium/phonon-40m-de"),
         ("Phonon 40M Spanish", "gradium/phonon-40m-es"),
         ("Phonon 40M Portuguese", "gradium/phonon-40m-pt"),
+        ("Maya-2 Native (20 Built-in Voices + Cloning)", "maya-research/maya2-native"),
+        ("Audio8 TTS Realistic 0.6B (BF16)", "nativ-community/Audio8-TTS-Realistic-0.6b-bf16"),
+        ("Audio8 TTS Realistic 0.6B (8-bit)", "nativ-community/Audio8-TTS-Realistic-0.6b-8bit"),
+        ("Audio8 TTS Realistic 0.6B (4-bit)", "nativ-community/Audio8-TTS-Realistic-0.6b-4bit"),
+        ("Audio8 0.1B Preview (BF16)", "mlx-community/Audio8-TTS-Preview-0.1b-bf16"),
+        ("Audio8 0.6B Preview (BF16)", "mlx-community/Audio8-TTS-Preview-0.6b-bf16"),
         ("Fish Audio S2 Pro (8-bit)", "mlx-community/fish-audio-s2-pro-8bit"),
         ("Fish Audio S2 Pro (BF16)", "mlx-community/fish-audio-s2-pro-bf16"),
         ("Pocket TTS", "mlx-community/pocket-tts"),
@@ -206,12 +212,25 @@ class TTSViewModel {
         ("Kokoro 82M (BF16)", "mlx-community/Kokoro-82M-bf16"),
         ("KittenTTS Mini 0.8 (80M)", "mlx-community/kitten-tts-mini-0.8"),
         ("KittenTTS Micro 0.8 (40M)", "mlx-community/kitten-tts-micro-0.8"),
+        ("KittenTTS Nano 0.8 (15M · Int8)", "KittenML/kitten-tts-nano-0.8-int8"),
         ("Orpheus 3B (BF16)", "mlx-community/orpheus-3b-0.1-ft-bf16"),
+        ("Soprano 1.1 80M (BF16)", "mlx-community/Soprano-1.1-80M-bf16"),
         ("Soprano 80M (BF16)", "mlx-community/Soprano-80M-bf16"),
         ("VibeVoice Realtime 0.5B (8-bit)", "mlx-community/VibeVoice-Realtime-0.5B-8bit"),
         ("VibeVoice TTS 1.5B", "microsoft/VibeVoice-1.5B"),
+        ("KugelAudio 7B Open (VibeVoice 7B)", "kugelaudio/kugelaudio-0-open"),
         ("Voxtral 4B TTS (4-bit)", "mlx-community/Voxtral-4B-TTS-2603-mlx-4bit"),
         ("Voxtral 4B TTS (BF16)", "mlx-community/Voxtral-4B-TTS-2603-mlx-bf16"),
+        ("Chatterbox TTS Multilingual (FP16)", "mlx-community/Chatterbox-TTS-fp16"),
+        ("Chatterbox Turbo (FP16)", "mlx-community/chatterbox-turbo-fp16"),
+        ("Chatterbox Turbo (8-bit)", "mlx-community/chatterbox-turbo-8bit"),
+        ("Chatterbox Turbo (4-bit)", "mlx-community/chatterbox-turbo-4bit"),
+        ("Echo TTS Base (44.1kHz)", "mlx-community/echo-tts-base"),
+        ("VoxCPM2 2B 48kHz (BF16)", "mlx-community/VoxCPM2-bf16"),
+        ("VoxCPM2 2B 48kHz (8-bit)", "mlx-community/VoxCPM2-8bit"),
+        ("VoxCPM2 2B 48kHz (4-bit)", "mlx-community/VoxCPM2-4bit"),
+        ("VoxCPM 1.5 (4-bit)", "mlx-community/VoxCPM1.5-4bit"),
+        ("VoxCPM 1.5 (8-bit)", "mlx-community/VoxCPM1.5-8bit"),
         ("MeloTTS English", "mlx-community/MeloTTS-English-MLX"),
         ("Ming-3.0 TTS Tiny (4-bit)", "mlx-community/Ming-3.0-tts-tiny-4bit"),
         ("Ming-3.0 TTS 0.5B (BF16)", "mlx-community/Ming-3.0-tts-0.5B-bf16"),
@@ -222,25 +241,124 @@ class TTSViewModel {
         ("Higgs Audio v3 TTS 4B", "bosonai/higgs-tts-3-4b"),
         ("Breeze TTS 2 (4-bit)", "mlx-community/Breeze-TTS-2-mlx-4bit"),
         ("OuteTTS 1.0 0.6B (FP16)", "mlx-community/OuteTTS-1.0-0.6B-fp16"),
+        ("OmniVoice (BF16)", "mlx-community/OmniVoice-bf16"),
         ("OmniVoice", "mlx-community/OmniVoice"),
-        ("Audio8 0.1B Preview (BF16)", "mlx-community/Audio8-TTS-Preview-0.1b-bf16"),
-        ("Audio8 0.6B Preview (BF16)", "mlx-community/Audio8-TTS-Preview-0.6b-bf16"),
         ("TADA 1B", "HumeAI/mlx-tada-1b"),
         ("TADA 3B", "HumeAI/mlx-tada-3b"),
-        ("VoxCPM 1.5 (4-bit)", "mlx-community/VoxCPM1.5-4bit"),
-        ("VoxCPM 1.5 (8-bit)", "mlx-community/VoxCPM1.5-8bit"),
         ("ZONOS2 (4-bit)", "amal-david/Zyphra-ZONOS2-4bit"),
         ("VyvoTTS EN Beta (4-bit)", "mlx-community/VyvoTTS-EN-Beta-4bit"),
         ("LongCat-AudioDiT 1B (4-bit)", "mlx-community/LongCat-AudioDiT-1B-4bit"),
         ("LongCat-AudioDiT 1B (BF16)", "mlx-community/LongCat-AudioDiT-1B-bf16"),
+        ("MOSS-TTS Nano 100M", "mlx-community/MOSS-TTS-Nano-100M"),
+        ("MOSS-TTSD v1.0 (Dialogue)", "OpenMOSS-Team/MOSS-TTSD-v1.0"),
+        ("MOSS-TTS Local Transformer", "OpenMOSS-Team/MOSS-TTS-Local-Transformer"),
         ("MOSS-TTS", "OpenMOSS-Team/MOSS-TTS"),
         ("IndexTTS 1.5", "mlx-community/IndexTTS-1.5"),
+        ("Irodori TTS v4.1 Small MeanFlow (8-bit)", "mlx-community/Irodori-TTS-v4.1-Small-MF-8bit"),
         ("Irodori TTS v4.1 Small (8-bit)", "mlx-community/Irodori-TTS-v4.1-Small-8bit"),
         ("Irodori TTS 600M v3 VoiceDesign (8-bit)", "mlx-community/Irodori-TTS-600M-v3-VoiceDesign-8bit"),
         ("Spark-TTS 0.5B (BF16)", "mlx-community/Spark-TTS-0.5B-bf16"),
         ("Rumik OSS 1 (8-bit)", "rumik-ai/rumik-oss-1-mlx-8bit"),
         ("Dia 1.6B", "mlx-community/Dia-1.6B"),
     ]
+
+    static var categorizedPresetModels: [(category: String, icon: String, models: [(name: String, id: String)])] {
+        var fastDefault: [(name: String, id: String)] = []
+        var voiceCloning: [(name: String, id: String)] = []
+        var expressive: [(name: String, id: String)] = []
+        var multilingual: [(name: String, id: String)] = []
+        var lightweight: [(name: String, id: String)] = []
+
+        for item in presetModels {
+            let l = item.id.lowercased()
+            if l.contains("phonon") {
+                fastDefault.append(item)
+            } else if l.contains("maya") || l.contains("audio8") || l.contains("fish-audio") || l.contains("chatterbox") || l.contains("echo-tts") || l.contains("voxcpm") || l.contains("indextts") || l.contains("spark-tts") || l.contains("pocket-tts") || l.contains("outetts") {
+                voiceCloning.append(item)
+            } else if l.contains("qwen3-tts") || l.contains("orpheus") || l.contains("dia-") || l.contains("moss-tts") || l.contains("irodori") || l.contains("higgs") || l.contains("tada") || l.contains("zonos") || l.contains("bark") || l.contains("kugelaudio") {
+                expressive.append(item)
+            } else if l.contains("voxtral") || l.contains("ming") || l.contains("omnivoice") || l.contains("breeze") || l.contains("confucius") || l.contains("melotts") {
+                multilingual.append(item)
+            } else {
+                lightweight.append(item)
+            }
+        }
+
+        return [
+            ("Fast Default & Phonon (31M–40M)", "bolt.fill", fastDefault),
+            ("Zero-Shot Voice Cloning & Realistic", "person.wave.2.fill", voiceCloning),
+            ("Expressive, VoiceDesign & Dialogue", "theatermasks.fill", expressive),
+            ("Multilingual & Omni TTS", "globe", multilingual),
+            ("Ultra-Lightweight & Realtime", "hare.fill", lightweight),
+        ]
+    }
+
+    func radCodeSnippet(language: String, text: String, port: UInt16 = 8080) -> String {
+        let voiceId = selectedVoice?.voiceId ?? selectedVoice?.name ?? "freya"
+        let rawSample = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let firstLine = rawSample.components(separatedBy: .newlines).first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) ?? "Welcome to Codecaine MLX RAD AI Audio Studio running locally on Apple Silicon!"
+        let sampleText = String(firstLine.prefix(200))
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        let rateStr = String(format: "%.2f", playbackRate)
+
+        switch language.lowercased() {
+        case "python":
+            return """
+            from openai import OpenAI
+
+            client = OpenAI(base_url="http://127.0.0.1:\(port)/v1", api_key="mlx-local")
+            response = client.audio.speech.create(
+                model="\(modelId)",
+                voice="\(voiceId)",
+                input="\(sampleText)",
+                speed=\(rateStr),
+                response_format="wav"
+            )
+            response.stream_to_file("speech_output.wav")
+            print("Saved speech_output.wav")
+            """
+        case "typescript", "javascript", "ts", "js":
+            return """
+            import fs from "node:fs/promises";
+
+            const res = await fetch("http://127.0.0.1:\(port)/v1/audio/speech", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                model: "\(modelId)",
+                voice: "\(voiceId)",
+                input: "\(sampleText)",
+                speed: \(rateStr),
+                response_format: "wav"
+              })
+            });
+            await fs.writeFile("speech_output.wav", Buffer.from(await res.arrayBuffer()));
+            """
+        case "swift":
+            return """
+            import Foundation
+
+            let url = URL(string: "http://127.0.0.1:\(port)/v1/audio/speech")!
+            var req = URLRequest(url: url)
+            req.httpMethod = "POST"
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.httpBody = #\"\"\"
+            {"model":"\(modelId)","voice":"\(voiceId)","input":"\(sampleText)","speed":\(rateStr),"response_format":"wav"}
+            \"\"\"#.data(using: .utf8)
+
+            let (wavData, _) = try await URLSession.shared.data(for: req)
+            try wavData.write(to: URL(fileURLWithPath: "speech_output.wav"))
+            """
+        default:
+            return """
+            curl -s http://127.0.0.1:\(port)/v1/audio/speech \\
+              -H "Content-Type: application/json" \\
+              -d '{"model":"\(modelId)","voice":"\(voiceId)","input":"\(sampleText)","speed":\(rateStr),"response_format":"wav"}' \\
+              --output speech_output.wav && afplay speech_output.wav
+            """
+        }
+    }
     private static let modelIdStorageKey = "VoicesApp.TTSViewModel.modelId"
     private static let maxTokensStorageKey = "VoicesApp.TTSViewModel.maxTokens"
     private static let temperatureStorageKey = "VoicesApp.TTSViewModel.temperature"
@@ -441,6 +559,7 @@ class TTSViewModel {
     var synthesizedStartChunkIndex: Int = 0
     var synthesizedEndChunkIndex: Int? = nil
     var synthesizedWordTimings: [WordTiming] = []
+    var synthesizedChunkFrameRanges: [Int: Range<Int>] = [:]
     var lastSynthesizedText: String = ""
 
     // Audio player state (manually synced from AudioPlayerManager)
@@ -486,6 +605,21 @@ class TTSViewModel {
         }
         setupAudioPlayerObservers()
         refreshVoicesForCurrentModel(forceSelectFirst: true)
+        let persistedTakes = StudioDocumentSessionManager.shared.loadPersistedTakes()
+        if !persistedTakes.isEmpty {
+            self.history = persistedTakes.map { item in
+                GeneratedTake(
+                    id: item.record.id,
+                    text: item.record.textSnippet,
+                    modelId: item.record.modelName,
+                    voiceName: item.record.voiceName,
+                    audioURL: item.url,
+                    duration: item.record.duration,
+                    tokensPerSecond: item.record.rtf,
+                    createdAt: item.record.createdAt
+                )
+            }
+        }
         NotificationCenter.default.publisher(for: .modelCacheDidChange)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] note in
@@ -511,6 +645,8 @@ class TTSViewModel {
                 dynamicNames = voxtral.availableVoices
             } else if let rumik = loadedModel as? RumikModel {
                 dynamicNames = rumik.voices
+            } else if let maya2 = loadedModel as? Maya2Model {
+                dynamicNames = maya2.voices
             }
         }
         let voices = Voice.builtInVoices(for: modelId, dynamicVoiceNames: dynamicNames)
@@ -844,7 +980,9 @@ class TTSViewModel {
                 WordTiming(id: $0.id, word: $0.word, start: 0, end: 0, chunkIndex: $0.chunkIndex, paragraphIndex: $0.paragraphIndex)
             }
             synthesizedWordTimings = workingTimings
+            synthesizedChunkFrameRanges = [:]
             var cumulativeFramesWritten = 0
+            let masteringSnapshot = StudioMasteringManager.shared.snapshot
 
             // Determine voice parameter once outside the hot loop
             let voiceParam: String?
@@ -885,26 +1023,35 @@ class TTSViewModel {
                 }()
                 let interChunkPauseFrames = isParagraphChangeToNext ? pauseFrames : 0
 
+                let castResolved = CharacterCastingManager.shared.resolveChunkCast(
+                    chunk,
+                    defaultVoiceParam: voiceParam,
+                    defaultPitch: totalPitchShift
+                )
+                let chunkVoiceParam = castResolved.voiceParam
+                let chunkPitchShift = castResolved.pitch
                 let effectiveChunk: String
-                if let tag = inlineTag, !chunk.trimmingCharacters(in: .whitespaces).hasPrefix("[") {
-                    effectiveChunk = "\(tag) \(chunk)"
+                let spokenChunk = SpeechPronunciationLexicon.shared.apply(to: castResolved.spokenText)
+                if let tag = inlineTag, !spokenChunk.trimmingCharacters(in: .whitespaces).hasPrefix("[") {
+                    effectiveChunk = "\(tag) \(spokenChunk)"
                 } else {
-                    effectiveChunk = chunk
+                    effectiveChunk = spokenChunk
                 }
 
                 let cacheKey = PhononChunkCache.cacheKey(
                     modelId: activeModelId,
-                    voiceParam: voiceCacheId,
+                    voiceParam: chunkVoiceParam ?? voiceCacheId,
                     refText: refText,
-                    pitch: totalPitchShift,
+                    pitch: chunkPitchShift,
                     text: effectiveChunk
                 )
 
                 if allChunks.count > 1 {
+                    let castBadge = castResolved.characterName.map { " [\($0)]" } ?? ""
                     if offset == 0 {
-                        generationProgress = "Synthesizing §\(globalIndex + 1) of \(allChunks.count) (instant 1s start & export)..."
+                        generationProgress = "Synthesizing §\(globalIndex + 1) of \(allChunks.count)\(castBadge) (instant 1s start & export)..."
                     } else {
-                        generationProgress = "Speaking §\(activeChunkIndex + 1) · Prefetching §\(globalIndex + 1)/\(plannedEndChunk + 1) (gapless)..."
+                        generationProgress = "Speaking §\(activeChunkIndex + 1) · Prefetching §\(globalIndex + 1)/\(plannedEndChunk + 1)\(castBadge) (gapless)..."
                     }
                 }
 
@@ -918,7 +1065,7 @@ class TTSViewModel {
                     var tokenTick = 0
                     for try await event in model.generateStream(
                         text: effectiveChunk,
-                        voice: voiceParam,
+                        voice: chunkVoiceParam,
                         refAudio: referenceAudio,
                         refText: refText,
                         language: nil,
@@ -949,8 +1096,8 @@ class TTSViewModel {
                         let unshifted = rawSamples
                         rawSamples = await Task.detached(priority: .userInitiated) {
                             var processed = unshifted
-                            if abs(totalPitchShift) > 0.05 {
-                                processed = Voice.applyPitchShift(processed, semitones: totalPitchShift, sampleRate: sampleRate)
+                            if abs(chunkPitchShift) > 0.05 {
+                                processed = Voice.applyPitchShift(processed, semitones: chunkPitchShift, sampleRate: sampleRate)
                             }
                             processed = SpeechAudioTrimmer.trimSilence(processed, sampleRate: sampleRate)
                             PhononChunkCache.put(key: cacheKey, samples: processed)
@@ -959,7 +1106,7 @@ class TTSViewModel {
                     }
                 }
 
-                // Offload waveform DP word alignment and WAV file writing off @MainActor
+                // Offload waveform DP word alignment, Master Bus DSP, and WAV file writing off @MainActor
                 let finalChunkSamples = rawSamples
                 let chunkResult: (samplesToWrite: [Float], alignedTimings: [WordTiming]) = await Task.detached(priority: .userInitiated) {
                     guard !finalChunkSamples.isEmpty else {
@@ -977,7 +1124,12 @@ class TTSViewModel {
                         aligned = []
                     }
 
-                    var samplesToWrite = finalChunkSamples
+                    var samplesToWrite = StudioMasteringManager.processSamples(
+                        finalChunkSamples,
+                        sampleRate: sampleRate,
+                        config: masteringSnapshot,
+                        preserveExactLength: true
+                    )
                     if interChunkPauseFrames > 0 {
                         samplesToWrite.append(contentsOf: repeatElement(Float(0), count: interChunkPauseFrames))
                     }
@@ -990,7 +1142,9 @@ class TTSViewModel {
                         workingTimings[t.id] = t
                     }
                     self.synthesizedWordTimings = workingTimings
+                    let chunkStartFrame = cumulativeFramesWritten
                     cumulativeFramesWritten += chunkResult.samplesToWrite.count
+                    self.synthesizedChunkFrameRanges[globalIndex] = chunkStartFrame..<cumulativeFramesWritten
                     self.synthesizedEndChunkIndex = globalIndex
 
                     // Publish playable & exportable WAV URL immediately after Chunk #1 (~1.0s!)
@@ -1031,14 +1185,33 @@ class TTSViewModel {
             duration = clipDuration
             generationProgress = "" // Clear progress
 
-            // Record in session take history
+            Task.detached(priority: .utility) {
+                if let report = StudioMasteringManager.analyzeWAVFile(at: finalURL) {
+                    await MainActor.run {
+                        StudioMasteringManager.shared.lastReport = report
+                    }
+                }
+            }
+
+            // Record in session take history (and persist to Application Support so takes survive app restarts)
             if recordHistory {
+                let takeId = UUID()
                 let takeText = chunks.map(\.text).joined(separator: "\n\n")
+                let persistedURL = StudioDocumentSessionManager.shared.persistTake(
+                    id: takeId,
+                    textSnippet: String(takeText.prefix(600)),
+                    voiceName: voice?.name ?? "Default",
+                    modelName: modelId,
+                    duration: clipDuration,
+                    rtf: tokensPerSecond,
+                    sourceAudioURL: finalURL
+                )
                 let take = GeneratedTake(
+                    id: takeId,
                     text: takeText,
                     modelId: modelId,
                     voiceName: voice?.name ?? "Default",
-                    audioURL: finalURL,
+                    audioURL: persistedURL,
                     duration: clipDuration,
                     tokensPerSecond: tokensPerSecond
                 )
@@ -1070,6 +1243,274 @@ class TTSViewModel {
         }
 
         isGenerating = false
+    }
+
+    /// Applies the active Studio Master Bus DSP chain (and optional ACX head/tail room-tone floor) to the current WAV file in place.
+    func applyMasterBusInPlaceToCurrentAudio() {
+        let sourceURL: URL? = audioURL ?? Voice.bundledStudioSamples().first?.url
+        guard let targetURL = sourceURL else {
+            errorMessage = "Synthesize or load an audio take before applying the Master Bus"
+            return
+        }
+        let config = StudioMasteringManager.shared.snapshot
+        let hasWordTimings = !synthesizedWordTimings.isEmpty
+        generationProgress = "Mastering audio (\(config.preset.shortBadge))..."
+
+        Task.detached(priority: .userInitiated) { [weak self] in
+            do {
+                let (rawSamples, sr) = try StudioMasteringManager.readPCM16WAVSamples(from: targetURL)
+                let mastered = StudioMasteringManager.processSamples(
+                    rawSamples,
+                    sampleRate: Double(sr),
+                    config: config,
+                    preserveExactLength: hasWordTimings && !config.acxHeadTailRoomTone
+                )
+                let outURL = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("mastered_\(UUID().uuidString).wav")
+                try StudioMasteringManager.writePCM16WAVSamples(mastered, sampleRate: sr, to: outURL)
+                let report = StudioMasteringManager.analyzeSamples(mastered, sampleRate: Double(sr))
+
+                await MainActor.run {
+                    guard let self else { return }
+                    if !hasWordTimings || !config.acxHeadTailRoomTone {
+                        // Timings unchanged
+                    } else if config.preset == .acxAudiobook && config.acxHeadTailRoomTone {
+                        // Shift word timings forward by +0.65s ACX head room tone
+                        self.synthesizedWordTimings = self.synthesizedWordTimings.map { t in
+                            WordTiming(
+                                id: t.id,
+                                word: t.word,
+                                start: t.start + 0.65,
+                                end: t.end + 0.65,
+                                chunkIndex: t.chunkIndex,
+                                paragraphIndex: t.paragraphIndex
+                            )
+                        }
+                    }
+                    self.audioURL = outURL
+                    self.duration = report.durationSec
+                    self.audioPlayer.loadAudio(from: outURL)
+                    StudioMasteringManager.shared.lastReport = report
+                    StudioMasteringManager.shared.statusMessage = "✅ Mastered (\(String(format: "%.1f", report.integratedLUFS)) LUFS · \(String(format: "%.1f", report.rmsDBFS)) dB RMS · Peak \(String(format: "%.1f", report.truePeakDBTP)) dBTP)"
+                    self.generationProgress = "Master Bus Applied (\(config.preset.shortBadge))"
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(2.2))
+                        if self.generationProgress.hasPrefix("Master Bus Applied") {
+                            self.generationProgress = ""
+                        }
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    self?.errorMessage = "Mastering failed: \(error.localizedDescription)"
+                    self?.generationProgress = ""
+                }
+            }
+        }
+    }
+
+    /// Surgically re-synthesizes a single chunk (`chunkIndex`) and splices it into the existing master WAV in-place with 12ms cosine crossfades, shifting downstream word timings automatically.
+    func retakeAndSpliceChunk(fullText: String, chunkIndex: Int, voice: Voice?) {
+        let allChunks = chunkTextWithMetadata(fullText)
+        guard !allChunks.isEmpty else { return }
+        let safeIndex = min(max(0, chunkIndex), allChunks.count - 1)
+
+        // If we don't have a multi-chunk master WAV or frame range yet, run a direct synthesis of the active chunk
+        guard let existingURL = audioURL,
+              let oldRange = synthesizedChunkFrameRanges[safeIndex],
+              let model = model else {
+            startSynthesis(text: fullText, voice: voice, startChunkIndex: safeIndex, scopeOverride: .activeChunk)
+            return
+        }
+
+        generationTask?.cancel()
+        audioPlayer.pause()
+        isGenerating = true
+        generationProgress = "Surgical Retake & Splice for §\(safeIndex + 1)..."
+
+        generationTask = Task {
+            do {
+                let sampleRate = Double(model.sampleRate)
+                let chunkMeta = allChunks[safeIndex]
+                var referenceAudio: MaterializedArray?
+                var refText: String?
+                var fishPreset: Voice.FishS2VoicePreset?
+
+                let isFishModel = modelId.lowercased().contains("fish-audio")
+                    || modelId.lowercased().contains("fish_speech")
+                    || modelId.lowercased().contains("fishspeech")
+
+                if let voice, voice.isClonedVoice,
+                   Voice.supportsReferenceCloning(for: modelId),
+                   let audioURL = voice.audioFileURL,
+                   let transcription = voice.transcription {
+                    let (_, audioData) = try loadAudioArray(from: audioURL, sampleRate: model.sampleRate)
+                    referenceAudio = audioData
+                    refText = transcription
+                } else if isFishModel, let voice,
+                          let preset = Voice.fishS2Preset(for: voice.voiceId ?? voice.name) {
+                    fishPreset = preset
+                    if let resourceName = preset.resourceName,
+                       let refURL = Bundle.main.url(forResource: resourceName, withExtension: "wav") {
+                        let (_, audioData) = try loadAudioArray(from: refURL, sampleRate: model.sampleRate)
+                        referenceAudio = audioData
+                        refText = preset.refText
+                    }
+                }
+                let totalPitchShift: Float = pitchSemitones + (fishPreset?.pitchSemitones ?? 0)
+
+                let defaultVoiceParam: String? = {
+                    if useVoiceDesign && !voiceDescription.isEmpty { return voiceDescription }
+                    guard let voice else { return nil }
+                    if voice.isClonedVoice { return nil }
+                    return voice.voiceId ?? voice.name
+                }()
+
+                let castResolved = CharacterCastingManager.shared.resolveChunkCast(
+                    chunkMeta.text,
+                    defaultVoiceParam: defaultVoiceParam,
+                    defaultPitch: totalPitchShift
+                )
+                let spokenChunk = SpeechPronunciationLexicon.shared.apply(to: castResolved.spokenText)
+                let effectiveChunk: String
+                if let tag = fishPreset?.inlineTag, !spokenChunk.trimmingCharacters(in: .whitespaces).hasPrefix("[") {
+                    effectiveChunk = "\(tag) \(spokenChunk)"
+                } else {
+                    effectiveChunk = spokenChunk
+                }
+
+                // Slightly jitter temperature by +0.03 on retake so neural prosody produces a fresh inflection
+                var retakeParams = effectiveGenerationParameters()
+                let baseTemp = retakeParams.temperature ?? 0.65
+                retakeParams.temperature = min(1.0, baseTemp + 0.03)
+
+                var rawSamples: [Float] = []
+                for try await event in model.generateStream(
+                    text: effectiveChunk,
+                    voice: castResolved.voiceParam,
+                    refAudio: referenceAudio,
+                    refText: refText,
+                    language: nil,
+                    generationParameters: retakeParams,
+                    streamingInterval: 60.0
+                ) {
+                    try Task.checkCancellation()
+                    if case .audio(let audioData) = event {
+                        autoreleasepool {
+                            rawSamples.append(contentsOf: audioData.asArray(Float.self))
+                        }
+                    }
+                }
+
+                guard !rawSamples.isEmpty else {
+                    throw NSError(domain: "TTSViewModel", code: 2, userInfo: [NSLocalizedDescriptionKey: "Retake produced empty audio"])
+                }
+
+                let masterSnap = StudioMasteringManager.shared.snapshot
+                let chunkPitch = castResolved.pitch
+                let newChunkSamples: [Float] = await Task.detached(priority: .userInitiated) {
+                    var p = rawSamples
+                    if abs(chunkPitch) > 0.05 {
+                        p = Voice.applyPitchShift(p, semitones: chunkPitch, sampleRate: sampleRate)
+                    }
+                    p = SpeechAudioTrimmer.trimSilence(p, sampleRate: sampleRate)
+                    p = StudioMasteringManager.processSamples(p, sampleRate: sampleRate, config: masterSnap, preserveExactLength: true)
+                    return p
+                }.value
+
+                // Read existing master WAV and splice newChunkSamples in place of oldRange with 12ms cosine crossfades
+                let (existingSamples, srUInt) = try StudioMasteringManager.readPCM16WAVSamples(from: existingURL)
+                let clampedStart = min(max(0, oldRange.lowerBound), existingSamples.count)
+                let clampedEnd = min(max(clampedStart, oldRange.upperBound), existingSamples.count)
+                let headSlice = Array(existingSamples[0..<clampedStart])
+                let tailSlice = Array(existingSamples[clampedEnd..<existingSamples.count])
+
+                let fadeFrames = min(Int(sampleRate * 0.012), newChunkSamples.count / 4)
+                var smoothedChunk = newChunkSamples
+                if fadeFrames > 4 {
+                    for i in 0..<fadeFrames {
+                        let w = Float(0.5 * (1.0 - cos(Double.pi * Double(i) / Double(fadeFrames))))
+                        smoothedChunk[i] *= w
+                        smoothedChunk[smoothedChunk.count - 1 - i] *= w
+                    }
+                }
+
+                var splicedSamples: [Float] = []
+                splicedSamples.reserveCapacity(headSlice.count + smoothedChunk.count + tailSlice.count)
+                splicedSamples.append(contentsOf: headSlice)
+                splicedSamples.append(contentsOf: smoothedChunk)
+                splicedSamples.append(contentsOf: tailSlice)
+
+                let newWAVURL = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("spliced_\(UUID().uuidString).wav")
+                try StudioMasteringManager.writePCM16WAVSamples(splicedSamples, sampleRate: srUInt, to: newWAVURL)
+
+                let oldFrameCount = clampedEnd - clampedStart
+                let deltaFrames = smoothedChunk.count - oldFrameCount
+                let deltaSec = Double(deltaFrames) / sampleRate
+                let chunkStartSec = Double(clampedStart) / sampleRate
+
+                // Re-align words inside `safeIndex` and shift downstream chunks by `deltaSec`
+                let masterWords = WordTimingEngine.extractMasterWords(
+                    text: fullText,
+                    maxChunkChars: max(180, maxChunkLength),
+                    enableChunking: enableChunking
+                )
+                let retakeWords = masterWords.filter { $0.chunkIndex == safeIndex }
+                let realigned = WordTimingEngine.alignWordsToPCM(
+                    words: retakeWords,
+                    samples: smoothedChunk,
+                    sampleRate: sampleRate,
+                    startOffsetSec: chunkStartSec
+                )
+                let realignedById = Dictionary(uniqueKeysWithValues: realigned.map { ($0.id, $0) })
+
+                self.synthesizedWordTimings = self.synthesizedWordTimings.map { t in
+                    if t.chunkIndex == safeIndex, let updated = realignedById[t.id] {
+                        return updated
+                    } else if t.chunkIndex > safeIndex {
+                        return WordTiming(
+                            id: t.id,
+                            word: t.word,
+                            start: max(0, t.start + deltaSec),
+                            end: max(0, t.end + deltaSec),
+                            chunkIndex: t.chunkIndex,
+                            paragraphIndex: t.paragraphIndex
+                        )
+                    } else {
+                        return t
+                    }
+                }
+
+                // Update frame ranges for safeIndex and all subsequent chunks
+                var updatedRanges = self.synthesizedChunkFrameRanges
+                updatedRanges[safeIndex] = clampedStart..<(clampedStart + smoothedChunk.count)
+                for (k, r) in self.synthesizedChunkFrameRanges where k > safeIndex {
+                    updatedRanges[k] = max(0, r.lowerBound + deltaFrames)..<max(0, r.upperBound + deltaFrames)
+                }
+                self.synthesizedChunkFrameRanges = updatedRanges
+
+                let newDuration = Double(splicedSamples.count) / sampleRate
+                self.audioURL = newWAVURL
+                self.duration = newDuration
+                self.audioPlayer.loadAudio(from: newWAVURL)
+                self.audioPlayer.seek(to: chunkStartSec)
+                self.audioPlayer.play()
+                self.generationProgress = "Spliced Retake §\(safeIndex + 1) (\(String(format: "%+.2fs", deltaSec)))"
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(2.2))
+                    if self.generationProgress.hasPrefix("Spliced Retake") {
+                        self.generationProgress = ""
+                    }
+                }
+            } catch is CancellationError {
+                generationProgress = ""
+            } catch {
+                errorMessage = "Retake failed: \(error.localizedDescription)"
+                generationProgress = ""
+            }
+            isGenerating = false
+        }
     }
 
     func play() {
@@ -1126,6 +1567,7 @@ class TTSViewModel {
             audioURL = nil
         }
         history.removeAll()
+        StudioDocumentSessionManager.shared.clearPersistedTakes()
     }
 
     func unloadModelAndPurgeVRAM() {
@@ -1250,6 +1692,104 @@ class TTSViewModel {
                         await MainActor.run {
                             self.generationProgress = ""
                             self.errorMessage = "Audio export failed: \(error.localizedDescription)"
+                        }
+                    }
+                }
+            }
+        }
+        #endif
+    }
+
+    func exportChapterizedM4B(
+        text: String,
+        bookTitle: String,
+        author: String,
+        voice: Voice?,
+        customCoverURL: URL? = nil,
+        scope: SynthesisScope = .fullDocument
+    ) {
+        let cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard audioURL != nil || !cleaned.isEmpty else {
+            errorMessage = "Enter or import text before exporting an M4B Audiobook"
+            return
+        }
+
+        #if os(macOS)
+        let savePanel = NSSavePanel()
+        savePanel.canCreateDirectories = true
+        savePanel.isExtensionHidden = false
+        savePanel.title = "Export Chapterized .M4B Audiobook (Chapters + Cover Art)"
+        let safeStem = bookTitle
+            .replacingOccurrences(of: "[^a-zA-Z0-9 _-]", with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: " ", with: "_")
+        savePanel.nameFieldStringValue = "\(safeStem.isEmpty ? "Studio_Audiobook" : safeStem).m4b"
+
+        savePanel.begin { [weak self] response in
+            guard let self, response == .OK, let dest = savePanel.url else { return }
+
+            Task { @MainActor in
+                if self.audioURL == nil && !cleaned.isEmpty {
+                    self.generationTask?.cancel()
+                    if !self.isModelLoaded {
+                        await self.loadModel()
+                    }
+                    self.generationProgress = "Synthesizing chapters for .M4B Audiobook export..."
+                    await self.synthesize(
+                        text: cleaned,
+                        voice: voice ?? self.selectedVoice,
+                        startChunkIndex: 0,
+                        playAudio: false,
+                        recordHistory: true,
+                        scopeOverride: scope
+                    )
+                }
+                guard let urlToSave = self.audioURL else { return }
+                let snapshotWAV = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("m4b_snap_\(UUID().uuidString).wav")
+                try? FileManager.default.copyItem(at: urlToSave, to: snapshotWAV)
+                let wavForM4B = FileManager.default.fileExists(atPath: snapshotWAV.path) ? snapshotWAV : urlToSave
+
+                let allChunks = self.chunkTextWithMetadata(cleaned)
+                let estDuration = self.duration > 0 ? self.duration : max(2.0, Double(cleaned.count) / 14.0)
+                let timings = self.synthesizedWordTimings.filter { $0.end > $0.start }
+                let chapters = M4BAudiobookExporter.buildChapters(
+                    chunks: allChunks,
+                    timings: timings,
+                    totalDurationSec: estDuration
+                )
+                let resolvedVoiceName = (voice ?? self.selectedVoice)?.name ?? "Freya"
+                self.generationProgress = "Packaging .M4B Audiobook (\(chapters.count) chapters + cover art)..."
+
+                Task.detached(priority: .userInitiated) {
+                    defer {
+                        if wavForM4B == snapshotWAV {
+                            try? FileManager.default.removeItem(at: snapshotWAV)
+                        }
+                    }
+                    do {
+                        try M4BAudiobookExporter.exportM4B(
+                            sourceWAV: wavForM4B,
+                            to: dest,
+                            bookTitle: bookTitle.isEmpty ? "Codecaine Studio Audiobook" : bookTitle,
+                            author: author.isEmpty ? "Codecaine MLX Audio Studio" : author,
+                            voiceName: resolvedVoiceName,
+                            chapters: chapters,
+                            customCoverURL: customCoverURL
+                        )
+                        await MainActor.run {
+                            self.generationProgress = "Exported M4B Audiobook: \(dest.lastPathComponent) (\(chapters.count) chapters)"
+                            Task { @MainActor in
+                                try? await Task.sleep(for: .seconds(2.8))
+                                if self.generationProgress.hasPrefix("Exported M4B Audiobook:") {
+                                    self.generationProgress = ""
+                                }
+                            }
+                        }
+                    } catch {
+                        await MainActor.run {
+                            self.generationProgress = ""
+                            self.errorMessage = "M4B Audiobook export failed: \(error.localizedDescription)"
                         }
                     }
                 }

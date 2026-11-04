@@ -63,8 +63,8 @@ MLXAudio follows a modular design allowing you to import only what you need:
 - **MLXAudioCodecs**: Audio codec implementations (SNAC, Encodec, Vocos, Mimi, DACVAE, Descript DAC, Fish S1 DAC, S3TokenizerV2, MOSS Audio Tokenizer, Higgs Audio Tokenizer, Step-Audio-2 token-to-wav, MiMo Audio Tokenizer, Nemotron VoiceChat Codec)
 - **MLXAudioTTS**: Text-to-Speech models (Phonon, Fish Audio S2 Pro, Qwen3-TTS, Soprano, Orpheus, Pocket TTS, and more). [Full TTS model list](#tts-models).
 - **MLXAudioSTT**: Speech-to-Text models (Phonon 2.5 EN & Multilingual, Whisper, Parakeet, Qwen3-ASR, Voxtral Mini, VibeVoice ASR, and more). [Full STT model list](#stt-models).
-- **MLXAudioVAD**: Voice Activity Detection & Speaker Diarization (Sortformer, SmartTurn, FSMN VAD, Silero VAD)
-- **MLXAudioSTS**: Speech-to-Speech models (LFM2.5-Audio, SAM-Audio, MossFormer2-SE, DeepFilterNet)
+- **MLXAudioVAD**: Voice Activity Detection & Speaker Diarization (Nemotron 3 Diarization, Sortformer, SmartTurn, FSMN VAD, Silero VAD)
+- **MLXAudioSTS**: Speech-to-Speech models (LFM2.5-Audio, SAM-Audio, NVIDIA NemotronLabs RE-USE, MossFormer2-SE, DeepFilterNet)
 - **MLXAudioUI**: SwiftUI components for audio interfaces
 
 ## Swift Package Installation
@@ -167,6 +167,7 @@ for try await event in model.generateStream(text: text, parameters: parameters) 
 |-------|--------------|------------------|
 | VibeVoice TTS | [VibeVoice TTS README](Sources/MLXAudioTTS/Models/VibeVoiceTTS/README.md) | [microsoft/VibeVoice-1.5B](https://huggingface.co/microsoft/VibeVoice-1.5B) |
 | Voxtral TTS | [Voxtral TTS README](Sources/MLXAudioTTS/Models/VoxtralTTS/README.md) | [mlx-community/Voxtral-4B-TTS-2603-mlx-4bit](https://huggingface.co/mlx-community/Voxtral-4B-TTS-2603-mlx-4bit), [BF16](https://huggingface.co/mlx-community/Voxtral-4B-TTS-2603-mlx-bf16) |
+| Maya-2 Native | [Maya-2 README](Sources/MLXAudioTTS/Models/Maya2/README.md) | [maya-research/maya2-native](https://huggingface.co/maya-research/maya2-native) |
 | MeloTTS English | [MeloTTS README](Sources/MLXAudioTTS/Models/MeloTTS/README.md) | [mlx-community/MeloTTS-English-MLX](https://huggingface.co/mlx-community/MeloTTS-English-MLX) |
 | Ming-3.0 TTS Tiny | [Ming Tiny README](Sources/MLXAudioTTS/Models/MingTiny/README.md) | [mlx-community/Ming-3.0-tts-tiny-4bit](https://huggingface.co/mlx-community/Ming-3.0-tts-tiny-4bit) |
 | Ming dense TTS | [Ming dense README](Sources/MLXAudioTTS/Models/Ming/README.md) | [mlx-community/Ming-3.0-tts-0.5B-bf16](https://huggingface.co/mlx-community/Ming-3.0-tts-0.5B-bf16), [inclusionAI/Ming-omni-tts-0.5B](https://huggingface.co/inclusionAI/Ming-omni-tts-0.5B) |
@@ -180,7 +181,7 @@ for try await event in model.generateStream(text: text, parameters: parameters) 
 | Qwen3-TTS | [Qwen3-TTS README](Sources/MLXAudioTTS/Models/Qwen3TTS/README.md) | [mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit](https://huggingface.co/mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit) |
 | OuteTTS | [OuteTTS README](Sources/MLXAudioTTS/Models/OuteTTS/README.md) | [mlx-community/OuteTTS-1.0-0.6B-fp16](https://huggingface.co/mlx-community/OuteTTS-1.0-0.6B-fp16) |
 | OmniVoice | [OmniVoice README](Sources/MLXAudioTTS/Models/OmniVoice/README.md) | [mlx-community/OmniVoice](https://huggingface.co/mlx-community/OmniVoice) |
-| Audio8 0.1B / 0.6B | [Audio8 README](Sources/MLXAudioTTS/Models/Audio8/README.md) | [mlx-community/Audio8-TTS-Preview-0.1b-bf16](https://huggingface.co/mlx-community/Audio8-TTS-Preview-0.1b-bf16), [mlx-community/Audio8-TTS-Preview-0.6b-bf16](https://huggingface.co/mlx-community/Audio8-TTS-Preview-0.6b-bf16) |
+| Audio8 0.1B / 0.6B / Realistic 0.6B | [Audio8 README](Sources/MLXAudioTTS/Models/Audio8/README.md) | [nativ-community/Audio8-TTS-Realistic-0.6b-bf16](https://huggingface.co/nativ-community/Audio8-TTS-Realistic-0.6b-bf16), [8-bit](https://huggingface.co/nativ-community/Audio8-TTS-Realistic-0.6b-8bit), [4-bit](https://huggingface.co/nativ-community/Audio8-TTS-Realistic-0.6b-4bit), [mlx-community/Audio8-TTS-Preview-0.1b-bf16](https://huggingface.co/mlx-community/Audio8-TTS-Preview-0.1b-bf16), [mlx-community/Audio8-TTS-Preview-0.6b-bf16](https://huggingface.co/mlx-community/Audio8-TTS-Preview-0.6b-bf16) |
 | Fish Audio S2 Pro | [Fish Audio S2 Pro README](Sources/MLXAudioTTS/Models/FishSpeech/README.md) | [mlx-community/fish-audio-s2-pro-8bit](https://huggingface.co/mlx-community/fish-audio-s2-pro-8bit) |
 | Soprano | [Soprano README](Sources/MLXAudioTTS/Models/Soprano/README.md) | [mlx-community/Soprano-80M-bf16](https://huggingface.co/mlx-community/Soprano-80M-bf16) |
 | TADA 1B / 3B | [TADA README](Sources/MLXAudioTTS/Models/TADA/README.md) | [HumeAI/mlx-tada-1b](https://huggingface.co/HumeAI/mlx-tada-1b), [3B](https://huggingface.co/HumeAI/mlx-tada-3b) |
@@ -261,11 +262,13 @@ for try await event in model.generateStream(text: text, parameters: parameters) 
 | SAM-Audio | [SAM Audio README](Sources/MLXAudioSTS/Models/SAMAudio/README.md) | [mlx-community/sam-audio-large-fp16](https://huggingface.co/mlx-community/sam-audio-large-fp16) |
 | MossFormer2-SE | — | [starkdmi/MossFormer2-SE-fp16](https://huggingface.co/starkdmi/MossFormer2-SE-fp16) |
 | DeepFilterNet | [DeepFilterNet README](Sources/MLXAudioSTS/Models/DeepFilterNet/README.md) | [mlx-community/DeepFilterNet-mlx](https://huggingface.co/mlx-community/DeepFilterNet-mlx) |
+| NVIDIA NemotronLabs RE-USE | [Nemotron RE-USE README](Sources/MLXAudioSTS/Models/NemotronReuse/README.md) | [nvidia/NVIDIA-NemotronLabs-RE-USE](https://huggingface.co/nvidia/NVIDIA-NemotronLabs-RE-USE) |
 
 ### VAD / Speaker Diarization Models
 
 | Model | Model README | HuggingFace Repo |
 |-------|--------------|------------------|
+| NVIDIA Nemotron 3 Diarization | [Nemotron 3 Diarization README](Sources/MLXAudioVAD/Models/NemotronDiarization/README.md) | [mlx-community/Nemotron-3-Diarization](https://huggingface.co/mlx-community/Nemotron-3-Diarization), [8-bit](https://huggingface.co/mlx-community/Nemotron-3-Diarization-8bit) |
 | Sortformer | [Sortformer README](Sources/MLXAudioVAD/Models/Sortformer/README.md) | [mlx-community/diar_streaming_sortformer_4spk-v2.1-fp16](https://huggingface.co/mlx-community/diar_streaming_sortformer_4spk-v2.1-fp16) |
 | SmartTurn | [SmartTurn README](Sources/MLXAudioVAD/Models/SmartTurn/README.md) | [mlx-community/smart-turn-v3](https://huggingface.co/mlx-community/smart-turn-v3) |
 | FSMN VAD | — | [mlx-community/fsmn-vad](https://huggingface.co/mlx-community/fsmn-vad) |

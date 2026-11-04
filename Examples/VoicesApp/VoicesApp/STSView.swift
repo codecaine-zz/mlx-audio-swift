@@ -50,9 +50,9 @@ struct STSView: View {
                             }
 
                             VStack(alignment: .leading, spacing: 3) {
-                                Text("AI Audio Lab — Stem Separation, Denoise & Language ID")
+                                Text("AI Audio Lab — Stem Separation, Denoise, Diarization & Language ID")
                                     .font(.system(size: 17, weight: .semibold))
-                                Text("Isolate vocals, drums, speech, or instruments with SAM-Audio, clean noisy recordings with MossFormer2/DeepFilterNet, or detect 107–256 spoken languages.")
+                                Text("Isolate vocals or instruments with SAM-Audio, enhance speech with Nemotron RE-USE / MossFormer2 / DeepFilterNet, diarize up to 8 speakers with Nemotron 3 & Sortformer, or detect 107–256 spoken languages.")
                                     .font(.system(size: 12.5))
                                     .foregroundStyle(.secondary)
                             }
@@ -82,6 +82,7 @@ struct STSView: View {
                                     switch mode {
                                     case .separation: return "arrow.triangle.branch"
                                     case .enhancement: return "wand.and.stars"
+                                    case .diarization: return "person.2.wave.2.fill"
                                     case .languageId: return "globe"
                                     }
                                 }()
@@ -142,6 +143,10 @@ struct STSView: View {
                     errorBanner(error)
                 }
 
+                if !viewModel.diarizationSegments.isEmpty {
+                    diarizationResultsSection
+                }
+
                 if !viewModel.lidPredictions.isEmpty {
                     lidResultsSection
                 }
@@ -187,7 +192,9 @@ struct STSView: View {
             case .separation:
                 return lower.contains("sam-audio")
             case .enhancement:
-                return lower.contains("mossformer") || lower.contains("deepfilter")
+                return lower.contains("mossformer") || lower.contains("deepfilter") || lower.contains("re-use")
+            case .diarization:
+                return lower.contains("diar") || lower.contains("sortformer") || lower.contains("vad")
             case .languageId:
                 return lower.contains("voxlingua") || lower.contains("mms-lid")
             }
@@ -378,13 +385,45 @@ struct STSView: View {
                         .font(.system(size: 14, weight: .semibold))
                     Spacer()
 
+                    Button {
+                        if let url = viewModel.prepareModeDemoAudio() {
+                            selectedInputURL = url
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "bolt.fill")
+                                .font(.system(size: 10, weight: .bold))
+                            Text(viewModel.studioMode == .diarization ? "Load 3-Speaker Demo" : (viewModel.studioMode == .enhancement ? "Load Noisy Speech Demo" : "Load Demo Audio"))
+                                .font(.system(size: 11, weight: .semibold))
+                        }
+                        .foregroundStyle(.cyan)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 4)
+                        .background(Color.cyan.opacity(0.14), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Instantly load a mode-matched test recording (multi-speaker conversation for Diarization, noisy speech for Enhancement, or studio sample)")
+
                     let studioSamples = Voice.bundledStudioSamples()
                     if !studioSamples.isEmpty {
                         Menu {
+                            Section("Mode-Matched Test Generators") {
+                                Button {
+                                    if let url = viewModel.prepareModeDemoAudio() {
+                                        selectedInputURL = url
+                                    }
+                                } label: {
+                                    Label("⚡ Auto Mode Demo (\(viewModel.studioMode.rawValue))", systemImage: "bolt.fill")
+                                }
+                            }
+                            Divider()
                             Section("Bundled Studio Voice Samples") {
                                 ForEach(studioSamples, id: \.url) { sample in
                                     Button {
                                         selectedInputURL = sample.url
+                                        viewModel.originalInputURL = sample.url
+                                        viewModel.audioURL = sample.url
+                                        viewModel.isPlayingOriginal = true
                                     } label: {
                                         Label("\(sample.name) — \(sample.subtitle)", systemImage: "waveform")
                                     }
@@ -394,7 +433,7 @@ struct STSView: View {
                             HStack(spacing: 4) {
                                 Image(systemName: "sparkles")
                                     .font(.system(size: 10, weight: .semibold))
-                                Text("Load Sample")
+                                Text("Samples")
                                     .font(.system(size: 11, weight: .semibold))
                             }
                             .foregroundStyle(.purple)
@@ -443,14 +482,28 @@ struct STSView: View {
                                 .foregroundStyle(.secondary)
                         } else {
                             Image(systemName: "arrow.up.doc.fill")
-                                .font(.system(size: 22))
+                                .font(.system(size: 20))
                                 .foregroundStyle(.blue.opacity(0.85))
                             Text("Drop WAV, MP3, M4A, or AIFF here, or click to browse")
-                                .font(.system(size: 12.5, weight: .medium))
+                                .font(.system(size: 12, weight: .medium))
                                 .foregroundStyle(.primary.opacity(0.85))
-                            Text("100% local processing on Apple Silicon Metal")
-                                .font(.system(size: 11))
-                                .foregroundStyle(.tertiary)
+                            Button {
+                                if let url = viewModel.prepareModeDemoAudio() {
+                                    selectedInputURL = url
+                                }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "bolt.fill")
+                                        .font(.system(size: 9.5, weight: .bold))
+                                    Text("Or Click Here to Load 1-Click Demo Audio")
+                                        .font(.system(size: 11, weight: .semibold))
+                                }
+                                .foregroundStyle(.cyan)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 3.5)
+                                .background(Color.cyan.opacity(0.14), in: Capsule())
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                 }
@@ -555,6 +608,7 @@ struct STSView: View {
             switch viewModel.studioMode {
             case .separation: return "Separate Audio Stem"
             case .enhancement: return "Enhance Speech & Remove Background Noise"
+            case .diarization: return "Run Speaker Diarization & VAD"
             case .languageId: return "Identify Spoken Language"
             }
         }()
@@ -562,6 +616,7 @@ struct STSView: View {
             switch viewModel.studioMode {
             case .separation: return "arrow.triangle.branch"
             case .enhancement: return "wand.and.stars"
+            case .diarization: return "person.2.wave.2.fill"
             case .languageId: return "globe"
             }
         }()
@@ -597,6 +652,115 @@ struct STSView: View {
         .buttonStyle(.plain)
         .disabled(!enabled)
         .keyboardShortcut(.return, modifiers: [.command])
+    }
+
+    // MARK: - Speaker Diarization & VAD Results
+
+    private var diarizationResultsSection: some View {
+        AppleBentoCard {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Label("Speaker Diarization & VAD Timeline", systemImage: "person.2.wave.2.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                    Spacer()
+
+                    Button {
+                        #if os(macOS)
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(viewModel.diarizationRTTM, forType: .string)
+                        #endif
+                    } label: {
+                        Label("Copy RTTM", systemImage: "doc.on.doc")
+                            .font(.system(size: 11, weight: .semibold))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3.5)
+                            .background(Color.white.opacity(0.08), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Copy NIST RTTM speaker diarization timeline to clipboard")
+
+                    Button {
+                        #if os(macOS)
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(viewModel.diarizationJSONString(), forType: .string)
+                        #endif
+                    } label: {
+                        Label("Copy JSON", systemImage: "curlybraces")
+                            .font(.system(size: 11, weight: .semibold))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3.5)
+                            .background(Color.cyan.opacity(0.14), in: Capsule())
+                            .foregroundStyle(.cyan)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Copy structured JSON speaker segments to clipboard for RAD integration")
+
+                    if let url = selectedInputURL ?? viewModel.audioURL {
+                        Button {
+                            NotificationCenter.default.post(name: .sendAudioToTranscribe, object: url)
+                        } label: {
+                            Label("Transcribe →", systemImage: "mic.fill")
+                                .font(.system(size: 11, weight: .semibold))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3.5)
+                                .background(Color.blue.opacity(0.16), in: Capsule())
+                                .foregroundStyle(.blue)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Send this audio recording to Transcribe Studio")
+                    }
+
+                    Text("\(viewModel.diarizationSpeakerCount) Speaker\(viewModel.diarizationSpeakerCount == 1 ? "" : "s") · \(viewModel.diarizationSegments.count) Segments")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.indigo)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 3)
+                        .background(Color.indigo.opacity(0.14), in: Capsule())
+                }
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(Array(viewModel.diarizationSegments.enumerated()), id: \.offset) { _, seg in
+                            Button {
+                                viewModel.seek(to: Double(seg.start))
+                                if !viewModel.isPlaying {
+                                    viewModel.togglePlayPause()
+                                }
+                            } label: {
+                                HStack(spacing: 10) {
+                                    Image(systemName: "play.circle.fill")
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(.blue)
+                                    Text("Speaker \(seg.speaker)")
+                                        .font(.system(size: 11.5, weight: .semibold))
+                                        .foregroundStyle(.white)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 3)
+                                        .background(Color.blue.opacity(0.32), in: Capsule())
+
+                                    Text(String(format: "%.2fs → %.2fs", seg.start, seg.end))
+                                        .font(.system(size: 12, design: .monospaced))
+                                        .foregroundStyle(.primary.opacity(0.9))
+
+                                    Spacer()
+
+                                    Text(String(format: "%.2fs", max(0, seg.end - seg.start)))
+                                        .font(.system(size: 11.5, design: .monospaced))
+                                        .foregroundStyle(.secondary)
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .help("Click to jump & play Speaker \(seg.speaker) turn (\(String(format: "%.2fs", seg.start)))")
+                        }
+                    }
+                }
+                .frame(maxHeight: 240)
+            }
+        }
     }
 
     // MARK: - Spoken Language Identification Results
@@ -690,6 +854,35 @@ struct STSView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
+
+                    if let outURL = viewModel.audioURL {
+                        Button {
+                            UserDefaults.standard.set(outURL.path, forKey: "VoicesApp.Transcribe.pendingAudioPath")
+                            NotificationCenter.default.post(name: .sendAudioToTranscribe, object: outURL)
+                        } label: {
+                            Label("Transcribe →", systemImage: "waveform.badge.mic")
+                                .font(.system(size: 11.5, weight: .semibold))
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .help("Send this isolated/denoised audio stem directly to the Transcribe tab")
+
+                        Button {
+                            if let cloned = Voice.createInstantClone(
+                                from: outURL,
+                                transcription: nil,
+                                suggestedName: "Audio Lab Vocal Clone"
+                            ) {
+                                NotificationCenter.default.post(name: .cloneVoiceFromAudio, object: cloned)
+                            }
+                        } label: {
+                            Label("Clone Voice →", systemImage: "person.crop.circle.badge.plus")
+                                .font(.system(size: 11.5, weight: .semibold))
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .help("Clone this isolated/denoised vocal stem directly into Voice Studio")
+                    }
                 }
 
                 CompactAudioPlayer(

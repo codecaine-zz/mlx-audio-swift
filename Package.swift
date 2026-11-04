@@ -114,6 +114,7 @@ let package = Package(
             path: "Sources/MLXAudioTTS",
             exclude: [
                 "Models/KugelAudio/README.md",
+                "Models/Maya2/README.md",
                 "Models/MeloTTS/README.md",
                 "Models/Bark/README.md",
                 "Models/Chatterbox/README.md",
@@ -146,7 +147,8 @@ let package = Package(
                 "Models/StyleTTS2/KittenTTS/README.md",
                 "Models/StyleTTS2/Kokoro/README.md",
             ],
-            resources: [.copy("Models/OuteTTS/outetts_default_speaker.json")]
+            resources: [.copy("Models/OuteTTS/outetts_default_speaker.json"),
+                        .copy("Models/Maya2/maya2_normalization_data.json")]
         ),
 
         // MARK: - MLXAudioSTT
@@ -199,11 +201,14 @@ let package = Package(
             dependencies: [
                 "MLXAudioCore",
                 .product(name: "MLX", package: "mlx-swift"),
+                .product(name: "MLXFast", package: "mlx-swift"),
+                .product(name: "MLXFFT", package: "mlx-swift"),
                 .product(name: "MLXNN", package: "mlx-swift"),
                 .product(name: "HuggingFace", package: "swift-huggingface"),
             ],
             path: "Sources/MLXAudioVAD",
             exclude: [
+                "Models/NemotronDiarization/README.md",
                 "Models/SileroVAD/README.md",
                 "Models/SmartTurn/README.md",
                 "Models/Sortformer/README.md",
@@ -237,12 +242,15 @@ let package = Package(
                 .product(name: "MLX", package: "mlx-swift"),
                 .product(name: "MLXNN", package: "mlx-swift"),
                 .product(name: "MLXFast", package: "mlx-swift"),
+                .product(name: "MLXFFT", package: "mlx-swift"),
                 .product(name: "HuggingFace", package: "swift-huggingface"),
                 .product(name: "Transformers", package: "swift-transformers"),
             ],
             path: "Sources/MLXAudioSTS",
             exclude: [
+                "Models/DeepFilterNet/README.md",
                 "Models/LFMAudio/README.md",
+                "Models/NemotronReuse/README.md",
                 "Models/SAMAudio/README.md",
             ]
         ),

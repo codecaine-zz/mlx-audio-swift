@@ -1,10 +1,14 @@
 // Shared settings for all builds.
 APP_BUNDLE_ID = com.codecaine.mlx-rad-ai-audio-studio
 PRODUCT_BUNDLE_IDENTIFIER = $(APP_BUNDLE_ID)
+PRODUCT_NAME = Codecaine MLX RAD AI Audio Studio
 INFOPLIST_KEY_CFBundleDisplayName = Codecaine MLX RAD AI Audio Studio
 INFOPLIST_KEY_CFBundleName = Codecaine MLX RAD AI Audio Studio
 
-// Keep empty so Xcode prompts when needed.
+// Keep empty so Xcode prompts when needed on iOS; use Sign to Run Locally (-) on macOS so local builds work out-of-the-box.
 DEVELOPMENT_TEAM =
 CODE_SIGN_STYLE = Automatic
 CODE_SIGN_IDENTITY = Apple Development
+CODE_SIGN_STYLE[sdk=macosx*] = Manual
+CODE_SIGN_IDENTITY[sdk=macosx*] = -
+PROVISIONING_PROFILE_SPECIFIER[sdk=macosx*] =

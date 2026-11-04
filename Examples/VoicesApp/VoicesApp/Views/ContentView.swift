@@ -93,11 +93,11 @@ struct ContentView: View {
     @State private var viewModel = TTSViewModel()
     @State private var textInput: String = Voice.deadOrbitNovelText
     @State private var showVoices = ProcessInfo.processInfo.arguments.contains("--open-voices")
-    @State private var showSettings = false
-    @State private var showDownloadedModelsSheet = false
+    @State private var showSettings = ProcessInfo.processInfo.arguments.contains("--open-settings")
+    @State private var showDownloadedModelsSheet = ProcessInfo.processInfo.arguments.contains("--open-models")
     @State private var pendingDeleteModel: (name: String, id: String, size: String)? = nil
     @State private var modelsManager = DownloadedModelsManager.shared
-    @State private var showHistory = false
+    @State private var showHistory = ProcessInfo.processInfo.arguments.contains("--open-history")
     @State private var showDocImporter = false
     @State private var showTeleprompter = ProcessInfo.processInfo.arguments.contains("--read-along")
     @State private var previewWordId: Int? = ProcessInfo.processInfo.arguments.contains("--read-along") ? 6 : nil
@@ -108,6 +108,124 @@ struct ContentView: View {
     @State private var copiedScript = false
     @State private var isAuditioningVoice = false
     @State private var auditionPlayer: AVAudioPlayer? = nil
+    @State private var sessionManager = StudioDocumentSessionManager.shared
+    @State private var lexicon = SpeechPronunciationLexicon.shared
+    @State private var castingManager = CharacterCastingManager.shared
+    @State private var masteringManager = StudioMasteringManager.shared
+    @State private var miniReader = StudioMiniReaderCoordinator.shared
+    @State private var showPronunciationSheet = ProcessInfo.processInfo.arguments.contains("--open-pronunciation")
+    @State private var showCastingSheet = ProcessInfo.processInfo.arguments.contains("--open-casting")
+    @State private var showM4BExporterSheet = ProcessInfo.processInfo.arguments.contains("--open-m4b")
+    @State private var showMasteringRackSheet = ProcessInfo.processInfo.arguments.contains("--open-mastering")
+    @State private var showChunkSearchPopover = ProcessInfo.processInfo.arguments.contains("--open-chunk-search")
+    @State private var chunkSearchQuery: String = ""
+
+    private func syncMiniReaderState() {
+        let chunks = textChunks
+        let safeIdx = min(max(0, viewModel.activeChunkIndex), max(0, chunks.count - 1))
+        let snippet = safeIdx < chunks.count ? chunks[safeIdx].text : textInput
+        miniReader.sync(
+            title: sessionManager.currentDocumentTitle,
+            chunkIndex: safeIdx,
+            totalChunks: max(1, chunks.count),
+            snippet: snippet,
+            isPlaying: viewModel.isPlaying,
+            isGenerating: viewModel.isGenerating,
+            voiceName: viewModel.selectedVoice?.name ?? "Zoey",
+            rate: viewModel.playbackRate,
+            currentTime: viewModel.currentTime,
+            duration: viewModel.duration
+        )
+    }
+
+    private func handleMiniReaderTransport(_ action: String) {
+        let chunks = textChunks
+        switch action {
+        case "togglePlayPause":
+            if viewModel.audioURL != nil {
+                viewModel.togglePlayPause()
+            } else if viewModel.isModelLoaded {
+                viewModel.startSynthesis(text: textInput, voice: viewModel.selectedVoice, startChunkIndex: viewModel.activeChunkIndex)
+            }
+        case "prevChunk":
+            let prev = max(0, viewModel.activeChunkIndex - 1)
+            viewModel.activeChunkIndex = prev
+            if viewModel.isModelLoaded {
+                viewModel.startSynthesis(text: textInput, voice: viewModel.selectedVoice, startChunkIndex: prev)
+            }
+        case "nextChunk":
+            let next = min(max(0, chunks.count - 1), viewModel.activeChunkIndex + 1)
+            viewModel.activeChunkIndex = next
+            if viewModel.isModelLoaded {
+                viewModel.startSynthesis(text: textInput, voice: viewModel.selectedVoice, startChunkIndex: next)
+            }
+        case "rate_1.0":
+            viewModel.playbackRate = 1.0
+        case "rate_1.25":
+            viewModel.playbackRate = 1.25
+        case "rate_1.5":
+            viewModel.playbackRate = 1.5
+        case "rate_2.0":
+            viewModel.playbackRate = 2.0
+        case "openMasteringRack":
+            showMasteringRackSheet = true
+        case "retakeActiveChunk":
+            viewModel.retakeAndSpliceChunk(fullText: textInput, chunkIndex: viewModel.activeChunkIndex, voice: viewModel.selectedVoice)
+        case "applyMasterBus":
+            viewModel.applyMasterBusInPlaceToCurrentAudio()
+        case "preset_acx":
+            masteringManager.applyPreset(.acxAudiobook)
+            viewModel.applyMasterBusInPlaceToCurrentAudio()
+        case "preset_podcast":
+            masteringManager.applyPreset(.podcastBroadcast)
+            viewModel.applyMasterBusInPlaceToCurrentAudio()
+        case "preset_youtube":
+            masteringManager.applyPreset(.youtubeStreaming)
+            viewModel.applyMasterBusInPlaceToCurrentAudio()
+        case "preset_cinema":
+            masteringManager.applyPreset(.warmCinema)
+            viewModel.applyMasterBusInPlaceToCurrentAudio()
+        case "preset_bypass":
+            masteringManager.applyPreset(.bypass)
+        default:
+            break
+        }
+        syncMiniReaderState()
+    }
+
+    private func pasteAndReadFromClipboard() {
+        #if os(macOS)
+        guard let raw = NSPasteboard.general.string(forType: .string)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              !raw.isEmpty else {
+            viewModel.errorMessage = "Clipboard does not contain any readable text."
+            return
+        }
+        let cleaned = SpeechTextCleaner.clean(raw, options: cleanOptions)
+        let finalScript = cleaned.isEmpty ? raw : cleaned
+        viewModel.stop()
+        viewModel.synthesizedWordTimings = []
+        viewModel.activeChunkIndex = 0
+        viewModel.synthesizingChunkIndex = 0
+        viewModel.synthesizedStartChunkIndex = 0
+        viewModel.synthesizedEndChunkIndex = nil
+        previewWordId = nil
+        textInput = finalScript
+        sessionManager.saveSessionScript(finalScript, chunkIndex: 0, title: "Clipboard Script")
+        if viewModel.autoReadAlong {
+            withAnimation(.spring(response: 0.24, dampingFraction: 0.82)) {
+                showTeleprompter = true
+            }
+        }
+        if viewModel.isModelLoaded {
+            viewModel.startSynthesis(
+                text: finalScript,
+                voice: viewModel.selectedVoice,
+                startChunkIndex: 0
+            )
+        }
+        #endif
+    }
 
     private func toggleVoiceAudition() {
         if isAuditioningVoice {
@@ -200,6 +318,13 @@ struct ContentView: View {
                         self.previewWordId = nil
                         self.textInput = extracted
                         self.viewModel.errorMessage = nil
+                        self.sessionManager.recordRecentDocument(
+                            title: fileName,
+                            sourcePath: url.path,
+                            text: extracted,
+                            chunkIndex: 0
+                        )
+                        self.sessionManager.saveSessionScript(extracted, chunkIndex: 0, title: fileName)
                         if UserDefaults.standard.bool(forKey: "VoicesApp.VoiceStudio.autoSynthesizeOnImport") {
                             UserDefaults.standard.removeObject(forKey: "VoicesApp.VoiceStudio.autoSynthesizeOnImport")
                             self.showTeleprompter = true
@@ -295,29 +420,29 @@ struct ContentView: View {
 
         VStack(spacing: 10) {
             // 1. Apple Sequoia Studio Ribbon (Engine Status Pill + Grouped Glass Action Bar)
-            HStack(spacing: 12) {
+            HStack(spacing: 8) {
                 // Engine & Cache Status Capsule
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     Circle()
                         .fill(viewModel.isModelLoaded ? Color.green : (viewModel.isLoading ? Color.orange : Color.gray))
                         .frame(width: 8, height: 8)
                         .shadow(color: (viewModel.isModelLoaded ? Color.green : Color.orange).opacity(0.6), radius: 4)
 
                     Text(viewModel.isModelLoaded ? "Engine Ready" : (viewModel.isLoading ? "Loading Model…" : "Engine Idle"))
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 11.5, weight: .semibold))
                         .foregroundStyle(.primary.opacity(0.92))
 
                     if modelsManager.isModelCached(viewModel.modelId) {
                         let activeSize = modelsManager.cachedModelSizeString(viewModel.modelId)
                         HStack(spacing: 3) {
                             Image(systemName: "checkmark.seal.fill")
-                                .font(.system(size: 10))
+                                .font(.system(size: 9.5))
                             Text(activeSize.map { "Cached · \($0)" } ?? "Cached")
-                                .font(.system(size: 10.5, weight: .semibold))
+                                .font(.system(size: 10, weight: .semibold))
                         }
                         .foregroundStyle(.green)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 2.5)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
                         .background(Color.green.opacity(0.14), in: Capsule())
                         .contextMenu {
                             Button {
@@ -341,11 +466,11 @@ struct ContentView: View {
                         Button {
                             viewModel.unloadModelAndPurgeVRAM()
                         } label: {
-                            HStack(spacing: 4) {
+                            HStack(spacing: 3.5) {
                                 Image(systemName: "memorychip")
-                                    .font(.system(size: 10.5, weight: .semibold))
-                                Text("Purge VRAM")
-                                    .font(.system(size: 11, weight: .medium))
+                                    .font(.system(size: 10, weight: .semibold))
+                                Text("Purge")
+                                    .font(.system(size: 10.5, weight: .medium))
                             }
                             .foregroundStyle(.orange)
                         }
@@ -353,8 +478,8 @@ struct ContentView: View {
                         .help("Unload model & free Apple Silicon Metal memory immediately (keep_alive: 0)")
                     }
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 7)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
                 .background(
                     Capsule()
                         .fill(theme.pillFill)
@@ -365,7 +490,7 @@ struct ContentView: View {
                 )
                 .fixedSize()
 
-                Spacer(minLength: 10)
+                Spacer(minLength: 4)
 
                 // Segmented Edit Script vs Read-Along Karaoke Switcher
                 HStack(spacing: 2) {
@@ -374,15 +499,15 @@ struct ContentView: View {
                             showTeleprompter = false
                         }
                     } label: {
-                        HStack(spacing: 5) {
+                        HStack(spacing: 4) {
                             Image(systemName: "square.and.pencil")
-                                .font(.system(size: 11))
+                                .font(.system(size: 10.5))
                             Text("Edit Script")
-                                .font(.system(size: 11.5, weight: !showTeleprompter ? .semibold : .medium))
+                                .font(.system(size: 11, weight: !showTeleprompter ? .semibold : .medium))
                         }
                         .foregroundStyle(!showTeleprompter ? (theme.isLight ? Color.white : Color.white) : .secondary)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5.5)
+                        .padding(.horizontal, 8.5)
+                        .padding(.vertical, 5)
                         .background(
                             !showTeleprompter
                                 ? (theme.isLight ? Color.black.opacity(0.78) : Color.white.opacity(0.18))
@@ -406,20 +531,20 @@ struct ContentView: View {
                             showTeleprompter = true
                         }
                     } label: {
-                        HStack(spacing: 5) {
+                        HStack(spacing: 4) {
                             Image(systemName: "text.word.spacing")
-                                .font(.system(size: 11))
-                            Text("Read-Along Karaoke")
-                                .font(.system(size: 11.5, weight: showTeleprompter ? .semibold : .medium))
+                                .font(.system(size: 10.5))
+                            Text("Read-Along")
+                                .font(.system(size: 11, weight: showTeleprompter ? .semibold : .medium))
                         }
                         .foregroundStyle(showTeleprompter ? theme.activeWordForeground : .secondary)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5.5)
+                        .padding(.horizontal, 8.5)
+                        .padding(.vertical, 5)
                         .background(showTeleprompter ? theme.activeWordBackground : Color.clear, in: Capsule())
                     }
                     .buttonStyle(.plain)
                 }
-                .padding(3)
+                .padding(2.5)
                 .background(
                     Capsule()
                         .fill(theme.recessedFill)
@@ -431,48 +556,242 @@ struct ContentView: View {
                 .fixedSize()
 
                 // Unified Apple Glass Action Capsule Group
-                HStack(spacing: 2) {
-                    // Import Document (.pdf, .epub, .docx, .rtf, .md, .html, .srt, .ipynb, .csv, .json, .png/.jpg OCR)
-                    Button {
-                        showDocImporter = true
-                    } label: {
-                        Label("Import", systemImage: "doc.text.magnifyingglass")
-                            .font(.system(size: 12, weight: .medium))
-                            .padding(.horizontal, 11)
-                            .padding(.vertical, 6)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 1) {
+                        // Import Document (.pdf, .epub, .docx, .rtf, .md, .html, .srt, .ipynb, .csv, .json, .png/.jpg OCR)
+                        Button {
+                            showDocImporter = true
+                        } label: {
+                            Label("Import", systemImage: "doc.text.magnifyingglass")
+                                .font(.system(size: 11, weight: .medium))
+                                .padding(.horizontal, 6.5)
+                                .padding(.vertical, 5)
+                                .contentShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .help("Import PDF, EPUB, DOCX, ODT, Jupyter .ipynb, CSV/TSV, JSON, SRT/VTT, Markdown, HTML, or Image OCR")
+
+                        Divider().frame(height: 14).opacity(0.35)
+
+                        // 1-Click Paste & Read Clipboard (⇧⌘V)
+                        Button {
+                            pasteAndReadFromClipboard()
+                        } label: {
+                            HStack(spacing: 3.5) {
+                                Image(systemName: "doc.on.clipboard.fill")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.cyan)
+                                Text("Paste")
+                                    .font(.system(size: 11, weight: .medium))
+                            }
+                            .padding(.horizontal, 6.5)
+                            .padding(.vertical, 5)
                             .contentShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .help("Import PDF, EPUB, DOCX, ODT, Jupyter .ipynb, CSV/TSV, JSON, SRT/VTT, Markdown, HTML, or Image OCR")
+                        }
+                        .buttonStyle(.plain)
+                        .help("Clean & immediately read whatever text is on your macOS clipboard (⇧⌘V)")
+
+                        Divider().frame(height: 14).opacity(0.35)
+
+                        // Smart Speech Cleanup Filters
+                        Menu {
+                            Button {
+                                textInput = SpeechTextCleaner.clean(textInput, options: cleanOptions)
+                            } label: {
+                                Label("Clean Text for Speech Now", systemImage: "wand.and.stars")
+                            }
+                            Divider()
+                            Toggle("Strip Markdown (#, **, tables)", isOn: $cleanOptions.stripMarkdown)
+                            Toggle("Strip HTML Tags & Entities", isOn: $cleanOptions.stripHtml)
+                            Toggle("Strip Code Blocks (```)", isOn: $cleanOptions.stripCodeBlocks)
+                            Toggle("Simplify URLs to Domain", isOn: $cleanOptions.simplifyUrls)
+                            Toggle("Strip SRT/VTT/LRC Timestamps", isOn: $cleanOptions.stripTimestamps)
+                            Toggle("Strip ASCII Divider Lines", isOn: $cleanOptions.stripDividers)
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "wand.and.stars")
+                                    .font(.system(size: 11))
+                                Text("Clean")
+                                    .font(.system(size: 11, weight: .medium))
+                            }
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 5)
+                        }
+                        .menuStyle(.borderlessButton)
+                        .fixedSize()
 
                     Divider().frame(height: 14).opacity(0.35)
 
-                    // Smart Speech Cleanup Filters
+                    // Reading Bookmarks & Recent Documents Menu
                     Menu {
+                        let currentChunkText = (activeChunkIdx < chunks.count) ? chunks[activeChunkIdx].text : textInput
+                        let isBookmarked = sessionManager.isChunkBookmarked(activeChunkIdx)
                         Button {
-                            textInput = SpeechTextCleaner.clean(textInput, options: cleanOptions)
+                            sessionManager.toggleBookmark(chunkIndex: activeChunkIdx, chunkText: currentChunkText)
                         } label: {
-                            Label("Clean Text for Speech Now", systemImage: "wand.and.stars")
+                            Label(
+                                isBookmarked ? "Remove Bookmark for Chunk §\(activeChunkIdx + 1)" : "Bookmark Current Chunk (§\(activeChunkIdx + 1))",
+                                systemImage: isBookmarked ? "bookmark.slash.fill" : "bookmark.fill"
+                            )
                         }
-                        Divider()
-                        Toggle("Strip Markdown (#, **, tables)", isOn: $cleanOptions.stripMarkdown)
-                        Toggle("Strip HTML Tags & Entities", isOn: $cleanOptions.stripHtml)
-                        Toggle("Strip Code Blocks (```)", isOn: $cleanOptions.stripCodeBlocks)
-                        Toggle("Simplify URLs to Domain", isOn: $cleanOptions.simplifyUrls)
-                        Toggle("Strip SRT/VTT/LRC Timestamps", isOn: $cleanOptions.stripTimestamps)
-                        Toggle("Strip ASCII Divider Lines", isOn: $cleanOptions.stripDividers)
+                        if !sessionManager.bookmarks.isEmpty {
+                            Divider()
+                            Section("Saved Reading Bookmarks (\(sessionManager.bookmarks.count))") {
+                                ForEach(sessionManager.bookmarks) { bm in
+                                    Button {
+                                        let target = min(max(0, bm.chunkIndex), max(0, chunks.count - 1))
+                                        viewModel.activeChunkIndex = target
+                                        withAnimation(.spring(response: 0.24, dampingFraction: 0.82)) {
+                                            showTeleprompter = true
+                                        }
+                                    } label: {
+                                        Label("§\(bm.chunkIndex + 1) — \(bm.previewSnippet)", systemImage: "bookmark.fill")
+                                    }
+                                }
+                            }
+                        }
+                        if !sessionManager.recentDocuments.isEmpty {
+                            Divider()
+                            Section("Recent Imported Books & Documents") {
+                                ForEach(sessionManager.recentDocuments) { doc in
+                                    Button {
+                                        if let restored = sessionManager.loadRecentDocumentText(doc) {
+                                            textInput = restored
+                                            viewModel.activeChunkIndex = doc.lastChunkIndex
+                                        }
+                                    } label: {
+                                        Label("\(doc.title) (§\(doc.lastChunkIndex + 1))", systemImage: "Clock")
+                                    }
+                                }
+                            }
+                        }
                     } label: {
-                        HStack(spacing: 5) {
-                            Image(systemName: "wand.and.stars")
-                                .font(.system(size: 11.5))
-                            Text("Clean")
-                                .font(.system(size: 12, weight: .medium))
+                        HStack(spacing: 3.5) {
+                            Image(systemName: sessionManager.isChunkBookmarked(activeChunkIdx) ? "bookmark.fill" : "bookmark")
+                                .font(.system(size: 10.5))
+                                .foregroundStyle(sessionManager.isChunkBookmarked(activeChunkIdx) ? .orange : .primary)
+                            Text("Bookmarks")
+                                .font(.system(size: 11, weight: .medium))
+                            if !sessionManager.bookmarks.isEmpty {
+                                Text("\(sessionManager.bookmarks.count)")
+                                    .font(.system(size: 9, weight: .bold, design: .rounded))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 4)
+                                    .padding(.vertical, 1)
+                                    .background(Color.orange, in: Capsule())
+                            }
                         }
-                        .padding(.horizontal, 11)
-                        .padding(.vertical, 6)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 5)
                     }
                     .menuStyle(.borderlessButton)
                     .fixedSize()
+                    .help("Save reading bookmarks (§Chunk) or reopen recently imported books and documents")
+
+                    Divider().frame(height: 14).opacity(0.35)
+
+                    // Pronunciation Lexicon Button
+                    Button {
+                        showPronunciationSheet = true
+                    } label: {
+                        HStack(spacing: 3.5) {
+                            Image(systemName: "character.phonetic")
+                                .font(.system(size: 10.5))
+                                .foregroundStyle(lexicon.isEnabled ? .mint : .secondary)
+                            Text("Lexicon")
+                                .font(.system(size: 11, weight: .medium))
+                        }
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 5)
+                        .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Customize phonetic pronunciation rules for acronyms, technical terms & character names")
+
+                    Divider().frame(height: 14).opacity(0.35)
+
+                    // Multi-Voice Character Casting Table Button
+                    Button {
+                        showCastingSheet = true
+                    } label: {
+                        HStack(spacing: 3.5) {
+                            Image(systemName: "person.2.wave.2.fill")
+                                .font(.system(size: 10.5))
+                                .foregroundStyle(castingManager.isEnabled ? .purple : .secondary)
+                            Text("Cast")
+                                .font(.system(size: 11, weight: .medium))
+                            if castingManager.isEnabled {
+                                Text("\(castingManager.cast.filter(\.isEnabled).count)")
+                                    .font(.system(size: 9, weight: .bold, design: .rounded))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 4)
+                                    .padding(.vertical, 1)
+                                    .background(Color.purple, in: Capsule())
+                            }
+                        }
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 5)
+                        .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Interactive Multi-Voice Character Casting Table — assign distinct voices & pitch profiles to book characters and dialogue")
+                    .sheet(isPresented: $showCastingSheet) {
+                        CharacterCastingSheet(scriptText: $textInput)
+                    }
+                    .sheet(isPresented: $showM4BExporterSheet) {
+                        M4BAudiobookExportSheet(viewModel: viewModel, scriptText: textInput, defaultTitle: sessionManager.currentDocumentTitle)
+                    }
+                    .onReceive(NotificationCenter.default.publisher(for: .openCharacterCastingSheet)) { _ in
+                        showCastingSheet = true
+                    }
+                    .onReceive(NotificationCenter.default.publisher(for: .openM4BAudiobookSheet)) { _ in
+                        showM4BExporterSheet = true
+                    }
+                    .onReceive(NotificationCenter.default.publisher(for: .miniReaderQuickSpeak)) { note in
+                        guard let text = note.object as? String, !text.isEmpty else { return }
+                        textInput = text
+                        viewModel.activeChunkIndex = 0
+                        if viewModel.isModelLoaded {
+                            viewModel.startSynthesis(text: text, voice: viewModel.selectedVoice, startChunkIndex: 0)
+                        }
+                    }
+                    .onReceive(NotificationCenter.default.publisher(for: .miniReaderTransportAction)) { note in
+                        if let action = note.object as? String {
+                            handleMiniReaderTransport(action)
+                        }
+                    }
+
+                    Divider().frame(height: 14).opacity(0.35)
+
+                    // Studio Master Bus DSP Rack & ACX / LUFS Broadcast QC Button
+                    Button {
+                        showMasteringRackSheet = true
+                    } label: {
+                        HStack(spacing: 3.5) {
+                            Image(systemName: "slider.vertical.3")
+                                .font(.system(size: 10.5))
+                                .foregroundStyle(masteringManager.preset != .bypass ? .orange : .secondary)
+                            Text("Master")
+                                .font(.system(size: 11, weight: .medium))
+                            Text(masteringManager.preset.shortBadge)
+                                .font(.system(size: 8.5, weight: .bold, design: .monospaced))
+                                .foregroundStyle(masteringManager.preset != .bypass ? .white : .secondary)
+                                .padding(.horizontal, 4.5)
+                                .padding(.vertical, 1)
+                                .background(
+                                    masteringManager.preset != .bypass ? Color.orange : Color.primary.opacity(0.08),
+                                    in: Capsule()
+                                )
+                        }
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 5)
+                        .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Studio Master Bus DSP Rack — ACX / Audible -20 dB RMS compliance, -16 LUFS Podcast mastering, tube warmth, de-esser & ambience beds")
+                    .sheet(isPresented: $showMasteringRackSheet) {
+                        MasteringRackSheet(viewModel: viewModel)
+                    }
 
                     Divider().frame(height: 14).opacity(0.35)
 
@@ -494,14 +813,14 @@ struct ContentView: View {
                             Label("Clear Editor", systemImage: "trash")
                         }
                     } label: {
-                        HStack(spacing: 5) {
+                        HStack(spacing: 4) {
                             Image(systemName: "text.book.closed")
-                                .font(.system(size: 11.5))
+                                .font(.system(size: 10.5))
                             Text("Scripts")
-                                .font(.system(size: 12, weight: .medium))
+                                .font(.system(size: 11, weight: .medium))
                         }
-                        .padding(.horizontal, 11)
-                        .padding(.vertical, 6)
+                        .padding(.horizontal, 6.5)
+                        .padding(.vertical, 5)
                     }
                     .menuStyle(.borderlessButton)
                     .fixedSize()
@@ -510,6 +829,24 @@ struct ContentView: View {
 
                     // Direct Silent Audio, Read-Along MP4 Video, Subtitles & Batch Export menu
                     Menu {
+                        Section("Chapterized .M4B Audiobook (Chapters + Cover Art)") {
+                            Button {
+                                showM4BExporterSheet = true
+                            } label: {
+                                Label("📖 Configure & Export Chapterized .M4B Audiobook…", systemImage: "books.vertical.circle.fill")
+                            }
+                            Button {
+                                viewModel.exportChapterizedM4B(
+                                    text: textInput,
+                                    bookTitle: sessionManager.currentDocumentTitle,
+                                    author: "Codecaine MLX Audio Studio",
+                                    voice: viewModel.selectedVoice
+                                )
+                            } label: {
+                                Label("⚡ Quick Export .M4B Audiobook (\(max(1, chunks.count)) Chapters)", systemImage: "bolt.badge.clock.fill")
+                            }
+                        }
+                        Divider()
                         Section("Instant Audio Export (<1s if Generated · ~2s Silent)") {
                             ForEach(AudioExportFormat.allCases) { fmt in
                                 Button {
@@ -527,7 +864,7 @@ struct ContentView: View {
                         }
                         Divider()
                         Section("Instant 1.5s Active Chunk (§\(activeChunkIdx + 1)) Silent Export") {
-                            ForEach([AudioExportFormat.wav, .mp3, .m4a]) { fmt in
+                            ForEach([AudioExportFormat.wav, .m4b, .mp3, .m4a]) { fmt in
                                 Button {
                                     viewModel.quickExportActiveChunk(
                                         text: textInput,
@@ -543,7 +880,7 @@ struct ContentView: View {
                         }
                         Divider()
                         Section("Export Full Book / Novel Batch (All \(max(1, chunks.count)) Chunks)") {
-                            ForEach([AudioExportFormat.wav, .mp3, .m4a]) { fmt in
+                            ForEach([AudioExportFormat.m4b, .wav, .mp3, .m4a]) { fmt in
                                 Button {
                                     viewModel.quickExportActiveChunk(
                                         text: textInput,
@@ -598,14 +935,14 @@ struct ContentView: View {
                             }
                         }
                     } label: {
-                        HStack(spacing: 5) {
+                        HStack(spacing: 4) {
                             Image(systemName: "square.and.arrow.up")
-                                .font(.system(size: 11.5))
+                                .font(.system(size: 10.5))
                             Text("Export")
-                                .font(.system(size: 12, weight: .medium))
+                                .font(.system(size: 11, weight: .medium))
                         }
-                        .padding(.horizontal, 11)
-                        .padding(.vertical, 6)
+                        .padding(.horizontal, 6.5)
+                        .padding(.vertical, 5)
                     }
                     .menuStyle(.borderlessButton)
                     .fixedSize()
@@ -616,24 +953,25 @@ struct ContentView: View {
                     Button {
                         showHistory = true
                     } label: {
-                        HStack(spacing: 5) {
+                        HStack(spacing: 4) {
                             Image(systemName: "clock.arrow.circlepath")
-                                .font(.system(size: 11.5))
+                                .font(.system(size: 10.5))
                             Text("Takes")
-                                .font(.system(size: 12, weight: .medium))
+                                .font(.system(size: 11, weight: .medium))
                             if !viewModel.history.isEmpty {
                                 Text("\(viewModel.history.count)")
-                                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                                    .font(.system(size: 9, weight: .bold, design: .rounded))
                                     .foregroundStyle(.white)
-                                    .padding(.horizontal, 5)
+                                    .padding(.horizontal, 4.5)
                                     .padding(.vertical, 1)
                                     .background(Color.blue, in: Capsule())
                             }
                         }
-                        .padding(.horizontal, 11)
-                        .padding(.vertical, 6)
+                        .padding(.horizontal, 6.5)
+                        .padding(.vertical, 5)
                     }
                     .buttonStyle(.plain)
+                    }
                 }
                 .padding(.horizontal, 4)
                 .padding(.vertical, 3)
@@ -645,9 +983,8 @@ struct ContentView: View {
                                 .strokeBorder(theme.pillStroke, lineWidth: 0.8)
                         )
                 )
-                .fixedSize()
             }
-            .padding(.horizontal, 20)
+            .padding(.horizontal, 14)
             .padding(.top, 12)
 
             // 1B. Codecaine Prosody, Cinema Theme & Hierarchical Chunk Navigator Ribbon
@@ -903,8 +1240,132 @@ struct ContentView: View {
 
                     Spacer(minLength: 6)
 
-                    // Live Hierarchical Chunk Navigator Strip (§1 · §2 · §3...)
+                    // Live Hierarchical Chunk Navigator Strip (§1 · §2 · §3...) + Surgical Retake & In-Book Search Popover
                     if !chunks.isEmpty {
+                        Button {
+                            viewModel.retakeAndSpliceChunk(
+                                fullText: textInput,
+                                chunkIndex: activeChunkIdx,
+                                voice: viewModel.selectedVoice
+                            )
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
+                                    .font(.system(size: 10.5, weight: .bold))
+                                    .foregroundStyle(.orange)
+                                Text("Retake §\(activeChunkIdx + 1)")
+                                    .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4.5)
+                            .background(Color.orange.opacity(0.14), in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .fixedSize()
+                        .disabled(viewModel.isGenerating)
+                        .help("Surgical Retake & Splice — re-synthesize only §\(activeChunkIdx + 1) and splice it into the master WAV with 12ms crossfades")
+
+                        Button {
+                            showChunkSearchPopover.toggle()
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "magnifyingglass")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundStyle(.cyan)
+                                Text("Find §")
+                                    .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4.5)
+                            .background(theme.pillFill, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .fixedSize()
+                        .help("Search chapters, character names, or keywords across all \(chunks.count) chunks")
+                        .popover(isPresented: $showChunkSearchPopover, arrowEdge: .bottom) {
+                            VStack(alignment: .leading, spacing: 10) {
+                                HStack {
+                                    Image(systemName: "magnifyingglass")
+                                        .foregroundStyle(.secondary)
+                                    TextField("Search across \(chunks.count) chunks (e.g. Chapter, Cabin)…", text: $chunkSearchQuery)
+                                        .textFieldStyle(.plain)
+                                        .font(.system(size: 12.5))
+                                    if !chunkSearchQuery.isEmpty {
+                                        Button {
+                                            chunkSearchQuery = ""
+                                        } label: {
+                                            Image(systemName: "xmark.circle.fill")
+                                                .foregroundStyle(.secondary)
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                }
+                                .padding(8)
+                                .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+
+                                let filteredChunks = chunkSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                    ? chunks
+                                    : chunks.filter { $0.text.localizedCaseInsensitiveContains(chunkSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)) }
+
+                                Text("\(filteredChunks.count) of \(chunks.count) chunks matching")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+
+                                ScrollView {
+                                    LazyVStack(alignment: .leading, spacing: 6) {
+                                        ForEach(filteredChunks.prefix(50)) { c in
+                                            HStack(spacing: 8) {
+                                                Text("§\(c.index + 1)")
+                                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                                    .foregroundStyle(.white)
+                                                    .padding(.horizontal, 7)
+                                                    .padding(.vertical, 3)
+                                                    .background(c.index == activeChunkIdx ? Color.blue : Color.secondary.opacity(0.35), in: Capsule())
+
+                                                Text(c.text.replacingOccurrences(of: "\n", with: " "))
+                                                    .font(.system(size: 11.5))
+                                                    .lineLimit(2)
+                                                    .foregroundStyle(.primary)
+
+                                                Spacer()
+
+                                                Button("Jump") {
+                                                    viewModel.activeChunkIndex = c.index
+                                                    showTeleprompter = true
+                                                    showChunkSearchPopover = false
+                                                }
+                                                .buttonStyle(.bordered)
+                                                .controlSize(.mini)
+
+                                                Button {
+                                                    viewModel.activeChunkIndex = c.index
+                                                    showTeleprompter = true
+                                                    showChunkSearchPopover = false
+                                                    if viewModel.isModelLoaded {
+                                                        viewModel.startSynthesis(
+                                                            text: textInput,
+                                                            voice: viewModel.selectedVoice,
+                                                            startChunkIndex: c.index
+                                                        )
+                                                    }
+                                                } label: {
+                                                    Image(systemName: "play.fill")
+                                                }
+                                                .buttonStyle(.borderedProminent)
+                                                .controlSize(.mini)
+                                                .help("Speak immediately from Chunk §\(c.index + 1)")
+                                            }
+                                            .padding(6)
+                                            .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+                                        }
+                                    }
+                                }
+                                .frame(height: 240)
+                            }
+                            .padding(12)
+                            .frame(width: 440)
+                        }
+
                         ScrollView(.horizontal, showsIndicators: false) {
                             LazyHStack(spacing: 5) {
                                 Text("CHUNKS (\(chunks.count))")
@@ -913,6 +1374,7 @@ struct ContentView: View {
 
                                 ForEach(chunks) { chunk in
                                     let isCurrent = chunk.index == activeChunkIdx
+                                    let isBookmarked = sessionManager.isChunkBookmarked(chunk.index)
                                     Button {
                                         viewModel.activeChunkIndex = chunk.index
                                         withAnimation(.spring(response: 0.24, dampingFraction: 0.82)) {
@@ -935,6 +1397,11 @@ struct ContentView: View {
                                         #endif
                                     } label: {
                                         HStack(spacing: 4) {
+                                            if isBookmarked {
+                                                Image(systemName: "bookmark.fill")
+                                                    .font(.system(size: 8.5))
+                                                    .foregroundStyle(.orange)
+                                            }
                                             Text("§\(chunk.index + 1)")
                                                 .font(.system(size: 10.5, weight: .bold, design: .monospaced))
                                             Text("\(chunk.wordCount)w")
@@ -949,7 +1416,7 @@ struct ContentView: View {
                                                 .fill(isCurrent ? Color.blue.opacity(0.65) : Color.white.opacity(0.06))
                                                 .overlay(
                                                     Capsule()
-                                                        .strokeBorder(isCurrent ? Color.blue : Color.white.opacity(0.10), lineWidth: 0.8)
+                                                        .strokeBorder(isCurrent ? Color.blue : (isBookmarked ? Color.orange.opacity(0.6) : Color.white.opacity(0.10)), lineWidth: 0.8)
                                                 )
                                         )
                                     }
@@ -958,12 +1425,12 @@ struct ContentView: View {
                                 }
                             }
                         }
-                        .frame(maxWidth: 340, maxHeight: 28)
+                        .frame(maxWidth: 235, maxHeight: 28)
                         .fixedSize(horizontal: false, vertical: true)
                     }
                 }
             }
-            .padding(.horizontal, 20)
+            .padding(.horizontal, 14)
 
             // 2. Inset Apple Editorial Script Canvas Card
             ZStack(alignment: .bottomTrailing) {
@@ -1805,26 +2272,51 @@ struct ContentView: View {
                         .help("Audition \(viewModel.selectedVoice?.name ?? "selected voice") reference sample")
                     }
 
-                    // Quick Model Engine Picker Capsule
+                    // Quick Model Engine Picker Capsule (Categorized + Cached Pinned)
                     Menu {
-                        Section("Select MLX TTS Engine (\(TTSViewModel.presetModels.count) Models)") {
-                            ForEach(TTSViewModel.presetModels, id: \.id) { preset in
-                                let cached = modelsManager.isModelCached(preset.id)
-                                let sizeStr = modelsManager.cachedModelSizeString(preset.id)
-                                let labelText = cached
-                                    ? "✓ \(preset.name) [Cached\(sizeStr.map { " · \($0)" } ?? "")]"
-                                    : "\(preset.name) (\(preset.id))"
-                                Button {
-                                    viewModel.modelId = preset.id
-                                    Task {
-                                        await viewModel.reloadModel()
+                        let cachedPresets = TTSViewModel.presetModels.filter { modelsManager.isModelCached($0.id) }
+                        if !cachedPresets.isEmpty {
+                            Section("✓ Downloaded & Ready on Disk (\(cachedPresets.count))") {
+                                ForEach(cachedPresets, id: \.id) { preset in
+                                    let sizeStr = modelsManager.cachedModelSizeString(preset.id)
+                                    let labelText = "✓ \(preset.name)\(sizeStr.map { " · \($0)" } ?? "")"
+                                    Button {
+                                        viewModel.modelId = preset.id
+                                        Task { await viewModel.reloadModel() }
+                                    } label: {
+                                        if viewModel.modelId == preset.id {
+                                            Label(labelText, systemImage: "checkmark")
+                                        } else {
+                                            Text(labelText)
+                                        }
+                                    }
+                                }
+                            }
+                            Divider()
+                        }
+
+                        Section("Browse \(TTSViewModel.presetModels.count) MLX TTS Engines by Category") {
+                            ForEach(TTSViewModel.categorizedPresetModels, id: \.category) { group in
+                                Menu {
+                                    ForEach(group.models, id: \.id) { preset in
+                                        let cached = modelsManager.isModelCached(preset.id)
+                                        let sizeStr = modelsManager.cachedModelSizeString(preset.id)
+                                        let labelText = cached
+                                            ? "✓ \(preset.name) [Cached\(sizeStr.map { " · \($0)" } ?? "")]"
+                                            : preset.name
+                                        Button {
+                                            viewModel.modelId = preset.id
+                                            Task { await viewModel.reloadModel() }
+                                        } label: {
+                                            if viewModel.modelId == preset.id {
+                                                Label(labelText, systemImage: "checkmark")
+                                            } else {
+                                                Text(labelText)
+                                            }
+                                        }
                                     }
                                 } label: {
-                                    if viewModel.modelId == preset.id {
-                                        Label(labelText, systemImage: "checkmark")
-                                    } else {
-                                        Text(labelText)
-                                    }
+                                    Label("\(group.category) (\(group.models.count))", systemImage: group.icon)
                                 }
                             }
                         }
@@ -1898,6 +2390,81 @@ struct ContentView: View {
                     }
                     .buttonStyle(.plain)
                     .help("Configure temperature, top-p, max tokens, HuggingFace token & cache")
+
+                    // 1-Click RAD Developer Code & API Snippet Menu
+                    Menu {
+                        let port = LocalhostServerManager.shared.primaryPort
+                        let voiceLabel = viewModel.selectedVoice?.name ?? "Freya"
+                        Section("Copy Live RAD Snippet (\(viewModel.modelId.split(separator: "/").last.map(String.init) ?? viewModel.modelId) · \(voiceLabel))") {
+                            Button {
+                                #if os(macOS)
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(viewModel.radCodeSnippet(language: "curl", text: textInput, port: port), forType: .string)
+                                #endif
+                            } label: {
+                                Label("Copy cURL Command (POST /v1/audio/speech)", systemImage: "terminal.fill")
+                            }
+
+                            Button {
+                                #if os(macOS)
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(viewModel.radCodeSnippet(language: "python", text: textInput, port: port), forType: .string)
+                                #endif
+                            } label: {
+                                Label("Copy Python Snippet (OpenAI SDK Drop-In)", systemImage: "chevron.left.forwardslash.chevron.right")
+                            }
+
+                            Button {
+                                #if os(macOS)
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(viewModel.radCodeSnippet(language: "typescript", text: textInput, port: port), forType: .string)
+                                #endif
+                            } label: {
+                                Label("Copy TypeScript / Node.js Snippet (fetch)", systemImage: "curlybraces")
+                            }
+
+                            Button {
+                                #if os(macOS)
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(viewModel.radCodeSnippet(language: "swift", text: textInput, port: port), forType: .string)
+                                #endif
+                            } label: {
+                                Label("Copy Swift async/await Snippet (URLSession)", systemImage: "swift")
+                            }
+                        }
+                        Divider()
+                        Button {
+                            #if os(macOS)
+                            if let url = URL(string: "http://127.0.0.1:\(port)/playground") {
+                                NSWorkspace.shared.open(url)
+                            }
+                            #endif
+                        } label: {
+                            Label("Open Interactive Web Playground (:8080/playground)…", systemImage: "safari.fill")
+                        }
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "chevron.left.forwardslash.chevron.right")
+                                .font(.system(size: 11.5, weight: .bold))
+                                .foregroundStyle(.cyan)
+                            Text("RAD API")
+                                .font(.system(size: 11.5, weight: .semibold))
+                                .foregroundStyle(.primary)
+                        }
+                        .padding(.horizontal, 12)
+                        .frame(height: 44)
+                        .background(
+                            Capsule()
+                                .fill(Color.cyan.opacity(0.10))
+                                .overlay(
+                                    Capsule()
+                                        .strokeBorder(Color.cyan.opacity(0.32), lineWidth: 0.8)
+                                )
+                        )
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    .help("1-click copy ready-to-run cURL, Python, TypeScript, or Swift code for the active model, voice, speed & script")
 
                     Spacer()
 
@@ -2153,8 +2720,36 @@ struct ContentView: View {
                 }
             }
         }
+        .sheet(isPresented: $showPronunciationSheet) {
+            PronunciationLexiconSheet()
+        }
         .onChange(of: customVoices) { _, newValue in
             Voice.saveCustomVoices(newValue)
+        }
+        .onChange(of: textInput) { _, newText in
+            sessionManager.saveSessionScript(newText, chunkIndex: viewModel.activeChunkIndex)
+            syncMiniReaderState()
+        }
+        .onChange(of: viewModel.activeChunkIndex) { _, newChunk in
+            sessionManager.saveActiveChunkIndex(newChunk)
+            syncMiniReaderState()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .pasteAndReadClipboard)) { _ in
+            pasteAndReadFromClipboard()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .cloneVoiceFromAudio)) { note in
+            let refreshed = Voice.loadCustomVoices()
+            customVoices = refreshed
+            if let clonedVoice = (note.object as? Voice) ?? refreshed.first {
+                viewModel.selectedVoice = clonedVoice
+                viewModel.generationProgress = "Cloned voice '\(clonedVoice.name)' ready in Voice Studio!"
+                Task { @MainActor in
+                    try? await Task.sleep(for: .seconds(3.0))
+                    if self.viewModel.generationProgress.hasPrefix("Cloned voice") {
+                        self.viewModel.generationProgress = ""
+                    }
+                }
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .sendTranscriptToVoiceStudio)) { note in
             let incoming = (note.object as? String)
@@ -2198,7 +2793,12 @@ struct ContentView: View {
                 viewModel.synthesizedEndChunkIndex = nil
                 previewWordId = nil
                 showTeleprompter = false
+            } else if !ProcessInfo.processInfo.arguments.contains("--read-along"),
+                      let restored = sessionManager.restoreSessionScript() {
+                textInput = restored.text
+                viewModel.activeChunkIndex = restored.chunkIndex
             }
+            syncMiniReaderState()
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
@@ -3115,6 +3715,47 @@ struct CompactAudioPlayer: View {
                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .fixedSize()
+
+            #if os(macOS)
+            if let url = audioURL, FileManager.default.fileExists(atPath: url.path) {
+                // Draggable WAV File Pill (Drag directly into Finder, Logic Pro, Final Cut, iMessage, Slack)
+                HStack(spacing: 4) {
+                    Image(systemName: "waveform.path")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(accentColor)
+                    Text("Drag WAV")
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.primary.opacity(0.88))
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(
+                    Capsule()
+                        .fill(accentColor.opacity(0.14))
+                        .overlay(
+                            Capsule()
+                                .strokeBorder(accentColor.opacity(0.35), lineWidth: 0.8)
+                        )
+                )
+                .onDrag {
+                    NSItemProvider(object: url as NSURL)
+                }
+                .help("Drag this audio file directly into Finder, Logic Pro, Final Cut Pro, or any app")
+
+                // 1-Click Reveal in Finder Button
+                Button {
+                    NSWorkspace.shared.activateFileViewerSelecting([url])
+                } label: {
+                    Image(systemName: "folder.fill")
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 24, height: 24)
+                        .background(Color.primary.opacity(0.06), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .help("Reveal audio file in macOS Finder")
+            }
+            #endif
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
@@ -3125,6 +3766,449 @@ struct CompactAudioPlayer: View {
         let minutes = Int(safe) / 60
         let seconds = Int(safe) % 60
         return String(format: "%d:%02d", minutes, seconds)
+    }
+}
+
+// MARK: - Pronunciation Lexicon Sheet (Custom Phonetic Replacements for Acronyms & Proper Nouns)
+
+struct PronunciationLexiconSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var lexicon = SpeechPronunciationLexicon.shared
+    @State private var newTerm: String = ""
+    @State private var newPhonetic: String = ""
+    @State private var newCaseSensitive: Bool = false
+    @State private var sampleTestInput: String = "Testing MLX neural speech on Apple Silicon VRAM with BF16 and arXiv EPUB books."
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Custom Pronunciation Lexicon")
+                            .font(.headline)
+                        Text("Phonetic rules are applied automatically during speech synthesis while preserving the original spelling in your script and Read-Along Karaoke.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Toggle("Enable Lexicon", isOn: $lexicon.isEnabled)
+                        .toggleStyle(.switch)
+                        .labelsHidden()
+                }
+                .padding(12)
+                .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
+
+                // Add New Rule Bar
+                HStack(spacing: 8) {
+                    TextField("Word or Acronym (e.g. MLX, Callahan)", text: $newTerm)
+                        .textFieldStyle(.roundedBorder)
+                    Image(systemName: "arrow.right")
+                        .foregroundStyle(.secondary)
+                    TextField("Spoken Phonetic (e.g. M L X, Cal-uh-han)", text: $newPhonetic)
+                        .textFieldStyle(.roundedBorder)
+                    Toggle("Aa", isOn: $newCaseSensitive)
+                        .toggleStyle(.button)
+                        .help("Case-sensitive match (useful for all-caps acronyms like MLX or SQL)")
+                    Button {
+                        lexicon.addRule(term: newTerm, phonetic: newPhonetic, caseSensitive: newCaseSensitive)
+                        newTerm = ""
+                        newPhonetic = ""
+                    } label: {
+                        Label("Add Rule", systemImage: "plus.circle.fill")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(newTerm.trimmingCharacters(in: .whitespaces).isEmpty || newPhonetic.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+
+                // Live Preview Box
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("LIVE PHONETIC PREVIEW")
+                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                        .foregroundStyle(.secondary)
+                    TextField("Type a sentence to preview phonetic expansion…", text: $sampleTestInput)
+                        .textFieldStyle(.roundedBorder)
+                        .font(.caption)
+                    HStack(spacing: 6) {
+                        Image(systemName: "speaker.wave.2.bubble.fill")
+                            .foregroundStyle(.mint)
+                        Text(lexicon.apply(to: sampleTestInput))
+                            .font(.system(size: 12, weight: .medium, design: .monospaced))
+                            .foregroundStyle(.mint)
+                    }
+                }
+                .padding(10)
+                .background(Color.mint.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+
+                List {
+                    ForEach($lexicon.rules) { $rule in
+                        HStack(spacing: 12) {
+                            Toggle("", isOn: $rule.isEnabled)
+                                .labelsHidden()
+                            Text(rule.term)
+                                .font(.system(size: 13, weight: .bold, design: .monospaced))
+                                .frame(minWidth: 110, alignment: .leading)
+                            Image(systemName: "arrow.right")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            TextField("Phonetic", text: $rule.phonetic)
+                                .textFieldStyle(.roundedBorder)
+                                .font(.system(size: 12.5))
+                            if rule.caseSensitive {
+                                Text("Aa")
+                                    .font(.caption2.bold())
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color.blue.opacity(0.18), in: Capsule())
+                            }
+                            Button(role: .destructive) {
+                                lexicon.removeRule(id: rule.id)
+                            } label: {
+                                Image(systemName: "trash")
+                            }
+                            .buttonStyle(.borderless)
+                        }
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+            }
+            .padding(16)
+            .navigationTitle("Pronunciation Lexicon (\(lexicon.rules.filter(\.isEnabled).count) Active)")
+            .toolbar {
+                ToolbarItem(placement: .automatic) {
+                    Button("Reset Defaults") {
+                        lexicon.resetDefaults()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        #if os(macOS)
+        .frame(minWidth: 620, minHeight: 480)
+        #endif
+    }
+}
+
+// MARK: - Interactive Multi-Voice Character Casting Table Sheet ("Cast & Dialogue" Studio)
+
+struct CharacterCastingSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Binding var scriptText: String
+    @State private var manager = CharacterCastingManager.shared
+    @State private var newName: String = ""
+    @State private var newVoice: String = "Freya"
+    @State private var newPitch: Float = 0.0
+    @State private var scanBanner: String? = nil
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .center, spacing: 14) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Multi-Voice Character Casting Table")
+                            .font(.headline)
+                        Text("Assign distinct studio voices and acoustic pitch profiles to each character (`Name:` prefixes, `<|speaker:N|>` tags, or quoted novel dialogue). Synthesis switches voices per chunk automatically.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Toggle("Enable Casting", isOn: $manager.isEnabled)
+                        .toggleStyle(.switch)
+                        .labelsHidden()
+                }
+                .padding(12)
+                .background(Color.purple.opacity(0.09), in: RoundedRectangle(cornerRadius: 12))
+
+                HStack(spacing: 10) {
+                    Button {
+                        let added = manager.scanScriptForCharacters(scriptText)
+                        scanBanner = added > 0
+                            ? "Discovered & added \(added) character(s) from the active script!"
+                            : "All detected script speakers are already in the cast table."
+                    } label: {
+                        Label("Auto-Scan Script for Characters", systemImage: "wand.and.stars")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.purple)
+
+                    Toggle("Auto-Cast Quoted Dialogue (“…”)", isOn: $manager.castQuotedDialogue)
+                        .font(.caption.weight(.semibold))
+
+                    Spacer()
+
+                    if let scanBanner {
+                        Text(scanBanner)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.purple)
+                    }
+                }
+
+                // Add Custom Character Row
+                HStack(spacing: 8) {
+                    TextField("Character Name (e.g. Captain Miller, Alice)", text: $newName)
+                        .textFieldStyle(.roundedBorder)
+                    Picker("Voice", selection: $newVoice) {
+                        ForEach(CharacterCastingManager.studioVoiceOptions, id: \.self) { v in
+                            Text(v).tag(v)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 140)
+                    Picker("Pitch", selection: $newPitch) {
+                        ForEach([Float(-3.0), -2.0, -1.5, -1.0, 0.0, 1.0, 1.5, 2.0, 3.0], id: \.self) { p in
+                            Text(p == 0 ? "0 st" : String(format: "%+.1f st", p)).tag(p)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 110)
+                    Button {
+                        manager.addCharacter(name: newName, voiceId: newVoice, pitch: newPitch)
+                        newName = ""
+                    } label: {
+                        Label("Add Character", systemImage: "person.badge.plus")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(newName.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+
+                List {
+                    ForEach($manager.cast) { $entry in
+                        HStack(spacing: 12) {
+                            Toggle("", isOn: $entry.isEnabled)
+                                .labelsHidden()
+                            VStack(alignment: .leading, spacing: 2) {
+                                TextField("Character", text: $entry.characterName)
+                                    .font(.system(size: 13, weight: .bold))
+                                    .textFieldStyle(.plain)
+                                Text(entry.speakerTag)
+                                    .font(.system(size: 10.5, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(minWidth: 150, alignment: .leading)
+
+                            Picker("Voice", selection: $entry.voiceId) {
+                                ForEach(CharacterCastingManager.studioVoiceOptions, id: \.self) { v in
+                                    Text(v).tag(v)
+                                }
+                            }
+                            .labelsHidden()
+                            .frame(width: 140)
+
+                            Picker("Pitch", selection: $entry.pitchSemitones) {
+                                ForEach([Float(-3.0), -2.0, -1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5, 2.0, 3.0], id: \.self) { p in
+                                    Text(p == 0 ? "0 st" : String(format: "%+.1f st", p)).tag(p)
+                                }
+                            }
+                            .labelsHidden()
+                            .frame(width: 115)
+
+                            Button {
+                                if !scriptText.hasSuffix("\n") && !scriptText.isEmpty {
+                                    scriptText += "\n"
+                                }
+                                scriptText += "\(entry.characterName): "
+                            } label: {
+                                Label("Insert Cue", systemImage: "text.insert")
+                                    .font(.caption)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .help("Append '\(entry.characterName): ' dialogue line to the active script")
+
+                            Button(role: .destructive) {
+                                manager.removeCharacter(id: entry.id)
+                            } label: {
+                                Image(systemName: "trash")
+                            }
+                            .buttonStyle(.borderless)
+                        }
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+            }
+            .padding(16)
+            .navigationTitle("Character Casting (\(manager.cast.filter(\.isEnabled).count) Voices Active)")
+            .toolbar {
+                ToolbarItem(placement: .automatic) {
+                    Button("Reset Defaults") {
+                        manager.resetDefaults()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        #if os(macOS)
+        .frame(width: 740, height: 520)
+        #endif
+    }
+}
+
+// MARK: - Chapterized .M4B Audiobook Exporter Sheet (Chapters + Cover Art)
+
+struct M4BAudiobookExportSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let viewModel: TTSViewModel
+    let scriptText: String
+    let defaultTitle: String
+
+    @State private var bookTitle: String = ""
+    @State private var authorName: String = "Codecaine MLX Audio Studio"
+    @State private var customCoverURL: URL? = nil
+    @State private var showCoverPicker: Bool = false
+
+    private var previewChunks: [PhononTextChunk] {
+        viewModel.chunkTextWithMetadata(scriptText)
+    }
+
+    var body: some View {
+        let chunks = previewChunks
+        let estSec = viewModel.duration > 0 ? viewModel.duration : max(2.0, Double(scriptText.count) / 14.0)
+        let chapters = M4BAudiobookExporter.buildChapters(
+            chunks: chunks,
+            timings: viewModel.synthesizedWordTimings,
+            totalDurationSec: estSec
+        )
+
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 14) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(
+                                LinearGradient(
+                                    colors: [Color.indigo, Color.purple, Color.blue],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .frame(width: 78, height: 78)
+                        VStack(spacing: 4) {
+                            Image(systemName: "books.vertical.fill")
+                                .font(.system(size: 24, weight: .bold))
+                                .foregroundStyle(.white)
+                            Text(".M4B")
+                                .font(.system(size: 10, weight: .heavy, design: .rounded))
+                                .foregroundStyle(.white.opacity(0.9))
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Chapterized .M4B Audiobook Exporter")
+                            .font(.headline)
+                        Text("Packages your book or script into an Apple Books & podcast player compatible .M4B audiobook with embedded chapter markers (\(chapters.count) chapters) and 600×600 studio cover artwork.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(12)
+                .background(Color.indigo.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
+
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Audiobook Title")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        TextField("Audiobook Title", text: $bookTitle)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Author / Series")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        TextField("Author", text: $authorName)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Cover Artwork")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        HStack(spacing: 6) {
+                            Button {
+                                showCoverPicker = true
+                            } label: {
+                                Label(customCoverURL?.lastPathComponent ?? "Auto-Generated Studio Cover", systemImage: "photo.artframe")
+                                    .lineLimit(1)
+                            }
+                            if customCoverURL != nil {
+                                Button {
+                                    customCoverURL = nil
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                }
+
+                Text("EMBEDDED CHAPTER TABLE (\(chapters.count) CHAPTERS)")
+                    .font(.system(size: 10.5, weight: .bold, design: .rounded))
+                    .foregroundStyle(.secondary)
+
+                List(chapters) { ch in
+                    HStack {
+                        Text("#\(ch.id + 1)")
+                            .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            .foregroundStyle(.indigo)
+                            .frame(width: 36, alignment: .leading)
+                        Text(ch.title)
+                            .font(.system(size: 12.5, weight: .medium))
+                            .lineLimit(1)
+                        Spacer()
+                        Text(String(format: "%d:%02d – %d:%02d", Int(ch.startSec) / 60, Int(ch.startSec) % 60, Int(ch.endSec) / 60, Int(ch.endSec) % 60))
+                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+
+                HStack {
+                    Spacer()
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                    Button {
+                        let resolvedTitle = bookTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            ? defaultTitle
+                            : bookTitle
+                        dismiss()
+                        viewModel.exportChapterizedM4B(
+                            text: scriptText,
+                            bookTitle: resolvedTitle,
+                            author: authorName,
+                            voice: viewModel.selectedVoice,
+                            customCoverURL: customCoverURL
+                        )
+                    } label: {
+                        Label("Export Chapterized .M4B Audiobook…", systemImage: "square.and.arrow.down.fill")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.indigo)
+                }
+            }
+            .padding(16)
+            .navigationTitle("Export .M4B Audiobook")
+            .onAppear {
+                if bookTitle.isEmpty {
+                    bookTitle = defaultTitle
+                }
+            }
+            .fileImporter(
+                isPresented: $showCoverPicker,
+                allowedContentTypes: [.image, .png, .jpeg],
+                allowsMultipleSelection: false
+            ) { res in
+                if case .success(let urls) = res, let first = urls.first {
+                    customCoverURL = first
+                }
+            }
+        }
+        #if os(macOS)
+        .frame(width: 700, height: 520)
+        #endif
     }
 }
 
@@ -3168,6 +4252,278 @@ struct BottomActionBar: View {
         } else {
             return "Generate Speech"
         }
+    }
+}
+
+// MARK: - Studio Master Bus DSP Rack & ACX / Broadcast Loudness QC Sheet
+
+struct MasteringRackSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    var viewModel: TTSViewModel
+    @State private var manager = StudioMasteringManager.shared
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            // Header
+            HStack {
+                Image(systemName: "slider.vertical.3")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(.orange)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Studio Master Bus DSP Rack & Broadcast Loudness QC")
+                        .font(.system(size: 16, weight: .bold))
+                    Text("ACX / Audible (-20 dB RMS) & Podcast (-16 LUFS) compliance, tube warmth, dynamic de-esser & auto-ducked ambience beds")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Done") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+            }
+
+            Divider()
+
+            // Preset Strip
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Mastering Target Preset")
+                    .font(.system(size: 11.5, weight: .bold))
+                    .foregroundStyle(.secondary)
+
+                HStack(spacing: 8) {
+                    ForEach(MasteringPreset.allCases) { p in
+                        let isSel = manager.preset == p
+                        Button {
+                            manager.applyPreset(p)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 3) {
+                                HStack(spacing: 5) {
+                                    Circle()
+                                        .fill(isSel ? Color.orange : Color.secondary.opacity(0.35))
+                                        .frame(width: 7, height: 7)
+                                    Text(p.shortBadge)
+                                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                }
+                                Text(p.title)
+                                    .font(.system(size: 10.5, weight: .medium))
+                                    .lineLimit(1)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 8)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(
+                                isSel ? Color.orange.opacity(0.18) : Color.primary.opacity(0.05),
+                                in: RoundedRectangle(cornerRadius: 9)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 9)
+                                    .stroke(isSel ? Color.orange.opacity(0.75) : Color.clear, lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+
+                Text(manager.preset.subtitle)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+
+            // DSP Parameter Grid
+            HStack(alignment: .top, spacing: 16) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Dynamics & Loudness Chain")
+                        .font(.system(size: 12, weight: .bold))
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack {
+                            Text("Target Loudness")
+                                .font(.system(size: 11.5, weight: .medium))
+                            Spacer()
+                            Text(String(format: "%.1f LUFS", manager.targetLUFS))
+                                .font(.system(size: 11.5, weight: .bold, design: .monospaced))
+                                .foregroundStyle(.orange)
+                        }
+                        Slider(value: $manager.targetLUFS, in: -24.0...(-12.0), step: 0.5)
+                    }
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack {
+                            Text("True-Peak Brickwall Ceiling")
+                                .font(.system(size: 11.5, weight: .medium))
+                            Spacer()
+                            Text(String(format: "%.1f dBTP", manager.truePeakCeilingDB))
+                                .font(.system(size: 11.5, weight: .bold, design: .monospaced))
+                                .foregroundStyle(.cyan)
+                        }
+                        Slider(value: $manager.truePeakCeilingDB, in: -4.0...(-0.5), step: 0.1)
+                    }
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack {
+                            Text("Optical Vocal Leveler (Ratio)")
+                                .font(.system(size: 11.5, weight: .medium))
+                            Spacer()
+                            Text(String(format: "%.1f : 1", manager.compressionRatio))
+                                .font(.system(size: 11.5, weight: .bold, design: .monospaced))
+                        }
+                        Slider(value: $manager.compressionRatio, in: 1.0...4.0, step: 0.1)
+                    }
+
+                    Toggle("ACX 0.65s Head / 0.85s Tail Room-Tone Floor (-72 dBFS)", isOn: $manager.acxHeadTailRoomTone)
+                        .font(.system(size: 11.5, weight: .medium))
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity)
+                .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 10))
+
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Tone, Sibilance & Acoustic Bed")
+                        .font(.system(size: 12, weight: .bold))
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack {
+                            Text("Analog Tube Warmth (Harmonics)")
+                                .font(.system(size: 11.5, weight: .medium))
+                            Spacer()
+                            Text(String(format: "%.0f%%", manager.warmthDrive * 100))
+                                .font(.system(size: 11.5, weight: .bold, design: .monospaced))
+                                .foregroundStyle(.pink)
+                        }
+                        Slider(value: $manager.warmthDrive, in: 0.0...0.8, step: 0.02)
+                    }
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack {
+                            Text("Presence & Air High-Shelf (4.2 kHz)")
+                                .font(.system(size: 11.5, weight: .medium))
+                            Spacer()
+                            Text(String(format: "%+.1f dB", manager.presenceBoostDB))
+                                .font(.system(size: 11.5, weight: .bold, design: .monospaced))
+                        }
+                        Slider(value: $manager.presenceBoostDB, in: -3.0...5.0, step: 0.2)
+                    }
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack {
+                            Text("Dynamic Sibilance De-Esser")
+                                .font(.system(size: 11.5, weight: .medium))
+                            Spacer()
+                            Text(String(format: "%.0f%%", manager.deEsserAmount * 100))
+                                .font(.system(size: 11.5, weight: .bold, design: .monospaced))
+                                .foregroundStyle(.teal)
+                        }
+                        Slider(value: $manager.deEsserAmount, in: 0.0...1.0, step: 0.05)
+                    }
+
+                    HStack {
+                        Text("Ambience Bed:")
+                            .font(.system(size: 11.5, weight: .medium))
+                        Picker("", selection: $manager.ambienceBed) {
+                            ForEach(BackgroundAmbienceBed.allCases) { bed in
+                                Text(bed.title).tag(bed)
+                            }
+                        }
+                        .labelsHidden()
+                    }
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity)
+                .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 10))
+            }
+
+            // Broadcast / ACX Compliance Telemetry Card
+            if let rep = manager.lastReport {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Label("Broadcast & ACX Loudness Compliance Telemetry", systemImage: "waveform.badge.magnifyingglass")
+                            .font(.system(size: 12, weight: .bold))
+                        Spacer()
+                        HStack(spacing: 6) {
+                            Text(rep.acxCompliant ? "ACX AUDIBLE: PASS" : "ACX AUDIBLE: ADJUST")
+                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 2.5)
+                                .background(rep.acxCompliant ? Color.green : Color.orange, in: Capsule())
+
+                            Text(rep.podcastCompliant ? "PODCAST -16 LUFS: PASS" : "PODCAST: INFO")
+                                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 2.5)
+                                .background(rep.podcastCompliant ? Color.blue : Color.secondary, in: Capsule())
+                        }
+                    }
+
+                    HStack(spacing: 10) {
+                        loudnessMetricPill(title: "Integrated", value: String(format: "%.1f LUFS", rep.integratedLUFS), ok: true)
+                        loudnessMetricPill(title: "RMS Level (ACX -23..-18)", value: String(format: "%.1f dBFS", rep.rmsDBFS), ok: rep.acxRMSCompliant)
+                        loudnessMetricPill(title: "True Peak (<= -3.0 dBTP)", value: String(format: "%.1f dBTP", rep.truePeakDBTP), ok: rep.acxPeakCompliant)
+                        loudnessMetricPill(title: "Noise Floor (<= -60 dB)", value: String(format: "%.1f dBFS", rep.noiseFloorDBFS), ok: rep.acxNoiseFloorCompliant)
+                        loudnessMetricPill(title: "Crest Factor", value: String(format: "%.1f dB", rep.crestFactorDB), ok: true)
+                    }
+                }
+                .padding(12)
+                .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
+            }
+
+            // Footer Actions
+            HStack {
+                Text(manager.statusMessage)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button {
+                    let target = viewModel.audioURL ?? Voice.bundledStudioSamples().first?.url
+                    if let url = target, let rep = StudioMasteringManager.analyzeWAVFile(at: url) {
+                        manager.lastReport = rep
+                        manager.statusMessage = "Analyzed \(url.lastPathComponent) (\(String(format: "%.1f", rep.integratedLUFS)) LUFS)"
+                    }
+                } label: {
+                    Label("Analyze Loudness QC", systemImage: "chart.bar.doc.horizontal")
+                }
+                .buttonStyle(.bordered)
+
+                Button {
+                    viewModel.applyMasterBusInPlaceToCurrentAudio()
+                } label: {
+                    Label("Apply Master Bus to Current Audio", systemImage: "wand.and.stars")
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.orange)
+            }
+        }
+        .padding(18)
+        #if os(macOS)
+        .frame(width: 820, height: 520)
+        #endif
+        .onAppear {
+            if ProcessInfo.processInfo.arguments.contains("--demo-acx-master") {
+                manager.applyPreset(.acxAudiobook)
+                viewModel.applyMasterBusInPlaceToCurrentAudio()
+            } else if manager.lastReport == nil {
+                let target = viewModel.audioURL ?? Voice.bundledStudioSamples().first?.url
+                if let url = target {
+                    manager.lastReport = StudioMasteringManager.analyzeWAVFile(at: url)
+                }
+            }
+        }
+    }
+
+    private func loudnessMetricPill(title: String, value: String, ok: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.system(size: 9.5, weight: .medium))
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.system(size: 12.5, weight: .bold, design: .monospaced))
+                .foregroundStyle(ok ? Color.primary : Color.orange)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
     }
 }
 

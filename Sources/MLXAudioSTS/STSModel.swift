@@ -16,6 +16,7 @@ public enum LoadedSTSModel {
     case lfmAudio(LFM2AudioModel)
     case mossFormer2SE(MossFormer2SEModel)
     case deepFilterNet(DeepFilterNetModel)
+    case nemotronReuse(NemotronReuseModel)
 
     public var model: any STSModel {
         switch self {
@@ -23,6 +24,7 @@ public enum LoadedSTSModel {
         case .lfmAudio(let m): return m
         case .mossFormer2SE(let m): return m
         case .deepFilterNet(let m): return m
+        case .nemotronReuse(let m): return m
         }
     }
 
@@ -126,6 +128,15 @@ public enum STS {
             )
             return .deepFilterNet(model)
 
+        case "nemotron_reuse", "nemotron-reuse", "reuse", "re-use":
+            let model = try await NemotronReuseModel.fromPretrained(
+                modelRepo,
+                hfToken: hfToken,
+                cache: cache,
+                strict: strict
+            )
+            return .nemotronReuse(model)
+
         default:
             throw STSModelError.unsupportedModelType(resolved)
         }
@@ -140,6 +151,23 @@ public enum STS {
         return trimmed.lowercased()
     }
 
+    public static func inferModelType(fromConfig json: [String: Any]) -> String? {
+        if let modelType = json["model_type"] as? String {
+            return modelType.lowercased()
+        }
+        if let arch = json["architecture"] as? String {
+            return arch.lowercased()
+        }
+        if let version = json["model_version"] as? String {
+            return version.lowercased()
+        }
+        if let modelCfg = json["model_cfg"] as? [String: Any],
+           modelCfg["num_tfmamba"] != nil {
+            return "nemotron_reuse"
+        }
+        return nil
+    }
+
     private static func inferModelType(from modelRepo: String) -> String? {
         let lower = modelRepo.lowercased()
         if lower.contains("lfm") {
@@ -150,6 +178,9 @@ public enum STS {
         }
         if lower.contains("deepfilter") || lower.contains("dfn") {
             return "deepfilternet3"
+        }
+        if lower.contains("nemotron_reuse") || lower.contains("nemotron-reuse") || lower.contains("re-use") {
+            return "nemotron_reuse"
         }
         if lower.contains("sam") || lower.contains("source-separation") {
             return "sam_audio"
@@ -173,14 +204,8 @@ public enum STS {
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return inferModelType(from: path.path)
         }
-        if let modelType = json["model_type"] as? String {
-            return modelType.lowercased()
-        }
-        if let arch = json["architecture"] as? String {
-            return arch.lowercased()
-        }
-        if let version = json["model_version"] as? String {
-            return version.lowercased()
+        if let inferred = inferModelType(fromConfig: json) {
+            return inferred
         }
         return inferModelType(from: path.path)
     }
