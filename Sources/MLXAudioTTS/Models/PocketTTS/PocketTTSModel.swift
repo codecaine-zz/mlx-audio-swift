@@ -181,18 +181,44 @@ public final class PocketTTSModel: Module, SpeechGenerationModel, @unchecked Sen
         return arrays["audio_prompt"] ?? arrays["emb"] ?? arrays["speaker_wavs"]
     }
 
+    private static func copyDereferencedFile(from src: URL, to dst: URL) {
+        let fm = FileManager.default
+        let resolvedSrc = src.resolvingSymlinksInPath()
+        guard fm.fileExists(atPath: resolvedSrc.path) else { return }
+        try? fm.createDirectory(at: dst.deletingLastPathComponent(), withIntermediateDirectories: true)
+        // Remove any existing file or broken symlink at dst before copying
+        try? fm.removeItem(at: dst)
+        if let data = try? Data(contentsOf: resolvedSrc), !data.isEmpty {
+            try? data.write(to: dst, options: .atomic)
+        } else {
+            try? fm.copyItem(at: resolvedSrc, to: dst)
+        }
+        if !fm.fileExists(atPath: dst.path) {
+            try? fm.removeItem(at: dst)
+        }
+    }
+
     private static func voiceFiles(in modelFolder: URL) -> [String: URL] {
+        let fm = FileManager.default
         var voices: [String: URL] = [:]
         for directory in ["voices", "embeddings"] {
-            let files = (try? FileManager.default.contentsOfDirectory(
-                at: modelFolder.appendingPathComponent(directory), includingPropertiesForKeys: nil)) ?? []
+            let dirURL = modelFolder.appendingPathComponent(directory)
+            let files = (try? fm.contentsOfDirectory(at: dirURL, includingPropertiesForKeys: nil)) ?? []
             for file in files.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) where file.pathExtension == "safetensors" {
-                voices[file.deletingPathExtension().lastPathComponent.lowercased()] = file
+                let resolved = file.resolvingSymlinksInPath()
+                let size = (try? fm.attributesOfItem(atPath: resolved.path)[.size] as? NSNumber)?.intValue ?? 0
+                guard fm.fileExists(atPath: resolved.path), size > 0 else {
+                    // Clean up broken symlinks or empty voice files left in cache
+                    try? fm.removeItem(at: file)
+                    continue
+                }
+                voices[file.deletingPathExtension().lastPathComponent.lowercased()] = resolved
             }
         }
         let defaultVoice = modelFolder.appendingPathComponent("default-voice.safetensors")
-        if voices["default"] == nil, FileManager.default.fileExists(atPath: defaultVoice.path) {
-            voices["default"] = defaultVoice
+        let resolvedDefault = defaultVoice.resolvingSymlinksInPath()
+        if voices["default"] == nil, fm.fileExists(atPath: resolvedDefault.path) {
+            voices["default"] = resolvedDefault
         }
         return voices
     }
@@ -241,11 +267,16 @@ public final class PocketTTSModel: Module, SpeechGenerationModel, @unchecked Sen
         }
 
         if let voice, let file = try await resolveVoiceFile(voice) {
-            let cond = try voiceConditioning(MLX.loadArrays(url: file))
-            eval(cond)
-            cachedVoiceKey = cacheKey
-            cachedVoiceConditioning = cond
-            return .embedding(cond)
+            if let arrays = try? MLX.loadArrays(url: file.resolvingSymlinksInPath()),
+               let cond = try? voiceConditioning(arrays) {
+                eval(cond)
+                cachedVoiceKey = cacheKey
+                cachedVoiceConditioning = cond
+                return .embedding(cond)
+            } else if file.path.hasPrefix(modelFolder.path) {
+                // Evict corrupt or dangling cached voice file and fall back to default voice
+                try? FileManager.default.removeItem(at: file)
+            }
         }
 
         let voices = Self.voiceFiles(in: modelFolder)
@@ -405,10 +436,10 @@ public final class PocketTTSModel: Module, SpeechGenerationModel, @unchecked Sen
             } else {
                 client = HubClient(cache: .default)
             }
-            return try await client.downloadFile(at: String(filename), from: repo, revision: revision)
+            return try await client.downloadFile(at: String(filename), from: repo, revision: revision).resolvingSymlinksInPath()
         }
         let expanded = (voice as NSString).expandingTildeInPath
-        let file = URL(fileURLWithPath: expanded)
+        let file = URL(fileURLWithPath: expanded).resolvingSymlinksInPath()
         if file.pathExtension == "safetensors", FileManager.default.fileExists(atPath: file.path) {
             return file
         }
@@ -422,19 +453,30 @@ public final class PocketTTSModel: Module, SpeechGenerationModel, @unchecked Sen
         if let catalogID = Self.gradiumPhononVoiceIDByName[lowerVoice] {
             let voicesDir = modelFolder.appendingPathComponent("voices")
             let cachedVoiceFile = voicesDir.appendingPathComponent("\(lowerVoice).safetensors")
-            if FileManager.default.fileExists(atPath: cachedVoiceFile.path) {
-                return cachedVoiceFile
+            let resolvedCachedVoice = cachedVoiceFile.resolvingSymlinksInPath()
+            if FileManager.default.fileExists(atPath: resolvedCachedVoice.path) {
+                return resolvedCachedVoice
+            } else {
+                try? FileManager.default.removeItem(at: cachedVoiceFile)
             }
             let cachedByID = voicesDir.appendingPathComponent("\(catalogID).safetensors")
-            if FileManager.default.fileExists(atPath: cachedByID.path) {
-                return cachedByID
+            let resolvedCachedByID = cachedByID.resolvingSymlinksInPath()
+            if FileManager.default.fileExists(atPath: resolvedCachedByID.path) {
+                return resolvedCachedByID
+            } else {
+                try? FileManager.default.removeItem(at: cachedByID)
             }
             if let repo = Repo.ID(rawValue: "gradium/phonon-voices") {
                 let client = HubClient(cache: .default)
                 if let downloaded = try? await client.downloadFile(at: "voices/\(catalogID).safetensors", from: repo, revision: "main") {
-                    try? FileManager.default.createDirectory(at: voicesDir, withIntermediateDirectories: true)
-                    try? FileManager.default.copyItem(at: downloaded, to: cachedVoiceFile)
-                    return FileManager.default.fileExists(atPath: cachedVoiceFile.path) ? cachedVoiceFile : downloaded
+                    Self.copyDereferencedFile(from: downloaded, to: cachedVoiceFile)
+                    if FileManager.default.fileExists(atPath: cachedVoiceFile.path) {
+                        return cachedVoiceFile
+                    }
+                    let resolvedDownloaded = downloaded.resolvingSymlinksInPath()
+                    if FileManager.default.fileExists(atPath: resolvedDownloaded.path) {
+                        return resolvedDownloaded
+                    }
                 }
             }
         }
@@ -753,12 +795,17 @@ public final class PocketTTSModel: Module, SpeechGenerationModel, @unchecked Sen
     private static func ensureDefaultVoiceFile(in modelDir: URL, cache: HubCache) async {
         let fm = FileManager.default
         let defaultVoiceURL = modelDir.appendingPathComponent("default-voice.safetensors")
-        if fm.fileExists(atPath: defaultVoiceURL.path) { return }
+        let resolvedDefault = defaultVoiceURL.resolvingSymlinksInPath()
+        if fm.fileExists(atPath: resolvedDefault.path),
+           ((try? fm.attributesOfItem(atPath: resolvedDefault.path)[.size] as? NSNumber)?.intValue ?? 0) > 0 {
+            return
+        }
+        try? fm.removeItem(at: defaultVoiceURL)
 
         // 1. Check if any bundled voice exists under voices/ or embeddings/
         let existingVoices = voiceFiles(in: modelDir)
         if let firstVoice = existingVoices.values.first {
-            try? fm.copyItem(at: firstVoice, to: defaultVoiceURL)
+            copyDereferencedFile(from: firstVoice, to: defaultVoiceURL)
             if fm.fileExists(atPath: defaultVoiceURL.path) { return }
         }
 
@@ -766,7 +813,7 @@ public final class PocketTTSModel: Module, SpeechGenerationModel, @unchecked Sen
         let cachedFreya = cache.cacheDirectory
             .appendingPathComponent("mlx-audio/nativ-community_phonon/voices/Freya.safetensors")
         if fm.fileExists(atPath: cachedFreya.path) {
-            try? fm.copyItem(at: cachedFreya, to: defaultVoiceURL)
+            copyDereferencedFile(from: cachedFreya, to: defaultVoiceURL)
             if fm.fileExists(atPath: defaultVoiceURL.path) { return }
         }
 
@@ -774,7 +821,7 @@ public final class PocketTTSModel: Module, SpeechGenerationModel, @unchecked Sen
         if let repo = Repo.ID(rawValue: "gradium/phonon-31m-en") {
             let client = HubClient(cache: cache)
             if let downloaded = try? await client.downloadFile(at: "default-voice.safetensors", from: repo, revision: "main") {
-                try? fm.copyItem(at: downloaded, to: defaultVoiceURL)
+                copyDereferencedFile(from: downloaded, to: defaultVoiceURL)
             }
         }
     }
@@ -784,10 +831,18 @@ public final class PocketTTSModel: Module, SpeechGenerationModel, @unchecked Sen
         let fm = FileManager.default
         try? fm.createDirectory(at: targetDir, withIntermediateDirectories: true)
         guard let items = try? fm.contentsOfDirectory(at: sourceDir, includingPropertiesForKeys: nil) else { return }
-        for item in items {
+        // Copy weights and assets before config.json so targetDir is never seen with config.json alone
+        let sortedItems = items.sorted { a, b in
+            if a.lastPathComponent == "config.json" { return false }
+            if b.lastPathComponent == "config.json" { return true }
+            return a.lastPathComponent < b.lastPathComponent
+        }
+        for item in sortedItems {
             let dst = targetDir.appendingPathComponent(item.lastPathComponent)
+            let resolvedItem = item.resolvingSymlinksInPath()
             if !fm.fileExists(atPath: dst.path) {
-                try? fm.copyItem(at: item, to: dst)
+                try? fm.removeItem(at: dst)
+                try? fm.copyItem(at: resolvedItem, to: dst)
             }
         }
     }

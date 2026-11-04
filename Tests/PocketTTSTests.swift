@@ -226,6 +226,12 @@ struct PocketTTSTests {
         try MLX.save(arrays: raw, url: folder.appendingPathComponent("model.safetensors"))
         let voice = folder.appendingPathComponent("default-voice.safetensors")
         try MLX.save(arrays: ["speaker_wavs": MLXArray.ones([1, 8, 2])], url: voice)
+        let voicesDir = folder.appendingPathComponent("voices")
+        try FileManager.default.createDirectory(at: voicesDir, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(
+            at: voicesDir.appendingPathComponent("freya.safetensors"),
+            withDestinationURL: folder.appendingPathComponent("nonexistent-blob.safetensors")
+        )
         try JSONSerialization.data(withJSONObject: values).write(to: folder.appendingPathComponent("config.json"))
 
         let loaded = try await TTS.loadModel(modelRepo: folder.path)

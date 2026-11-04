@@ -372,6 +372,7 @@ class TTSViewModel {
     private static let streamingPlaybackStorageKey = "VoicesApp.TTSViewModel.streamingPlayback"
 
     var isLoading = false
+    private var loadRequestToken = UUID()
     var isGenerating = false
     var generationProgress: String = ""
     var errorMessage: String?
@@ -503,6 +504,7 @@ class TTSViewModel {
     var modelId: String = UserDefaults.standard.string(forKey: TTSViewModel.modelIdStorageKey) ?? TTSViewModel.defaultModelId {
         didSet {
             UserDefaults.standard.set(modelId, forKey: TTSViewModel.modelIdStorageKey)
+            StudioUserPreferencesManager.shared.recordRecentTTSModel(modelId)
             if oldValue != modelId {
                 refreshVoicesForCurrentModel(forceSelectFirst: true)
             }
@@ -512,7 +514,13 @@ class TTSViewModel {
 
     // Auto-populated built-in voices and currently selected voice for the active model
     var builtInVoices: [Voice] = []
-    var selectedVoice: Voice?
+    private var isRestoringVoiceSelection: Bool = false
+    var selectedVoice: Voice? {
+        didSet {
+            guard !isRestoringVoiceSelection, let v = selectedVoice else { return }
+            StudioUserPreferencesManager.shared.saveSelectedVoice(v, for: modelId)
+        }
+    }
 
     // Session generation history & power-user controls
     var history: [GeneratedTake] = []
@@ -521,9 +529,12 @@ class TTSViewModel {
             ModelCacheHelper.hfToken = hfToken
         }
     }
-    var playbackRate: Float = 1.0 {
+    var playbackRate: Float = UserDefaults.standard.object(forKey: "VoicesApp.TTSViewModel.playbackRate").map { _ in
+        max(0.25, min(3.0, UserDefaults.standard.float(forKey: "VoicesApp.TTSViewModel.playbackRate")))
+    } ?? 1.0 {
         didSet {
             audioPlayer.playbackRate = playbackRate
+            UserDefaults.standard.set(playbackRate, forKey: "VoicesApp.TTSViewModel.playbackRate")
         }
     }
 
@@ -604,6 +615,7 @@ class TTSViewModel {
             paragraphPauseMs = 0
         }
         setupAudioPlayerObservers()
+        audioPlayer.playbackRate = playbackRate
         refreshVoicesForCurrentModel(forceSelectFirst: true)
         let persistedTakes = StudioDocumentSessionManager.shared.loadPersistedTakes()
         if !persistedTakes.isEmpty {
@@ -651,8 +663,47 @@ class TTSViewModel {
         }
         let voices = Voice.builtInVoices(for: modelId, dynamicVoiceNames: dynamicNames)
         builtInVoices = voices
-        if forceSelectFirst || selectedVoice == nil || !voices.contains(where: { $0.name == selectedVoice?.name && $0.voiceId == selectedVoice?.voiceId }) {
-            selectedVoice = voices.first
+        let customVoices = Voice.loadCustomVoices()
+        let currentStillValid: Bool = {
+            guard let cur = selectedVoice else { return false }
+            if cur.isCustom && customVoices.contains(where: { $0.voiceKey == cur.voiceKey }) {
+                return true
+            }
+            return voices.contains(where: { $0.name == cur.name && $0.voiceId == cur.voiceId })
+        }()
+
+        if forceSelectFirst || !currentStillValid {
+            isRestoringVoiceSelection = true
+            defer { isRestoringVoiceSelection = false }
+            if let restored = StudioUserPreferencesManager.shared.resolveSavedVoice(for: modelId, availableVoices: voices) {
+                selectedVoice = restored
+            } else {
+                selectedVoice = voices.first
+            }
+        }
+    }
+
+    func applyStudioProfile(_ profile: StudioUserProfile) {
+        if modelId != profile.modelId {
+            modelId = profile.modelId
+        }
+        let customVoices = Voice.loadCustomVoices()
+        let allCandidates = customVoices + builtInVoices
+        if let matched = allCandidates.first(where: {
+            $0.name.caseInsensitiveCompare(profile.voiceName) == .orderedSame ||
+            (($0.voiceId ?? "").caseInsensitiveCompare(profile.voiceId ?? "") == .orderedSame && !(profile.voiceId ?? "").isEmpty)
+        }) {
+            selectedVoice = matched
+        }
+        playbackRate = profile.playbackRate
+        pitchSemitones = profile.pitchSemitones
+        paragraphPauseMs = profile.paragraphPauseMs
+        maxChunkLength = profile.maxChunkLength
+        if let theme = ReadAlongTheme(rawValue: profile.themeRaw) {
+            readAlongTheme = theme
+        }
+        if let mastering = MasteringPreset(rawValue: profile.masteringPresetRaw) {
+            StudioMasteringManager.shared.applyPreset(mastering)
         }
     }
 
@@ -701,29 +752,42 @@ class TTSViewModel {
 
     func loadModel() async {
         // Skip if same model already loaded
-        guard model == nil || loadedModelId != modelId else { return }
+        let requestedModelId = modelId
+        guard model == nil || loadedModelId != requestedModelId else {
+            errorMessage = nil
+            return
+        }
 
+        let requestToken = UUID()
+        loadRequestToken = requestToken
         isLoading = true
         errorMessage = nil
         generationProgress = "Downloading model..."
 
         do {
             let loadedModel = try await TTS.loadModel(
-                modelRepo: modelId,
+                modelRepo: requestedModelId,
                 hfToken: ModelCacheHelper.effectiveHFToken
             )
+            guard loadRequestToken == requestToken, modelId == requestedModelId else { return }
             model = loadedModel
             defaultGenerationParameters = loadedModel.defaultGenerationParameters
-            loadedModelId = modelId
+            loadedModelId = requestedModelId
+            errorMessage = nil
             DownloadedModelsManager.shared.refresh()
             refreshVoicesForCurrentModel(forceSelectFirst: false)
             generationProgress = "" // Clear progress on success
         } catch {
-            errorMessage = "Failed to load model: \(error.localizedDescription)"
+            guard loadRequestToken == requestToken, !Task.isCancelled else { return }
+            if model == nil || loadedModelId != requestedModelId {
+                errorMessage = "Failed to load model: \(error.localizedDescription)"
+            }
             generationProgress = ""
         }
 
-        isLoading = false
+        if loadRequestToken == requestToken {
+            isLoading = false
+        }
     }
 
     func reloadModel() async {
@@ -1238,7 +1302,9 @@ class TTSViewModel {
             Memory.clearCache()
             generationProgress = ""
         } catch {
-            errorMessage = "Generation failed: \(error.localizedDescription)"
+            if !Task.isCancelled && (error as NSError).code != NSURLErrorCancelled {
+                errorMessage = "Generation failed: \(error.localizedDescription)"
+            }
             generationProgress = ""
         }
 
