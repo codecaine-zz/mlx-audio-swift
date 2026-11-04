@@ -252,7 +252,10 @@ public final class PocketTTSModel: Module, SpeechGenerationModel, @unchecked Sen
         let defaultVoice = ["default", defaultAudioPrompt].first { voices[$0] != nil }
         let selected = voice?.lowercased()
             ?? defaultVoice ?? voices.keys.sorted().first ?? defaultAudioPrompt
-        guard let file = voices[selected] else {
+        let resolvedFile = voices[selected]
+            ?? defaultVoice.flatMap { voices[$0] }
+            ?? voices.keys.sorted().first.flatMap { voices[$0] }
+        guard let file = resolvedFile else {
             throw Self.modelError("Unknown voice '\(selected)'. Available voices: \(voices.keys.sorted().joined(separator: ", "))")
         }
         let cond = try voiceConditioning(MLX.loadArrays(url: file))
@@ -261,6 +264,126 @@ public final class PocketTTSModel: Module, SpeechGenerationModel, @unchecked Sen
         cachedVoiceConditioning = cond
         return .embedding(cond)
     }
+
+    /// Official Gradium Phonon 102-voice catalog (`gradium/phonon-voices`, Apache-2.0, ungated).
+    private static let gradiumPhononVoiceIDByName: [String: String] = [
+        // English (US)
+        "zoey": "NbpkqMVS3CJeq2j8",
+        "juniper": "NIWIOv5vTi5eRMj8",
+        "everly": "vjFyp2BcCyTlUmYb",
+        "harper": "4SZHfMpw-p46Ywgs",
+        "hadley": "bXwrkHhURL1VFJdG",
+        "delia": "nGzMHMPAWGaJFHOo",
+        "easton": "LMDIYE0Oa377Qh6Z",
+        "micah": "40QrMVgAxFiUnP9f",
+        "trevor": "0zLApsZfVLLNaEGl",
+        "russell": "_6Aslh2DxfmnRLmP",
+        "preston": "qIxlZ7Ei8KvWlyQH",
+        "miles": "d9XCyhjo4JhkHF1d",
+        // English (UK)
+        "maeve": "6PWnV0Nq4wu7RVBT",
+        "freya": "GgfEkEJtxZR7gnpy",
+        "pippa": "uem82D50GRv2Dwma",
+        "elodie-rose": "y9bQqIDnyxwqK01t",
+        "imogen": "gDT1nz7Ie36ZhL-C",
+        "lottie": "m9MxpY6IUGXtWp76",
+        "bryony": "gfP44RlHwr2kEwk7",
+        "alfie": "X6NceqF285Gr04gb",
+        "hugh": "YyKcxPG7iIgS3jsK",
+        "edwin": "zUCxzrOrugTSis03",
+        "spencer": "JOW0vchyswkQUMDS",
+        "toby": "dME3IWyZBvmh1n1q",
+        "teddy": "Zn7g6NxLqXlJb7Qi",
+        // French
+        "noémie": "FXxJ9mANRq6BCTX5",
+        "noemie": "FXxJ9mANRq6BCTX5",
+        "coralie": "ZeSg853xFACESHHI",
+        "tiphaine": "0fvH6XAKvA748v2v",
+        "maëlys": "s048cR1l2Jmu4k3B",
+        "maelys": "s048cR1l2Jmu4k3B",
+        "orianne": "TUk4X11S6UytB3G6",
+        "solène": "YhIHaAfQ0cQPDV9R",
+        "solene": "YhIHaAfQ0cQPDV9R",
+        "ninon": "qtPlUYAZ4EJDuWMm",
+        "lilou": "4iKxBtHBRzr1YOph",
+        "hélène": "Vvakv7iWZCUrBooR",
+        "helene": "Vvakv7iWZCUrBooR",
+        "augustin": "Tek4tJXiX6_yvXq7",
+        "arnaud": "aXMVwiUhITMrwPzd",
+        "jules": "YKeBw3OV1RgpdhLh",
+        "baptiste": "rqqeErpASHVQXHDd",
+        "lucien": "LIv4NaG8ay4Mhqtd",
+        // German
+        "nele": "2A2fFf8SkDEJ8nzx",
+        "jette": "4Mn9VfG2wsLLEzi5",
+        "annika": "p6Uutkyi3j2iNAUu",
+        "jule": "MxhgvuHuUER7qjmL",
+        "lotta": "MOrDPn052KUlnKXk",
+        "josefine": "yadpmqsHVrYC0NJp",
+        "svea": "Adoh4wA9tp5QXJi9",
+        "anton": "3ZKKapPOvuWFcw9f",
+        "mirko": "Xn9xDzqSSr4xGTNg",
+        "mats": "Kf5m22mROozoMWj3",
+        "henrik": "yyS1KYWs6mXoEw7D",
+        "leon": "20zdyYrQPzKlCwkk",
+        "mika": "R3uU1GTAZJotUhUs",
+        // Spanish
+        "noa": "b6FvJAiokjdqIti4",
+        "lucía-sol": "3p0eIGbkmny71GlA",
+        "lucia-sol": "3p0eIGbkmny71GlA",
+        "candela": "c9wqBDmQiBie5q6Y",
+        "celia": "rmLBOdHrfkFym9MM",
+        "alicia": "4701YgRXjkBcg6sL",
+        "nerea": "EQcQFGkYfMn5YJgx",
+        "marcos": "jvPx8j8zLGQ3utZz",
+        "borja": "tIjCgP8v3RY8UpgM",
+        "iker": "t-_TS1e-0GzDAX02",
+        "nuno": "fghJGlv90qu8OJ36",
+        "izan": "Ejb29qHnSOK0cIHY",
+        "guillermo": "FaLVVqpFQcDOtq45",
+        "rebeca": "Sx8m6WdXBG06zwZT",
+        "regina": "s58clrg2fe0MO7Y-",
+        "danae": "evfxKSxpDIhmsNoq",
+        "azucena": "KJpIQlbYrZPA4aLq",
+        "jimena": "qG5BXOJYrKEnXLIX",
+        "ximena": "VDwnGxAo68C8U8vC",
+        "lalo": "F05gqkzX7WhKVpSL",
+        "aldo": "ax7dW1XB0eiMfHgO",
+        "yael": "ALczEazoF4n6PmGl",
+        "ulises": "G5HLUsQd659UtRe7",
+        "leonel": "BkuASiOJRrJEB5qA",
+        "nico": "PwgPEaweQILZdGc4",
+        // Portuguese
+        "manuela-lu": "KgC2Nqnjj48NUiyV",
+        "isadora": "CtNvKUUMrx1h56ih",
+        "débora": "K8mj96kYHMy8q3Hb",
+        "debora": "K8mj96kYHMy8q3Hb",
+        "rafaela": "6k6cRt7QJfm5ChrH",
+        "clarice": "sGCMzFIA53ppIngM",
+        "flávia": "gOc90Rjmv5CobHCj",
+        "flavia": "gOc90Rjmv5CobHCj",
+        "davi": "NuUr_x5V90hSHzCJ",
+        "igor": "l7520SIXi14iEamd",
+        "kauã": "6HftnVU1XqVBJS8t",
+        "kaua": "6HftnVU1XqVBJS8t",
+        "vitor": "mWgyMRkFED70QxQv",
+        "otávio": "JYtmeaysoaR0Wybf",
+        "otavio": "JYtmeaysoaR0Wybf",
+        "marcelo": "qDeAnE4L4bk0BRz1",
+        // Characters
+        "captain silas blackwater": "xPDpsV3F592srkjA",
+        "morwenna of the deep": "nOykTmcH9ydsGGIc",
+        "old mortlake": "lX3LavMNdlIbgEHH",
+        "azgorath": "dGyGDKo2osj7h3s7",
+        "fennick the young elf": "cXoIXJ2llS8S0WOW",
+        "the thing under the stairs": "GXaSqMEmOg12OIYb",
+        "vyrmathrax the ancient": "xO8xQo3BrB8FuI6J",
+        "grub the ogre": "cYtsRSxV5q9IMehn",
+        "master aldric": "gSgG5Tor0GPEnqzC",
+        "the snow queen": "NIWoEurJHMJjyUTe",
+        "sir bramwell": "y2eiKxtQo2B67deU",
+        "fairy godmother": "QXNr0SvkukLB4wPq",
+    ]
 
     private func resolveVoiceFile(_ voice: String) async throws -> URL? {
         if voice.hasPrefix("hf://") {
@@ -274,6 +397,7 @@ public final class PocketTTSModel: Module, SpeechGenerationModel, @unchecked Sen
             }
             let revision = fileAndRevision.count == 2 ? String(fileAndRevision[1]) : "main"
             let token = ProcessInfo.processInfo.environment["HF_TOKEN"]
+                ?? UserDefaults.standard.string(forKey: "VoicesApp.HuggingFaceToken")
                 ?? Bundle.main.object(forInfoDictionaryKey: "HF_TOKEN") as? String
             let client: HubClient
             if let token, !token.isEmpty {
@@ -287,6 +411,32 @@ public final class PocketTTSModel: Module, SpeechGenerationModel, @unchecked Sen
         let file = URL(fileURLWithPath: expanded)
         if file.pathExtension == "safetensors", FileManager.default.fileExists(atPath: file.path) {
             return file
+        }
+        // Check local modelFolder voices first
+        let localVoices = Self.voiceFiles(in: modelFolder)
+        let lowerVoice = voice.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        if let localMatch = localVoices[lowerVoice] {
+            return localMatch
+        }
+        // Resolve named Gradium Phonon voices on-demand from `gradium/phonon-voices`
+        if let catalogID = Self.gradiumPhononVoiceIDByName[lowerVoice] {
+            let voicesDir = modelFolder.appendingPathComponent("voices")
+            let cachedVoiceFile = voicesDir.appendingPathComponent("\(lowerVoice).safetensors")
+            if FileManager.default.fileExists(atPath: cachedVoiceFile.path) {
+                return cachedVoiceFile
+            }
+            let cachedByID = voicesDir.appendingPathComponent("\(catalogID).safetensors")
+            if FileManager.default.fileExists(atPath: cachedByID.path) {
+                return cachedByID
+            }
+            if let repo = Repo.ID(rawValue: "gradium/phonon-voices") {
+                let client = HubClient(cache: .default)
+                if let downloaded = try? await client.downloadFile(at: "voices/\(catalogID).safetensors", from: repo, revision: "main") {
+                    try? FileManager.default.createDirectory(at: voicesDir, withIntermediateDirectories: true)
+                    try? FileManager.default.copyItem(at: downloaded, to: cachedVoiceFile)
+                    return FileManager.default.fileExists(atPath: cachedVoiceFile.path) ? cachedVoiceFile : downloaded
+                }
+            }
         }
         return nil
     }
@@ -514,26 +664,132 @@ public final class PocketTTSModel: Module, SpeechGenerationModel, @unchecked Sen
 
     // MARK: - Loading
 
+    /// Public ungated Hugging Face mirrors for official Gradium Phonon 40M models (`gated=False`).
+    private static let publicPhononMirrorRepos: [String: String] = [
+        "gradium/phonon-40m-multilingual": "empyrealworks/Phonon-40M-multilingual",
+        "gradium/phonon-40m-en": "empyrealworks/Phonon-40M-en",
+        "gradium/phonon-40m-pt": "empyrealworks/Phonon-40M-pt",
+        "gradium/phonon-40m-fr": "empyrealworks/Phonon-40M-multilingual",
+        "gradium/phonon-40m-de": "empyrealworks/Phonon-40M-multilingual",
+        "gradium/phonon-40m-es": "empyrealworks/Phonon-40M-multilingual",
+    ]
+
     public static func fromPretrained(
         _ modelRepo: String,
+        hfToken: String? = nil,
         cache: HubCache = .default
     ) async throws -> PocketTTSModel {
-        let hfToken: String? = ProcessInfo.processInfo.environment["HF_TOKEN"]
+        let rawToken: String? = hfToken
+            ?? ProcessInfo.processInfo.environment["HF_TOKEN"]
+            ?? UserDefaults.standard.string(forKey: "VoicesApp.HuggingFaceToken")
             ?? Bundle.main.object(forInfoDictionaryKey: "HF_TOKEN") as? String
+        let effectiveToken = rawToken?.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard let repoID = Repo.ID(rawValue: modelRepo) else {
             throw NSError(domain: "PocketTTSModel", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid repository ID: \(modelRepo)"])
         }
 
-        let modelDir = try await ModelUtils.resolveOrDownloadModel(
-            repoID: repoID,
-            requiredExtension: ".safetensors",
-            additionalMatchingPatterns: ["*.model", "voices/*.safetensors", "embeddings/*.safetensors"],
-            hfToken: hfToken,
-            cache: cache
-        )
+        let targetSubdir = modelRepo.replacingOccurrences(of: "/", with: "_")
+        let targetDir = cache.cacheDirectory
+            .appendingPathComponent("mlx-audio")
+            .appendingPathComponent(targetSubdir)
 
-        return try await fromModelDirectory(modelDir)
+        if hasUsablePocketTTSDirectory(targetDir) {
+            await ensureDefaultVoiceFile(in: targetDir, cache: cache)
+            return try await fromModelDirectory(targetDir)
+        }
+
+        let isGGUFRepo = modelRepo.lowercased().hasPrefix("empyrealworks/phonon-")
+        let extraPatterns = ["*.model", "*.gguf", "voices/*.safetensors", "embeddings/*.safetensors"]
+
+        do {
+            let modelDir = try await ModelUtils.resolveOrDownloadModel(
+                repoID: repoID,
+                requiredExtension: isGGUFRepo ? ".gguf" : ".safetensors",
+                additionalMatchingPatterns: extraPatterns,
+                hfToken: (effectiveToken?.isEmpty == false) ? effectiveToken : nil,
+                cache: cache
+            )
+            await ensureDefaultVoiceFile(in: modelDir, cache: cache)
+            return try await fromModelDirectory(modelDir)
+        } catch {
+            guard let mirrorRepo = publicPhononMirrorRepos[modelRepo.lowercased()],
+                  let mirrorID = Repo.ID(rawValue: mirrorRepo) else {
+                throw error
+            }
+            print("Falling back to public ungated Phonon 40M checkpoint: \(mirrorRepo) (for \(modelRepo))")
+            let mirrorDir = try await ModelUtils.resolveOrDownloadModel(
+                repoID: mirrorID,
+                requiredExtension: ".gguf",
+                additionalMatchingPatterns: extraPatterns,
+                hfToken: nil,
+                cache: cache
+            )
+            await ensureDefaultVoiceFile(in: mirrorDir, cache: cache)
+            populateMirrorAliasDirectory(from: mirrorDir, to: targetDir)
+            if hasUsablePocketTTSDirectory(targetDir) {
+                ModelUtils.deleteCachedModel(repoID: mirrorID, cache: cache)
+                return try await fromModelDirectory(targetDir)
+            }
+            return try await fromModelDirectory(mirrorDir)
+        }
+    }
+
+    private static func hasUsablePocketTTSDirectory(_ dir: URL) -> Bool {
+        let fm = FileManager.default
+        let configPath = dir.appendingPathComponent("config.json").path
+        guard fm.fileExists(atPath: configPath) else { return false }
+        for weightFile in ["model.safetensors", "model.q8.gguf", "model.q4k.gguf"] {
+            let path = dir.appendingPathComponent(weightFile).path
+            if fm.fileExists(atPath: path),
+               let size = (try? fm.attributesOfItem(atPath: path)[.size] as? NSNumber)?.intValue,
+               size > 0 {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func ensureDefaultVoiceFile(in modelDir: URL, cache: HubCache) async {
+        let fm = FileManager.default
+        let defaultVoiceURL = modelDir.appendingPathComponent("default-voice.safetensors")
+        if fm.fileExists(atPath: defaultVoiceURL.path) { return }
+
+        // 1. Check if any bundled voice exists under voices/ or embeddings/
+        let existingVoices = voiceFiles(in: modelDir)
+        if let firstVoice = existingVoices.values.first {
+            try? fm.copyItem(at: firstVoice, to: defaultVoiceURL)
+            if fm.fileExists(atPath: defaultVoiceURL.path) { return }
+        }
+
+        // 2. Check cached nativ-community/phonon Freya.safetensors (identical [1, 512, 125] speaker_wavs format)
+        let cachedFreya = cache.cacheDirectory
+            .appendingPathComponent("mlx-audio/nativ-community_phonon/voices/Freya.safetensors")
+        if fm.fileExists(atPath: cachedFreya.path) {
+            try? fm.copyItem(at: cachedFreya, to: defaultVoiceURL)
+            if fm.fileExists(atPath: defaultVoiceURL.path) { return }
+        }
+
+        // 3. Download official default-voice.safetensors from ungated gradium/phonon-31m-en
+        if let repo = Repo.ID(rawValue: "gradium/phonon-31m-en") {
+            let client = HubClient(cache: cache)
+            if let downloaded = try? await client.downloadFile(at: "default-voice.safetensors", from: repo, revision: "main") {
+                try? fm.copyItem(at: downloaded, to: defaultVoiceURL)
+            }
+        }
+    }
+
+    private static func populateMirrorAliasDirectory(from sourceDir: URL, to targetDir: URL) {
+        guard sourceDir.standardizedFileURL != targetDir.standardizedFileURL else { return }
+        let fm = FileManager.default
+        try? fm.createDirectory(at: targetDir, withIntermediateDirectories: true)
+        guard let items = try? fm.contentsOfDirectory(at: sourceDir, includingPropertiesForKeys: nil) else { return }
+        for item in items {
+            let dst = targetDir.appendingPathComponent(item.lastPathComponent)
+            if !fm.fileExists(atPath: dst.path) {
+                try? fm.copyItem(at: item, to: dst)
+            }
+        }
     }
 
     public static func fromModelDirectory(_ modelDir: URL) async throws -> PocketTTSModel {
@@ -567,18 +823,27 @@ public final class PocketTTSModel: Module, SpeechGenerationModel, @unchecked Sen
 }
 
 private func loadPocketTTSWeights(modelDir: URL, weightsName: String?) throws -> [String: MLXArray] {
-    for name in [weightsName, "model.safetensors"].compactMap({ $0 }) {
+    for name in [weightsName, "model.safetensors", "model.q8.gguf", "model.q4k.gguf"].compactMap({ $0 }) {
         let file = modelDir.appendingPathComponent(name)
-        if FileManager.default.fileExists(atPath: file.path) { return try MLX.loadArrays(url: file) }
+        if FileManager.default.fileExists(atPath: file.path) {
+            if file.pathExtension.lowercased() == "gguf" {
+                return try loadPocketTTSGGUF(url: file)
+            }
+            return try MLX.loadArrays(url: file)
+        }
     }
-    let shards = try FileManager.default.contentsOfDirectory(at: modelDir, includingPropertiesForKeys: nil)
+    let files = (try? FileManager.default.contentsOfDirectory(at: modelDir, includingPropertiesForKeys: nil)) ?? []
+    let shards = files
         .filter { $0.lastPathComponent.hasPrefix("model-") && $0.pathExtension == "safetensors" }
         .sorted { $0.lastPathComponent < $1.lastPathComponent }
-    guard !shards.isEmpty else {
-        throw NSError(domain: "PocketTTSModel", code: 2,
-                      userInfo: [NSLocalizedDescriptionKey: "Model safetensors not found in \(modelDir.path)"])
+    if !shards.isEmpty {
+        var weights: [String: MLXArray] = [:]
+        for shard in shards { weights.merge(try MLX.loadArrays(url: shard)) { _, new in new } }
+        return weights
     }
-    var weights: [String: MLXArray] = [:]
-    for shard in shards { weights.merge(try MLX.loadArrays(url: shard)) { _, new in new } }
-    return weights
+    if let ggufFile = files.first(where: { $0.pathExtension.lowercased() == "gguf" }) {
+        return try loadPocketTTSGGUF(url: ggufFile)
+    }
+    throw NSError(domain: "PocketTTSModel", code: 2,
+                  userInfo: [NSLocalizedDescriptionKey: "Model safetensors or gguf not found in \(modelDir.path)"])
 }

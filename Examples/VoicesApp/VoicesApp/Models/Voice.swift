@@ -639,6 +639,13 @@ struct Voice: Identifiable, Hashable {
         audioFileURL != nil && transcription != nil && !transcription!.isEmpty
     }
 
+    /// Stable canonical identifier used for persisting favorite/recent/selected voices across launches
+    var voiceKey: String {
+        let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let cleanId = (voiceId ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return "\(cleanName)|\(cleanId)"
+    }
+
     /// Studio category for filtering & grouping in the Voice Browser
     var category: String {
         if isCustom { return "Custom" }
@@ -744,7 +751,7 @@ extension Voice {
                 ("Toby", "toby", "Phonon built-in", "English"),
                 ("Zoey (maps to Freya)", "freya", "Codecaine Phonon Default", "English"),
             ]
-        } else if lower.contains("gradium/phonon") {
+        } else if lower.contains("gradium/phonon") || lower.contains("empyrealworks/phonon") {
             let lang: String
             if lower.hasSuffix("-fr") { lang = "French" }
             else if lower.hasSuffix("-de") { lang = "German" }
@@ -753,44 +760,61 @@ extension Voice {
             else if lower.contains("multilingual") { lang = "Multilingual" }
             else { lang = "English" }
             specs = [
-                ("Zoey (Default)", "Zoey", "Conversational · Default", lang),
-                ("default", "default", "Conversational · Built-in", lang),
-                ("Alfie", "Alfie", "Conversational", lang),
-                ("Bryony", "Bryony", "Conversational", lang),
-                ("Delia", "Delia", "Conversational", lang),
-                ("Easton", "Easton", "Conversational", lang),
-                ("Everly", "Everly", "Conversational", lang),
-                ("Hadley", "Hadley", "Conversational", lang),
-                ("Harper", "Harper", "Conversational", lang),
-                ("Juniper", "Juniper", "Conversational", lang),
-                ("Lottie", "Lottie", "Conversational", lang),
-                ("Micah", "Micah", "Conversational", lang),
-                ("Miles", "Miles", "Conversational", lang),
-                ("Pippa", "Pippa", "Conversational", lang),
-                ("Spencer", "Spencer", "Conversational", lang),
-                ("Teddy", "Teddy", "Conversational", lang),
-                ("Toby", "Toby", "Conversational", lang),
-                ("Edwin", "Edwin", "Narrator", lang),
-                ("Elodie-Rose", "Elodie-Rose", "Narrator", lang),
-                ("Freya", "Freya", "Narrator", lang),
-                ("Hugh", "Hugh", "Narrator", lang),
-                ("Imogen", "Imogen", "Narrator", lang),
-                ("Maeve", "Maeve", "Narrator", lang),
-                ("Preston", "Preston", "Narrator", lang),
-                ("Russell", "Russell", "Narrator", lang),
-                ("Trevor", "Trevor", "Narrator", lang),
-                ("Captain Silas Blackwater", "Captain Silas Blackwater", "Character · Pirate Captain", lang),
-                ("Fairy Godmother", "Fairy Godmother", "Character · Magical", lang),
-                ("Fennick the Young Elf", "Fennick the Young Elf", "Character · Fantasy", lang),
-                ("Grub the Ogre", "Grub the Ogre", "Character · Deep Ogre", lang),
-                ("Master Aldric", "Master Aldric", "Character · Wise Scholar", lang),
-                ("Morwenna of the Deep", "Morwenna of the Deep", "Character · Mystic", lang),
-                ("Old Mortlake", "Old Mortlake", "Character · Elderly", lang),
-                ("Sir Bramwell", "Sir Bramwell", "Character · Knight", lang),
-                ("The Snow Queen", "The Snow Queen", "Character · Regal", lang),
-                ("The Thing Under the Stairs", "The Thing Under the Stairs", "Character · Eerie", lang),
-                ("Vyrmathrax the Ancient", "Vyrmathrax the Ancient", "Character · Dragon", lang),
-                ("Azgorath", "Azgorath", "Character · Dark Lord", lang),
+                ("default", "default", "Conversational · Built-in Default", lang),
+                ("Zoey", "Zoey", "Conversational · English (US)", "English"),
+                ("Freya", "Freya", "Narrator · English (UK)", "English"),
+                ("Harper", "Harper", "Conversational · English (US)", "English"),
+                ("Trevor", "Trevor", "Narrator · English (US)", "English"),
+                ("Alfie", "Alfie", "Conversational · English (UK)", "English"),
+                ("Noémie (French)", "Noémie", "Conversational · French", "French"),
+                ("Coralie (French)", "Coralie", "Conversational · French", "French"),
+                ("Augustin (French)", "Augustin", "Narrator · French", "French"),
+                ("Arnaud (French)", "Arnaud", "Conversational · French", "French"),
+                ("Nele (German)", "Nele", "Conversational · German", "German"),
+                ("Jette (German)", "Jette", "Conversational · German", "German"),
+                ("Anton (German)", "Anton", "Narrator · German", "German"),
+                ("Leon (German)", "Leon", "Conversational · German", "German"),
+                ("Noa (Spanish)", "Noa", "Conversational · Spanish (ES)", "Spanish"),
+                ("Lucía-Sol (Spanish)", "Lucía-Sol", "Conversational · Spanish (ES)", "Spanish"),
+                ("Marcos (Spanish)", "Marcos", "Narrator · Spanish (ES)", "Spanish"),
+                ("Rebeca (Spanish MX)", "Rebeca", "Conversational · Spanish (MX)", "Spanish"),
+                ("Lalo (Spanish MX)", "Lalo", "Narrator · Spanish (MX)", "Spanish"),
+                ("Manuela-Lu (Portuguese)", "Manuela-Lu", "Conversational · Portuguese (BR)", "Portuguese"),
+                ("Isadora (Portuguese)", "Isadora", "Conversational · Portuguese (BR)", "Portuguese"),
+                ("Davi (Portuguese)", "Davi", "Narrator · Portuguese (BR)", "Portuguese"),
+                ("Igor (Portuguese)", "Igor", "Conversational · Portuguese (BR)", "Portuguese"),
+                ("Bryony", "Bryony", "Conversational · English (UK)", "English"),
+                ("Delia", "Delia", "Conversational · English (US)", "English"),
+                ("Easton", "Easton", "Conversational · English (US)", "English"),
+                ("Everly", "Everly", "Conversational · English (US)", "English"),
+                ("Hadley", "Hadley", "Conversational · English (US)", "English"),
+                ("Juniper", "Juniper", "Conversational · English (US)", "English"),
+                ("Lottie", "Lottie", "Conversational · English (UK)", "English"),
+                ("Micah", "Micah", "Conversational · English (US)", "English"),
+                ("Miles", "Miles", "Conversational · English (US)", "English"),
+                ("Pippa", "Pippa", "Conversational · English (UK)", "English"),
+                ("Spencer", "Spencer", "Conversational · English (UK)", "English"),
+                ("Teddy", "Teddy", "Conversational · English (UK)", "English"),
+                ("Toby", "Toby", "Conversational · English (UK)", "English"),
+                ("Edwin", "Edwin", "Narrator · English (UK)", "English"),
+                ("Elodie-Rose", "Elodie-Rose", "Narrator · English (UK)", "English"),
+                ("Hugh", "Hugh", "Narrator · English (UK)", "English"),
+                ("Imogen", "Imogen", "Narrator · English (UK)", "English"),
+                ("Maeve", "Maeve", "Narrator · English (UK)", "English"),
+                ("Preston", "Preston", "Narrator · English (US)", "English"),
+                ("Russell", "Russell", "Narrator · English (US)", "English"),
+                ("Captain Silas Blackwater", "Captain Silas Blackwater", "Character · Pirate Captain", "English"),
+                ("Fairy Godmother", "Fairy Godmother", "Character · Magical", "English"),
+                ("Fennick the Young Elf", "Fennick the Young Elf", "Character · Fantasy", "English"),
+                ("Grub the Ogre", "Grub the Ogre", "Character · Deep Ogre", "English"),
+                ("Master Aldric", "Master Aldric", "Character · Wise Scholar", "English"),
+                ("Morwenna of the Deep", "Morwenna of the Deep", "Character · Mystic", "English"),
+                ("Old Mortlake", "Old Mortlake", "Character · Elderly", "English"),
+                ("Sir Bramwell", "Sir Bramwell", "Character · Knight", "English"),
+                ("The Snow Queen", "The Snow Queen", "Character · Regal", "English"),
+                ("The Thing Under the Stairs", "The Thing Under the Stairs", "Character · Eerie", "English"),
+                ("Vyrmathrax the Ancient", "Vyrmathrax the Ancient", "Character · Dragon", "English"),
+                ("Azgorath", "Azgorath", "Character · Dark Lord", "English"),
             ]
         } else if lower.contains("pocket-tts") || lower.contains("pocket_tts") {
             specs = [
@@ -2111,13 +2135,29 @@ extension Notification.Name {
 
 // MARK: - Smart Speech Text Cleaner & Universal Document Extractor (from bun_rad_studio fmPhonon.ts)
 
-struct SpeechCleanOptions: Equatable {
+struct SpeechCleanOptions: Equatable, Codable, Sendable {
+    private static let storageKey = "VoicesApp.SpeechCleanOptions.v1"
+
     var stripMarkdown: Bool = true
     var stripHtml: Bool = true
     var stripCodeBlocks: Bool = true
     var simplifyUrls: Bool = true
     var stripTimestamps: Bool = true
     var stripDividers: Bool = true
+
+    static func loadFromDefaults() -> SpeechCleanOptions {
+        guard let data = UserDefaults.standard.data(forKey: storageKey),
+              let decoded = try? JSONDecoder().decode(SpeechCleanOptions.self, from: data) else {
+            return SpeechCleanOptions()
+        }
+        return decoded
+    }
+
+    func saveToDefaults() {
+        if let data = try? JSONEncoder().encode(self) {
+            UserDefaults.standard.set(data, forKey: Self.storageKey)
+        }
+    }
 }
 
 enum SpeechTextCleaner {
@@ -4816,10 +4856,26 @@ struct LocalhostRequestLog: Identifiable {
 final class LocalhostServerManager {
     static let shared = LocalhostServerManager()
 
+    private static let primaryPortKey = "VoicesApp.LocalhostServer.primaryPort"
+    private static let ollamaFallbackKey = "VoicesApp.LocalhostServer.enableOllamaFallbackPort"
+    private static let lmStudioFallbackKey = "VoicesApp.LocalhostServer.enableLMStudioFallbackPort"
+
     var isRunning: Bool = false
-    var primaryPort: UInt16 = 8080
-    var enableOllamaFallbackPort: Bool = true // Binds 11434 if Ollama is not running
-    var enableLMStudioFallbackPort: Bool = true // Binds 1234 if LM Studio is not running
+    var primaryPort: UInt16 = 8080 {
+        didSet {
+            UserDefaults.standard.set(Int(primaryPort), forKey: Self.primaryPortKey)
+        }
+    }
+    var enableOllamaFallbackPort: Bool = true { // Binds 11434 if Ollama is not running
+        didSet {
+            UserDefaults.standard.set(enableOllamaFallbackPort, forKey: Self.ollamaFallbackKey)
+        }
+    }
+    var enableLMStudioFallbackPort: Bool = true { // Binds 1234 if LM Studio is not running
+        didSet {
+            UserDefaults.standard.set(enableLMStudioFallbackPort, forKey: Self.lmStudioFallbackKey)
+        }
+    }
     var activePorts: [UInt16] = []
     var statusMessage: String = "Stopped"
     var requestLogs: [LocalhostRequestLog] = []
@@ -4832,7 +4888,18 @@ final class LocalhostServerManager {
 
     private var listeners: [UInt16: NWListener] = [:]
 
-    private init() {}
+    private init() {
+        let savedPort = UserDefaults.standard.integer(forKey: Self.primaryPortKey)
+        if savedPort > 0 && savedPort <= Int(UInt16.max) {
+            self.primaryPort = UInt16(savedPort)
+        }
+        if UserDefaults.standard.object(forKey: Self.ollamaFallbackKey) != nil {
+            self.enableOllamaFallbackPort = UserDefaults.standard.bool(forKey: Self.ollamaFallbackKey)
+        }
+        if UserDefaults.standard.object(forKey: Self.lmStudioFallbackKey) != nil {
+            self.enableLMStudioFallbackPort = UserDefaults.standard.bool(forKey: Self.lmStudioFallbackKey)
+        }
+    }
 
     func startIfNeeded() {
         guard !isRunning else { return }
@@ -7953,7 +8020,467 @@ final class StudioMasteringManager {
     }
 }
 
+// MARK: - Studio User Preferences, Favorites (Models & Voices) & Saved Studio Profiles
 
+struct StudioUserProfile: Identifiable, Codable, Equatable, Sendable {
+    var id: UUID = UUID()
+    var name: String
+    var subtitle: String
+    var icon: String
+    var modelId: String
+    var voiceName: String
+    var voiceId: String?
+    var playbackRate: Float
+    var pitchSemitones: Float
+    var paragraphPauseMs: Int
+    var maxChunkLength: Int
+    var themeRaw: String
+    var masteringPresetRaw: String
+    var isBuiltIn: Bool = false
+    var createdAt: Date = Date()
+}
 
+struct StudioUserPreferencesBackup: Codable, Sendable {
+    var favoriteVoiceKeys: [String]
+    var favoriteTTSModelIds: [String]
+    var favoriteSTTModelIds: [String]
+    var favoriteSTSModelIds: [String]
+    var recentVoiceKeys: [String]
+    var recentTTSModelIds: [String]
+    var selectedVoiceByModel: [String: String]
+    var lastSelectedVoiceKey: String?
+    var preferredExportFormatRaw: String
+    var userProfiles: [StudioUserProfile]
+    var speechCleanOptions: SpeechCleanOptions
+}
 
+@MainActor
+@Observable
+final class StudioUserPreferencesManager {
+    static let shared = StudioUserPreferencesManager()
+
+    private static let seededDefaultsKey = "VoicesApp.UserPreferences.SeededDefaults.v1"
+    private static let favVoicesKey = "VoicesApp.UserPreferences.FavoriteVoiceKeys.v1"
+    private static let favTTSModelsKey = "VoicesApp.UserPreferences.FavoriteTTSModels.v1"
+    private static let favSTTModelsKey = "VoicesApp.UserPreferences.FavoriteSTTModels.v1"
+    private static let favSTSModelsKey = "VoicesApp.UserPreferences.FavoriteSTSModels.v1"
+    private static let recentVoicesKey = "VoicesApp.UserPreferences.RecentVoiceKeys.v1"
+    private static let recentTTSModelsKey = "VoicesApp.UserPreferences.RecentTTSModels.v1"
+    private static let voiceByModelKey = "VoicesApp.UserPreferences.SelectedVoiceByModel.v1"
+    private static let lastVoiceKey = "VoicesApp.UserPreferences.LastSelectedVoiceKey.v1"
+    private static let exportFormatKey = "VoicesApp.UserPreferences.PreferredExportFormat.v1"
+    private static let userProfilesKey = "VoicesApp.UserPreferences.StudioProfiles.v1"
+
+    static let defaultStarterProfiles: [StudioUserProfile] = [
+        StudioUserProfile(
+            id: UUID(uuidString: "11111111-2222-3333-4444-555555550001") ?? UUID(),
+            name: "ACX Audiobook Narrator",
+            subtitle: "Freya · 1.0x · -20 dB RMS ACX Master · Warm Sepia",
+            icon: "book.closed.fill",
+            modelId: "nativ-community/phonon",
+            voiceName: "Freya",
+            voiceId: "freya",
+            playbackRate: 1.0,
+            pitchSemitones: 0.0,
+            paragraphPauseMs: 250,
+            maxChunkLength: 520,
+            themeRaw: ReadAlongTheme.sepia.rawValue,
+            masteringPresetRaw: MasteringPreset.acxAudiobook.rawValue,
+            isBuiltIn: true
+        ),
+        StudioUserProfile(
+            id: UUID(uuidString: "11111111-2222-3333-4444-555555550002") ?? UUID(),
+            name: "Fast 1.5x Study & Paper Reader",
+            subtitle: "Harper · 1.5x Speed · Crisp Streaming Master · Paper Theme",
+            icon: "bolt.fill",
+            modelId: "nativ-community/phonon",
+            voiceName: "Harper",
+            voiceId: "harper",
+            playbackRate: 1.5,
+            pitchSemitones: 0.0,
+            paragraphPauseMs: 0,
+            maxChunkLength: 600,
+            themeRaw: ReadAlongTheme.paper.rawValue,
+            masteringPresetRaw: MasteringPreset.youtubeStreaming.rawValue,
+            isBuiltIn: true
+        ),
+        StudioUserProfile(
+            id: UUID(uuidString: "11111111-2222-3333-4444-555555550003") ?? UUID(),
+            name: "Podcast Broadcast Host (-16 LUFS)",
+            subtitle: "Zoey · 1.05x · Apple Podcasts -16 LUFS · Midnight Studio",
+            icon: "dot.radiowaves.left.and.right",
+            modelId: "nativ-community/phonon",
+            voiceName: "Zoey (maps to Freya)",
+            voiceId: "freya",
+            playbackRate: 1.05,
+            pitchSemitones: 0.0,
+            paragraphPauseMs: 150,
+            maxChunkLength: 520,
+            themeRaw: ReadAlongTheme.midnight.rawValue,
+            masteringPresetRaw: MasteringPreset.podcastBroadcast.rawValue,
+            isBuiltIn: true
+        ),
+        StudioUserProfile(
+            id: UUID(uuidString: "11111111-2222-3333-4444-555555550004") ?? UUID(),
+            name: "Cinematic Sci-Fi Storyteller",
+            subtitle: "Sterling · -1.0 st Pitch · Warm Cinema -18 LUFS · Nord Theme",
+            icon: "film.stack.fill",
+            modelId: "nativ-community/phonon",
+            voiceName: "Sterling",
+            voiceId: "sterling",
+            playbackRate: 1.0,
+            pitchSemitones: -1.0,
+            paragraphPauseMs: 300,
+            maxChunkLength: 520,
+            themeRaw: ReadAlongTheme.nord.rawValue,
+            masteringPresetRaw: MasteringPreset.warmCinema.rawValue,
+            isBuiltIn: true
+        )
+    ]
+
+    var favoriteVoiceKeys: Set<String> = [] {
+        didSet {
+            UserDefaults.standard.set(Array(favoriteVoiceKeys).sorted(), forKey: Self.favVoicesKey)
+        }
+    }
+
+    var favoriteTTSModelIds: Set<String> = [] {
+        didSet {
+            UserDefaults.standard.set(Array(favoriteTTSModelIds).sorted(), forKey: Self.favTTSModelsKey)
+        }
+    }
+
+    var favoriteSTTModelIds: Set<String> = [] {
+        didSet {
+            UserDefaults.standard.set(Array(favoriteSTTModelIds).sorted(), forKey: Self.favSTTModelsKey)
+        }
+    }
+
+    var favoriteSTSModelIds: Set<String> = [] {
+        didSet {
+            UserDefaults.standard.set(Array(favoriteSTSModelIds).sorted(), forKey: Self.favSTSModelsKey)
+        }
+    }
+
+    var recentVoiceKeys: [String] = [] {
+        didSet {
+            UserDefaults.standard.set(recentVoiceKeys, forKey: Self.recentVoicesKey)
+        }
+    }
+
+    var recentTTSModelIds: [String] = [] {
+        didSet {
+            UserDefaults.standard.set(recentTTSModelIds, forKey: Self.recentTTSModelsKey)
+        }
+    }
+
+    var selectedVoiceByModel: [String: String] = [:] {
+        didSet {
+            if let data = try? JSONEncoder().encode(selectedVoiceByModel) {
+                UserDefaults.standard.set(data, forKey: Self.voiceByModelKey)
+            }
+        }
+    }
+
+    var lastSelectedVoiceKey: String? = nil {
+        didSet {
+            UserDefaults.standard.set(lastSelectedVoiceKey, forKey: Self.lastVoiceKey)
+        }
+    }
+
+    var preferredExportFormat: AudioExportFormat = .wav {
+        didSet {
+            UserDefaults.standard.set(preferredExportFormat.rawValue, forKey: Self.exportFormatKey)
+        }
+    }
+
+    var userProfiles: [StudioUserProfile] = [] {
+        didSet {
+            if let data = try? JSONEncoder().encode(userProfiles) {
+                UserDefaults.standard.set(data, forKey: Self.userProfilesKey)
+            }
+        }
+    }
+
+    private init() {
+        let defaults = UserDefaults.standard
+        if !defaults.bool(forKey: Self.seededDefaultsKey) {
+            defaults.set(true, forKey: Self.seededDefaultsKey)
+            self.favoriteVoiceKeys = [
+                "freya|freya",
+                "zoey (default)|zoey",
+                "zoey (maps to freya)|freya",
+                "harper|harper",
+                "edwin|edwin",
+                "sterling|sterling"
+            ]
+            self.favoriteTTSModelIds = [
+                "nativ-community/phonon",
+                "gradium/phonon-40m-multilingual",
+                "mlx-community/Kokoro-82M-bf16",
+                "mlx-community/fish-audio-s2-pro-8bit"
+            ]
+            self.favoriteSTTModelIds = [
+                "FermionResearch/Phonon-2.5-English",
+                "mlx-community/Qwen3-ASR-0.6B-4bit",
+                "mlx-community/whisper-large-v3-turbo"
+            ]
+            self.favoriteSTSModelIds = [
+                "nvidia/NVIDIA-NemotronLabs-RE-USE",
+                "mlx-community/sam-audio-large-fp16",
+                "mlx-community/MossFormer2_SE_48K"
+            ]
+            self.userProfiles = Self.defaultStarterProfiles
+        } else {
+            self.favoriteVoiceKeys = Set(defaults.stringArray(forKey: Self.favVoicesKey) ?? [])
+            self.favoriteTTSModelIds = Set(defaults.stringArray(forKey: Self.favTTSModelsKey) ?? [])
+            self.favoriteSTTModelIds = Set(defaults.stringArray(forKey: Self.favSTTModelsKey) ?? [])
+            self.favoriteSTSModelIds = Set(defaults.stringArray(forKey: Self.favSTSModelsKey) ?? [])
+            if let data = defaults.data(forKey: Self.userProfilesKey),
+               let decoded = try? JSONDecoder().decode([StudioUserProfile].self, from: data),
+               !decoded.isEmpty {
+                self.userProfiles = decoded
+            } else {
+                self.userProfiles = Self.defaultStarterProfiles
+            }
+        }
+
+        self.recentVoiceKeys = defaults.stringArray(forKey: Self.recentVoicesKey) ?? []
+        self.recentTTSModelIds = defaults.stringArray(forKey: Self.recentTTSModelsKey) ?? []
+        if let data = defaults.data(forKey: Self.voiceByModelKey),
+           let decoded = try? JSONDecoder().decode([String: String].self, from: data) {
+            self.selectedVoiceByModel = decoded
+        }
+        self.lastSelectedVoiceKey = defaults.string(forKey: Self.lastVoiceKey)
+        if let fmtRaw = defaults.string(forKey: Self.exportFormatKey),
+           let fmt = AudioExportFormat(rawValue: fmtRaw) {
+            self.preferredExportFormat = fmt
+        }
+    }
+
+    // MARK: - Voice Favorites & Recents
+
+    func isFavoriteVoice(_ voice: Voice) -> Bool {
+        let key = voice.voiceKey
+        if favoriteVoiceKeys.contains(key) { return true }
+        let lowerName = voice.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let lowerId = (voice.voiceId ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return favoriteVoiceKeys.contains { saved in
+            let parts = saved.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+            let savedName = parts.first ?? ""
+            let savedId = parts.count > 1 ? parts[1] : ""
+            if !savedName.isEmpty && savedName == lowerName { return true }
+            if !savedId.isEmpty && !lowerId.isEmpty && savedId == lowerId && lowerName == savedId { return true }
+            return false
+        }
+    }
+
+    func toggleFavoriteVoice(_ voice: Voice) {
+        let key = voice.voiceKey
+        if isFavoriteVoice(voice) {
+            let lowerName = voice.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let lowerId = (voice.voiceId ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            favoriteVoiceKeys = favoriteVoiceKeys.filter { saved in
+                if saved == key { return false }
+                let parts = saved.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+                let savedName = parts.first ?? ""
+                let savedId = parts.count > 1 ? parts[1] : ""
+                if !savedName.isEmpty && savedName == lowerName { return false }
+                if !savedId.isEmpty && !lowerId.isEmpty && savedId == lowerId && lowerName == savedId { return false }
+                return true
+            }
+        } else {
+            favoriteVoiceKeys.insert(key)
+        }
+    }
+
+    func recordRecentVoice(_ voice: Voice) {
+        let key = voice.voiceKey
+        recentVoiceKeys.removeAll { $0 == key }
+        recentVoiceKeys.insert(key, at: 0)
+        if recentVoiceKeys.count > 12 {
+            recentVoiceKeys = Array(recentVoiceKeys.prefix(12))
+        }
+    }
+
+    func saveSelectedVoice(_ voice: Voice, for modelId: String) {
+        let key = voice.voiceKey
+        selectedVoiceByModel[modelId] = key
+        lastSelectedVoiceKey = key
+        recordRecentVoice(voice)
+    }
+
+    func resolveSavedVoice(for modelId: String, availableVoices: [Voice]) -> Voice? {
+        let customVoices = Voice.loadCustomVoices()
+        let allCandidates = customVoices + availableVoices
+
+        func matchVoice(byKey key: String) -> Voice? {
+            if let exact = allCandidates.first(where: { $0.voiceKey == key }) {
+                return exact
+            }
+            let parts = key.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+            let targetName = parts.first ?? ""
+            let targetId = parts.count > 1 ? parts[1] : ""
+            if !targetName.isEmpty,
+               let byName = allCandidates.first(where: { $0.name.lowercased() == targetName }) {
+                return byName
+            }
+            if !targetId.isEmpty,
+               let byId = allCandidates.first(where: { ($0.voiceId ?? "").lowercased() == targetId }) {
+                return byId
+            }
+            return nil
+        }
+
+        if let modelKey = selectedVoiceByModel[modelId], let matched = matchVoice(byKey: modelKey) {
+            return matched
+        }
+        if let globalKey = lastSelectedVoiceKey, let matched = matchVoice(byKey: globalKey) {
+            return matched
+        }
+        return nil
+    }
+
+    // MARK: - Model Favorites (TTS, STT, STS)
+
+    func isFavoriteTTSModel(_ modelId: String) -> Bool {
+        favoriteTTSModelIds.contains(modelId)
+    }
+
+    func toggleFavoriteTTSModel(_ modelId: String) {
+        if favoriteTTSModelIds.contains(modelId) {
+            favoriteTTSModelIds.remove(modelId)
+        } else {
+            favoriteTTSModelIds.insert(modelId)
+        }
+    }
+
+    func recordRecentTTSModel(_ modelId: String) {
+        recentTTSModelIds.removeAll { $0 == modelId }
+        recentTTSModelIds.insert(modelId, at: 0)
+        if recentTTSModelIds.count > 10 {
+            recentTTSModelIds = Array(recentTTSModelIds.prefix(10))
+        }
+    }
+
+    func isFavoriteSTTModel(_ modelId: String) -> Bool {
+        favoriteSTTModelIds.contains(modelId)
+    }
+
+    func toggleFavoriteSTTModel(_ modelId: String) {
+        if favoriteSTTModelIds.contains(modelId) {
+            favoriteSTTModelIds.remove(modelId)
+        } else {
+            favoriteSTTModelIds.insert(modelId)
+        }
+    }
+
+    func isFavoriteSTSModel(_ modelId: String) -> Bool {
+        favoriteSTSModelIds.contains(modelId)
+    }
+
+    func toggleFavoriteSTSModel(_ modelId: String) {
+        if favoriteSTSModelIds.contains(modelId) {
+            favoriteSTSModelIds.remove(modelId)
+        } else {
+            favoriteSTSModelIds.insert(modelId)
+        }
+    }
+
+    // MARK: - Saved Studio Profiles / Presets
+
+    @discardableResult
+    func saveCustomProfile(
+        name: String,
+        modelId: String,
+        voice: Voice?,
+        playbackRate: Float,
+        pitchSemitones: Float,
+        paragraphPauseMs: Int,
+        maxChunkLength: Int,
+        theme: ReadAlongTheme,
+        masteringPreset: MasteringPreset
+    ) -> StudioUserProfile {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedName = trimmedName.isEmpty ? "Custom Studio Preset \(userProfiles.count + 1)" : trimmedName
+        let vName = voice?.name ?? "Freya"
+        let vId = voice?.voiceId ?? "freya"
+        let rateStr = String(format: "%.2gx", playbackRate)
+        let subtitle = "\(vName) · \(rateStr) · \(masteringPreset.shortBadge) · \(theme.label)"
+
+        let profile = StudioUserProfile(
+            name: resolvedName,
+            subtitle: subtitle,
+            icon: "star.circle.fill",
+            modelId: modelId,
+            voiceName: vName,
+            voiceId: vId,
+            playbackRate: playbackRate,
+            pitchSemitones: pitchSemitones,
+            paragraphPauseMs: paragraphPauseMs,
+            maxChunkLength: maxChunkLength,
+            themeRaw: theme.rawValue,
+            masteringPresetRaw: masteringPreset.rawValue,
+            isBuiltIn: false
+        )
+        if let existingIdx = userProfiles.firstIndex(where: { $0.name.caseInsensitiveCompare(resolvedName) == .orderedSame }) {
+            userProfiles[existingIdx] = profile
+        } else {
+            userProfiles.insert(profile, at: 0)
+        }
+        return profile
+    }
+
+    func deleteProfile(id: UUID) {
+        userProfiles.removeAll { $0.id == id }
+    }
+
+    func resetProfilesToDefaults() {
+        userProfiles = Self.defaultStarterProfiles
+    }
+
+    // MARK: - Backup / Restore JSON
+
+    func exportPreferencesData() -> Data? {
+        let backup = StudioUserPreferencesBackup(
+            favoriteVoiceKeys: Array(favoriteVoiceKeys).sorted(),
+            favoriteTTSModelIds: Array(favoriteTTSModelIds).sorted(),
+            favoriteSTTModelIds: Array(favoriteSTTModelIds).sorted(),
+            favoriteSTSModelIds: Array(favoriteSTSModelIds).sorted(),
+            recentVoiceKeys: recentVoiceKeys,
+            recentTTSModelIds: recentTTSModelIds,
+            selectedVoiceByModel: selectedVoiceByModel,
+            lastSelectedVoiceKey: lastSelectedVoiceKey,
+            preferredExportFormatRaw: preferredExportFormat.rawValue,
+            userProfiles: userProfiles,
+            speechCleanOptions: SpeechCleanOptions.loadFromDefaults()
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return try? encoder.encode(backup)
+    }
+
+    @discardableResult
+    func importPreferencesData(_ data: Data) -> Bool {
+        guard let decoded = try? JSONDecoder().decode(StudioUserPreferencesBackup.self, from: data) else {
+            return false
+        }
+        favoriteVoiceKeys = Set(decoded.favoriteVoiceKeys)
+        favoriteTTSModelIds = Set(decoded.favoriteTTSModelIds)
+        favoriteSTTModelIds = Set(decoded.favoriteSTTModelIds)
+        favoriteSTSModelIds = Set(decoded.favoriteSTSModelIds)
+        recentVoiceKeys = decoded.recentVoiceKeys
+        recentTTSModelIds = decoded.recentTTSModelIds
+        selectedVoiceByModel = decoded.selectedVoiceByModel
+        lastSelectedVoiceKey = decoded.lastSelectedVoiceKey
+        if let fmt = AudioExportFormat(rawValue: decoded.preferredExportFormatRaw) {
+            preferredExportFormat = fmt
+        }
+        if !decoded.userProfiles.isEmpty {
+            userProfiles = decoded.userProfiles
+        }
+        decoded.speechCleanOptions.saveToDefaults()
+        return true
+    }
+}
 

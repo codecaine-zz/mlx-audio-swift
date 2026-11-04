@@ -72,16 +72,20 @@ public enum TTS {
             do {
                 modelType = try await ModelUtils.resolveModelType(repoID: repoID, hfToken: hfToken, cache: cache)
             } catch {
-                // Some complete packages keep metadata beside their language model.
-                guard case let HTTPClientError.responseError(response, _) = error,
-                      response.statusCode == 404 else { throw error }
-                let client: HubClient
-                if let hfToken, !hfToken.isEmpty {
-                    client = HubClient(host: HubClient.defaultHost, bearerToken: hfToken, cache: cache)
-                } else { client = HubClient(cache: cache) }
-                let url = try await client.downloadFile(at: "model/config.json", from: repoID)
-                guard let type = try nestedModelType(Data(contentsOf: url)) else { throw error }
-                modelType = type
+                if let inferred = inferModelType(from: modelRepo), inferred == "pocket_tts" {
+                    modelType = inferred
+                } else {
+                    // Some complete packages keep metadata beside their language model.
+                    guard case let HTTPClientError.responseError(response, _) = error,
+                          response.statusCode == 404 else { throw error }
+                    let client: HubClient
+                    if let hfToken, !hfToken.isEmpty {
+                        client = HubClient(host: HubClient.defaultHost, bearerToken: hfToken, cache: cache)
+                    } else { client = HubClient(cache: cache) }
+                    let url = try await client.downloadFile(at: "model/config.json", from: repoID)
+                    guard let type = try nestedModelType(Data(contentsOf: url)) else { throw error }
+                    modelType = type
+                }
             }
         }
         return try await loadResolvedModel(
@@ -319,11 +323,11 @@ public enum TTS {
                 pretrained: { try await OuteTTSModel.fromPretrained($0, cache: $1) },
                 local: { modelDir, _ in try await OuteTTSModel.fromModelDirectory(modelDir, cache: source.cache) }
             )
-        case "pocket_tts", "phonon":
+        case "pocket_tts", "phonon", "gradium_phonon_tts", "gradium-phonon-tts":
             return try await load(
                 source,
                 modelType: resolvedType,
-                pretrained: { try await PocketTTSModel.fromPretrained($0, cache: $1) },
+                pretrained: { try await PocketTTSModel.fromPretrained($0, hfToken: hfToken, cache: $1) },
                 local: { modelDir, _ in try await PocketTTSModel.fromModelDirectory(modelDir) }
             )
         case "qwen3", "qwen":
