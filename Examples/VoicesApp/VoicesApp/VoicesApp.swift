@@ -274,6 +274,10 @@ struct VoicesApp: App {
         if args.contains("--tab-audiolab") { return 2 }
         if args.contains("--tab-localhost") { return 3 }
         if args.contains("--tab-packages") { return 4 }
+        if UserDefaults.standard.object(forKey: "VoicesApp.Shell.selectedTab") != nil {
+            let saved = UserDefaults.standard.integer(forKey: "VoicesApp.Shell.selectedTab")
+            if (0...4).contains(saved) { return saved }
+        }
         return 0
     }()
 
@@ -302,6 +306,9 @@ struct VoicesApp: App {
                 .onAppear {
                     DispatchQueue.main.async {
                         NSApplication.shared.setActivationPolicy(.regular)
+                        let rawTheme = UserDefaults.standard.string(forKey: "VoicesApp.TTSViewModel.readAlongTheme") ?? ReadAlongTheme.midnight.rawValue
+                        let isLightTheme = (ReadAlongTheme(rawValue: rawTheme)?.colorScheme == .light)
+                        NSApplication.shared.appearance = NSAppearance(named: isLightTheme ? .aqua : .darkAqua)
                         StudioBrandIconLoader.applyDockIcon()
                         NSApplication.shared.activate(ignoringOtherApps: true)
                         for window in NSApplication.shared.windows {
@@ -320,20 +327,21 @@ struct VoicesApp: App {
                             let outPath = args[snapIdx + 1]
                             DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
                                 if let window = NSApplication.shared.windows.first(where: { $0.frame.width > 400 }),
-                                   let contentView = window.contentView {
+                                   let baseContentView = window.contentView {
                                     if window.frame.width < 1480 || window.frame.height < 880 {
                                         window.setContentSize(NSSize(width: 1480, height: 900))
                                     }
-                                    contentView.layoutSubtreeIfNeeded()
-                                    let bounds = contentView.bounds
-                                    if let rep = contentView.bitmapImageRepForCachingDisplay(in: bounds) {
-                                        contentView.cacheDisplay(in: bounds, to: rep)
+                                    let targetView = window.attachedSheet?.contentView ?? baseContentView
+                                    targetView.layoutSubtreeIfNeeded()
+                                    let bounds = targetView.bounds
+                                    if let rep = targetView.bitmapImageRepForCachingDisplay(in: bounds) {
+                                        targetView.cacheDisplay(in: bounds, to: rep)
                                         if let pngData = rep.representation(using: .png, properties: [:]) {
                                             try? pngData.write(to: URL(fileURLWithPath: outPath))
                                         }
                                     }
                                 }
-                                NSApplication.shared.terminate(nil)
+                                exit(0)
                             }
                         }
                     }
@@ -884,6 +892,7 @@ struct AppleStudioShellView: View {
         .preferredColorScheme(theme.colorScheme)
         .onChange(of: selectedTab) { _, newTab in
             visitedTabs.insert(newTab)
+            UserDefaults.standard.set(newTab, forKey: "VoicesApp.Shell.selectedTab")
             hardware = HardwareGuardInspector.inspect()
         }
         .onReceive(telemetryTimer) { _ in
@@ -1317,9 +1326,44 @@ struct MasterCommandPaletteSheet: View {
 
     @State private var query: String = ""
     @State private var coordinator = StudioMiniReaderCoordinator.shared
+    @State private var prefs = StudioUserPreferencesManager.shared
 
     private var commands: [MasterCommandItem] {
-        [
+        var list: [MasterCommandItem] = prefs.userProfiles.map { profile in
+            MasterCommandItem(
+                id: "profile_\(profile.id.uuidString)",
+                category: "Saved Studio Profiles & Favorites",
+                title: "Apply Profile: \(profile.name)",
+                subtitle: profile.subtitle,
+                icon: profile.icon,
+                badge: "★ PROFILE",
+                tint: .yellow
+            ) {
+                selectedTab = 0
+                dismiss()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                    coordinator.triggerTransport("applyProfile_\(profile.id.uuidString)")
+                }
+            }
+        }
+        list.append(
+            MasterCommandItem(
+                id: "save_current_profile",
+                category: "Saved Studio Profiles & Favorites",
+                title: "Save Current Studio Setup as Favorite Profile…",
+                subtitle: "Saves current Model + Voice + Speed + Pitch + Pause + Mastering + Theme for 1-click recall",
+                icon: "star.circle.fill",
+                badge: "★ SAVE",
+                tint: .yellow
+            ) {
+                selectedTab = 0
+                dismiss()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                    coordinator.triggerTransport("saveCurrentProfile")
+                }
+            }
+        )
+        list.append(contentsOf: [
             MasterCommandItem(
                 id: "master_rack",
                 category: "Studio Mastering & Broadcast QC",
@@ -1553,7 +1597,8 @@ struct MasterCommandPaletteSheet: View {
                 #endif
                 dismiss()
             }
-        ]
+        ])
+        return list
     }
 
     private var filteredCommands: [MasterCommandItem] {
@@ -1650,6 +1695,8 @@ struct MasterCommandPaletteSheet: View {
         #if os(macOS)
         .frame(width: 720, height: 490)
         #endif
+        .background(Color(red: 0.08, green: 0.09, blue: 0.13))
+        .preferredColorScheme(.dark)
     }
 }
 

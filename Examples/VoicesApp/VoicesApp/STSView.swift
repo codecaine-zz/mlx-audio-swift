@@ -12,6 +12,7 @@ struct STSView: View {
     @AppStorage("VoicesApp.TTSViewModel.readAlongTheme") private var rawStudioTheme: String = ReadAlongTheme.midnight.rawValue
     @State private var viewModel = STSViewModel()
     @State private var modelsManager = DownloadedModelsManager.shared
+    @State private var prefs = StudioUserPreferencesManager.shared
     @State private var isFilePickerPresented = false
     @State private var selectedInputURL: URL?
     @State private var isDraggingOver = false
@@ -186,7 +187,7 @@ struct STSView: View {
     }
 
     private var modeFilteredPresets: [(name: String, id: String)] {
-        STSViewModel.presetModels.filter { preset in
+        let base = STSViewModel.presetModels.filter { preset in
             let lower = preset.id.lowercased()
             switch viewModel.studioMode {
             case .separation:
@@ -198,6 +199,12 @@ struct STSView: View {
             case .languageId:
                 return lower.contains("voxlingua") || lower.contains("mms-lid")
             }
+        }
+        return base.sorted { a, b in
+            let favA = prefs.isFavoriteSTSModel(a.id)
+            let favB = prefs.isFavoriteSTSModel(b.id)
+            if favA != favB { return favA && !favB }
+            return false
         }
     }
 
@@ -266,38 +273,56 @@ struct STSView: View {
                             let cached = modelsManager.isModelCached(preset.id)
                             let sizeStr = modelsManager.cachedModelSizeString(preset.id)
                             let isSelected = viewModel.modelId == preset.id
-                            Button {
-                                viewModel.modelId = preset.id
-                                Task { await viewModel.reloadModel() }
-                            } label: {
-                                HStack(spacing: 5) {
-                                    if cached {
-                                        Image(systemName: "checkmark.circle.fill")
-                                            .font(.system(size: 10))
-                                            .foregroundStyle(.green)
-                                    }
-                                    Text(preset.name)
-                                        .font(.system(size: 11.5, weight: isSelected ? .semibold : .medium))
-                                    if let sizeStr, cached {
-                                        Text(sizeStr)
-                                            .font(.system(size: 9.5, weight: .semibold))
-                                            .foregroundStyle(.green.opacity(0.9))
+                            let isFav = prefs.isFavoriteSTSModel(preset.id)
+                            HStack(spacing: 5) {
+                                Button {
+                                    prefs.toggleFavoriteSTSModel(preset.id)
+                                } label: {
+                                    Image(systemName: isFav ? "star.fill" : "star")
+                                        .font(.system(size: 10, weight: .bold))
+                                        .foregroundStyle(isFav ? .yellow : .secondary.opacity(0.6))
+                                }
+                                .buttonStyle(.plain)
+                                .help(isFav ? "Remove from favorite Audio Lab models" : "Add to favorite Audio Lab models")
+
+                                Button {
+                                    viewModel.modelId = preset.id
+                                    Task { await viewModel.reloadModel() }
+                                } label: {
+                                    HStack(spacing: 5) {
+                                        if cached {
+                                            Image(systemName: "checkmark.circle.fill")
+                                                .font(.system(size: 10))
+                                                .foregroundStyle(.green)
+                                        }
+                                        Text(preset.name)
+                                            .font(.system(size: 11.5, weight: isSelected ? .semibold : .medium))
+                                        if let sizeStr, cached {
+                                            Text(sizeStr)
+                                                .font(.system(size: 9.5, weight: .semibold))
+                                                .foregroundStyle(.green.opacity(0.9))
+                                        }
                                     }
                                 }
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .background(
-                                    Capsule()
-                                        .fill(isSelected ? Color.blue.opacity(0.28) : Color.white.opacity(0.05))
-                                        .overlay(
-                                            Capsule()
-                                                .strokeBorder(isSelected ? Color.blue.opacity(0.8) : Color.white.opacity(0.08), lineWidth: 1)
-                                        )
-                                )
+                                .buttonStyle(.plain)
+                                .disabled(viewModel.isLoading || viewModel.isGenerating)
                             }
-                            .buttonStyle(.plain)
-                            .disabled(viewModel.isLoading || viewModel.isGenerating)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(
+                                Capsule()
+                                    .fill(isSelected ? Color.blue.opacity(0.28) : (isFav ? Color.yellow.opacity(0.08) : Color.white.opacity(0.05)))
+                                    .overlay(
+                                        Capsule()
+                                            .strokeBorder(isSelected ? Color.blue.opacity(0.8) : (isFav ? Color.yellow.opacity(0.4) : Color.white.opacity(0.08)), lineWidth: 1)
+                                    )
+                            )
                             .contextMenu {
+                                Button {
+                                    prefs.toggleFavoriteSTSModel(preset.id)
+                                } label: {
+                                    Label(isFav ? "Remove from ★ Favorites" : "Add to ★ Favorites", systemImage: isFav ? "star.slash" : "star.fill")
+                                }
                                 if cached {
                                     #if os(macOS)
                                     Button {

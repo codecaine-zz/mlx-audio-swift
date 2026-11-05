@@ -7,6 +7,7 @@ struct STTView: View {
     @AppStorage("VoicesApp.TTSViewModel.readAlongTheme") private var rawStudioTheme: String = ReadAlongTheme.midnight.rawValue
     @State private var viewModel = STTViewModel()
     @State private var modelsManager = DownloadedModelsManager.shared
+    @State private var prefs = StudioUserPreferencesManager.shared
     @State private var showFileImporter = false
     @State private var showSettings = false
     @State private var showDownloadedModelsSheet = false
@@ -15,7 +16,7 @@ struct STTView: View {
     @State private var isDropTargeted = false
     @State private var transcriptSearch = ""
     @State private var copiedRecently = false
-    @State private var autoSyncToVoiceStudio = false
+    @AppStorage("VoicesApp.STTView.autoSyncToVoiceStudio") private var autoSyncToVoiceStudio = false
     @State private var isEditingTranscript = false
     @State private var findSpeakerText = "S1"
     @State private var replaceSpeakerText = "Host"
@@ -743,38 +744,16 @@ struct STTView: View {
                                 )
                         )
 
-                        // Quick STT Model Picker (Categorized + Cached Pinned)
-                        Menu {
-                            let cachedPresets = STTViewModel.presetModels.filter { modelsManager.isModelCached($0.id) }
-                            if !cachedPresets.isEmpty {
-                                Section("✓ Downloaded & Ready on Disk (\(cachedPresets.count))") {
-                                    ForEach(cachedPresets, id: \.id) { preset in
-                                        let sizeStr = modelsManager.cachedModelSizeString(preset.id)
-                                        let labelText = "✓ \(preset.name)\(sizeStr.map { " · \($0)" } ?? "")"
-                                        Button {
-                                            viewModel.modelId = preset.id
-                                            Task { await viewModel.reloadModel() }
-                                        } label: {
-                                            if viewModel.modelId == preset.id {
-                                                Label(labelText, systemImage: "checkmark")
-                                            } else {
-                                                Text(labelText)
-                                            }
-                                        }
-                                    }
-                                }
-                                Divider()
-                            }
-
-                            Section("Browse \(STTViewModel.presetModels.count) MLX ASR Models by Category") {
-                                ForEach(STTViewModel.categorizedPresetModels, id: \.category) { group in
-                                    Menu {
-                                        ForEach(group.models, id: \.id) { preset in
+                        // Quick STT Model Picker (Favorites + Categorized + Cached Pinned)
+                        HStack(spacing: 4) {
+                            Menu {
+                                let favPresets = STTViewModel.presetModels.filter { prefs.isFavoriteSTTModel($0.id) }
+                                if !favPresets.isEmpty {
+                                    Section("★ Favorite ASR Models (\(favPresets.count))") {
+                                        ForEach(favPresets, id: \.id) { preset in
                                             let cached = modelsManager.isModelCached(preset.id)
                                             let sizeStr = modelsManager.cachedModelSizeString(preset.id)
-                                            let labelText = cached
-                                                ? "✓ \(preset.name) [Cached\(sizeStr.map { " · \($0)" } ?? "")]"
-                                                : preset.name
+                                            let labelText = "★ \(preset.name)\(cached ? " · \(sizeStr ?? "Cached")" : "")"
                                             Button {
                                                 viewModel.modelId = preset.id
                                                 Task { await viewModel.reloadModel() }
@@ -786,62 +765,138 @@ struct STTView: View {
                                                 }
                                             }
                                         }
-                                    } label: {
-                                        Label("\(group.category) (\(group.models.count))", systemImage: group.icon)
+                                    }
+                                    Divider()
+                                }
+
+                                let cachedPresets = STTViewModel.presetModels.filter { modelsManager.isModelCached($0.id) }
+                                if !cachedPresets.isEmpty {
+                                    Section("✓ Downloaded & Ready on Disk (\(cachedPresets.count))") {
+                                        ForEach(cachedPresets, id: \.id) { preset in
+                                            let sizeStr = modelsManager.cachedModelSizeString(preset.id)
+                                            let labelText = "✓ \(preset.name)\(sizeStr.map { " · \($0)" } ?? "")"
+                                            Button {
+                                                viewModel.modelId = preset.id
+                                                Task { await viewModel.reloadModel() }
+                                            } label: {
+                                                if viewModel.modelId == preset.id {
+                                                    Label(labelText, systemImage: "checkmark")
+                                                } else {
+                                                    Text(labelText)
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Divider()
+                                }
+
+                                Section("Browse \(STTViewModel.presetModels.count) MLX ASR Models by Category") {
+                                    ForEach(STTViewModel.categorizedPresetModels, id: \.category) { group in
+                                        Menu {
+                                            ForEach(group.models, id: \.id) { preset in
+                                                let cached = modelsManager.isModelCached(preset.id)
+                                                let sizeStr = modelsManager.cachedModelSizeString(preset.id)
+                                                let isFav = prefs.isFavoriteSTTModel(preset.id)
+                                                let prefix = isFav ? "★ " : ""
+                                                let labelText = cached
+                                                    ? "\(prefix)✓ \(preset.name) [Cached\(sizeStr.map { " · \($0)" } ?? "")]"
+                                                    : "\(prefix)\(preset.name)"
+                                                Button {
+                                                    viewModel.modelId = preset.id
+                                                    Task { await viewModel.reloadModel() }
+                                                } label: {
+                                                    if viewModel.modelId == preset.id {
+                                                        Label(labelText, systemImage: "checkmark")
+                                                    } else {
+                                                        Text(labelText)
+                                                    }
+                                                }
+                                            }
+                                        } label: {
+                                            Label("\(group.category) (\(group.models.count))", systemImage: group.icon)
+                                        }
                                     }
                                 }
-                            }
-                            Divider()
-                            if modelsManager.isModelCached(viewModel.modelId) {
-                                let activeSize = modelsManager.cachedModelSizeString(viewModel.modelId) ?? "Cached"
-                                let activeName = STTViewModel.presetModels.first(where: { $0.id == viewModel.modelId })?.name ?? viewModel.modelId
-                                Button(role: .destructive) {
-                                    pendingDeleteModel = (name: activeName, id: viewModel.modelId, size: activeSize)
+                                Divider()
+                                Button {
+                                    prefs.toggleFavoriteSTTModel(viewModel.modelId)
                                 } label: {
-                                    Label("Delete Cached \(activeName) (\(activeSize))…", systemImage: "trash")
+                                    Label(
+                                        prefs.isFavoriteSTTModel(viewModel.modelId) ? "Remove Current Model from ★ Favorites" : "Add Current Model to ★ Favorites",
+                                        systemImage: prefs.isFavoriteSTTModel(viewModel.modelId) ? "star.slash.fill" : "star.fill"
+                                    )
                                 }
-                            }
-                            Button {
-                                modelsManager.refresh()
-                                showDownloadedModelsSheet = true
+                                if modelsManager.isModelCached(viewModel.modelId) {
+                                    let activeSize = modelsManager.cachedModelSizeString(viewModel.modelId) ?? "Cached"
+                                    let activeName = STTViewModel.presetModels.first(where: { $0.id == viewModel.modelId })?.name ?? viewModel.modelId
+                                    Button(role: .destructive) {
+                                        pendingDeleteModel = (name: activeName, id: viewModel.modelId, size: activeSize)
+                                    } label: {
+                                        Label("Delete Cached \(activeName) (\(activeSize))…", systemImage: "trash")
+                                    }
+                                }
+                                Button {
+                                    modelsManager.refresh()
+                                    showDownloadedModelsSheet = true
+                                } label: {
+                                    Label("Manage Downloaded Models (\(modelsManager.completeModelsCount) · \(modelsManager.totalSizeString))…", systemImage: "internaldrive.fill")
+                                }
+                                Button {
+                                    showSettings = true
+                                } label: {
+                                    Label("STT Settings…", systemImage: "slider.horizontal.3")
+                                }
                             } label: {
-                                Label("Manage Downloaded Models (\(modelsManager.completeModelsCount) · \(modelsManager.totalSizeString))…", systemImage: "internaldrive.fill")
-                            }
-                            Button {
-                                showSettings = true
-                            } label: {
-                                Label("STT Settings…", systemImage: "slider.horizontal.3")
-                            }
-                        } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: "cpu.fill")
-                                    .font(.system(size: 12.5))
-                                    .foregroundStyle(.blue)
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(viewModel.modelId.split(separator: "/").last.map(String.init) ?? viewModel.modelId)
-                                        .font(.system(size: 12.5, weight: .semibold))
-                                        .lineLimit(1)
-                                    Text("ASR Neural Engine")
-                                        .font(.system(size: 10))
+                                HStack(spacing: 8) {
+                                    Image(systemName: "cpu.fill")
+                                        .font(.system(size: 12.5))
+                                        .foregroundStyle(.blue)
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text(viewModel.modelId.split(separator: "/").last.map(String.init) ?? viewModel.modelId)
+                                            .font(.system(size: 12.5, weight: .semibold))
+                                            .lineLimit(1)
+                                        Text("ASR Neural Engine")
+                                            .font(.system(size: 10))
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Image(systemName: "chevron.up.chevron.down")
+                                        .font(.system(size: 10, weight: .semibold))
                                         .foregroundStyle(.secondary)
                                 }
-                                Image(systemName: "chevron.up.chevron.down")
-                                    .font(.system(size: 10, weight: .semibold))
-                                    .foregroundStyle(.secondary)
+                                .padding(.horizontal, 14)
+                                .frame(height: 44)
+                                .background(
+                                    Capsule()
+                                        .fill(Color.white.opacity(0.06))
+                                        .overlay(
+                                            Capsule()
+                                                .strokeBorder(Color.white.opacity(0.12), lineWidth: 0.8)
+                                        )
+                                )
                             }
-                            .padding(.horizontal, 14)
-                            .frame(height: 44)
-                            .background(
-                                Capsule()
-                                    .fill(Color.white.opacity(0.06))
-                                    .overlay(
-                                        Capsule()
-                                            .strokeBorder(Color.white.opacity(0.12), lineWidth: 0.8)
+                            .menuStyle(.borderlessButton)
+                            .fixedSize()
+
+                            Button {
+                                prefs.toggleFavoriteSTTModel(viewModel.modelId)
+                            } label: {
+                                let isFav = prefs.isFavoriteSTTModel(viewModel.modelId)
+                                Image(systemName: isFav ? "star.fill" : "star")
+                                    .font(.system(size: 13.5, weight: .semibold))
+                                    .foregroundStyle(isFav ? .yellow : .secondary)
+                                    .frame(width: 38, height: 44)
+                                    .background(
+                                        Circle()
+                                            .fill(isFav ? Color.yellow.opacity(0.14) : Color.white.opacity(0.06))
+                                            .overlay(
+                                                Circle()
+                                                    .strokeBorder(isFav ? Color.yellow.opacity(0.45) : Color.white.opacity(0.12), lineWidth: 0.8)
+                                            )
                                     )
-                            )
+                            }
+                            .buttonStyle(.plain)
+                            .help(prefs.isFavoriteSTTModel(viewModel.modelId) ? "Remove active ASR model from favorites" : "Star active ASR model as favorite")
                         }
-                        .menuStyle(.borderlessButton)
-                        .fixedSize()
 
                         Button(action: { showSettings = true }) {
                             Image(systemName: "slider.horizontal.3")

@@ -12,21 +12,31 @@ struct SettingsView: View {
     @FocusState private var focusedField: Field?
     @State private var modelFilter: String = ""
     @State private var showCachedOnly: Bool = false
+    @State private var showFavoritesOnly: Bool = false
     @State private var modelsManager = DownloadedModelsManager.shared
+    @State private var prefs = StudioUserPreferencesManager.shared
     @State private var pendingDeleteModel: (name: String, id: String, size: String)? = nil
     @State private var showDownloadedModelsSheet: Bool = false
 
     private var filteredPresets: [(name: String, id: String)] {
         _ = modelsManager.cacheRevision
-        let base = showCachedOnly
+        var base = showCachedOnly
             ? TTSViewModel.presetModels.filter { modelsManager.isModelCached($0.id) }
             : TTSViewModel.presetModels
-        if modelFilter.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return base
+        if showFavoritesOnly {
+            base = base.filter { prefs.isFavoriteTTSModel($0.id) }
         }
-        return base.filter {
-            $0.name.localizedCaseInsensitiveContains(modelFilter) ||
-            $0.id.localizedCaseInsensitiveContains(modelFilter)
+        if !modelFilter.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            base = base.filter {
+                $0.name.localizedCaseInsensitiveContains(modelFilter) ||
+                $0.id.localizedCaseInsensitiveContains(modelFilter)
+            }
+        }
+        return base.sorted { a, b in
+            let favA = prefs.isFavoriteTTSModel(a.id)
+            let favB = prefs.isFavoriteTTSModel(b.id)
+            if favA != favB { return favA && !favB }
+            return false
         }
     }
 
@@ -52,6 +62,8 @@ struct SettingsView: View {
         #if os(macOS)
         .frame(minWidth: 500, minHeight: 720)
         #endif
+        .background(Color(red: 0.08, green: 0.09, blue: 0.13))
+        .preferredColorScheme(.dark)
         .sheet(isPresented: $showDownloadedModelsSheet) {
             DownloadedModelsSheetView()
         }
@@ -189,12 +201,16 @@ struct SettingsView: View {
                 .padding(.top, 4)
 
                 VStack(alignment: .leading, spacing: 6) {
-                    HStack {
+                    HStack(spacing: 10) {
                         Text("Known Downloadable Models (\(filteredPresets.count)):")
                             .font(.caption2)
                             .fontWeight(.medium)
                             .foregroundStyle(.secondary)
                         Spacer()
+                        Toggle("★ Favorites (\(prefs.favoriteTTSModelIds.count))", isOn: $showFavoritesOnly)
+                            .toggleStyle(.switch)
+                            .controlSize(.mini)
+                            .font(.caption2)
                         Toggle("Cached Only", isOn: $showCachedOnly)
                             .toggleStyle(.switch)
                             .controlSize(.mini)
@@ -213,8 +229,19 @@ struct SettingsView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             ForEach(filteredPresets, id: \.id) { preset in
                                 let isCached = modelsManager.isModelCached(preset.id)
+                                let isFav = prefs.isFavoriteTTSModel(preset.id)
                                 let sizeStr = modelsManager.cachedModelSizeString(preset.id)
                                 HStack(spacing: 6) {
+                                    Button {
+                                        prefs.toggleFavoriteTTSModel(preset.id)
+                                    } label: {
+                                        Image(systemName: isFav ? "star.fill" : "star")
+                                            .font(.caption)
+                                            .foregroundStyle(isFav ? .yellow : .secondary.opacity(0.55))
+                                    }
+                                    .buttonStyle(.plain)
+                                    .help(isFav ? "Remove from favorite TTS models" : "Add to favorite TTS models")
+
                                     Button {
                                         viewModel.modelId = preset.id
                                         Task {

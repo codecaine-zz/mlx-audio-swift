@@ -147,7 +147,11 @@ class STTViewModel {
     var isGenerating = false
     var generationProgress: String = ""
     var errorMessage: String?
-    var transcriptionText: String = ""
+    var transcriptionText: String = UserDefaults.standard.string(forKey: "VoicesApp.STTViewModel.lastTranscriptionText") ?? "" {
+        didSet {
+            UserDefaults.standard.set(transcriptionText, forKey: "VoicesApp.STTViewModel.lastTranscriptionText")
+        }
+    }
     var tokensPerSecond: Double = 0
     var peakMemory: Double = 0
 

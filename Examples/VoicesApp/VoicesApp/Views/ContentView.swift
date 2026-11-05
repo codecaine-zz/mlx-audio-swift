@@ -99,10 +99,13 @@ struct ContentView: View {
     @State private var modelsManager = DownloadedModelsManager.shared
     @State private var showHistory = ProcessInfo.processInfo.arguments.contains("--open-history")
     @State private var showDocImporter = false
-    @State private var showTeleprompter = ProcessInfo.processInfo.arguments.contains("--read-along")
+    @State private var showTeleprompter: Bool = {
+        if ProcessInfo.processInfo.arguments.contains("--read-along") { return true }
+        return UserDefaults.standard.bool(forKey: "VoicesApp.VoiceStudio.showTeleprompter")
+    }()
     @State private var previewWordId: Int? = ProcessInfo.processInfo.arguments.contains("--read-along") ? 6 : nil
     @State private var isDropTargeted = false
-    @State private var cleanOptions = SpeechCleanOptions()
+    @State private var cleanOptions: SpeechCleanOptions = SpeechCleanOptions.loadFromDefaults()
     @State private var recentlyUsed: [Voice] = Voice.samples
     @State private var customVoices: [Voice] = Voice.loadCustomVoices()
     @State private var copiedScript = false
@@ -113,6 +116,9 @@ struct ContentView: View {
     @State private var castingManager = CharacterCastingManager.shared
     @State private var masteringManager = StudioMasteringManager.shared
     @State private var miniReader = StudioMiniReaderCoordinator.shared
+    @State private var prefs = StudioUserPreferencesManager.shared
+    @State private var showSaveProfilePopover = false
+    @State private var newProfileName: String = ""
     @State private var showPronunciationSheet = ProcessInfo.processInfo.arguments.contains("--open-pronunciation")
     @State private var showCastingSheet = ProcessInfo.processInfo.arguments.contains("--open-casting")
     @State private var showM4BExporterSheet = ProcessInfo.processInfo.arguments.contains("--open-m4b")
@@ -187,8 +193,19 @@ struct ContentView: View {
             viewModel.applyMasterBusInPlaceToCurrentAudio()
         case "preset_bypass":
             masteringManager.applyPreset(.bypass)
+        case "saveCurrentProfile":
+            let vName = viewModel.selectedVoice?.name.components(separatedBy: " ").first ?? "Studio"
+            newProfileName = "\(vName) \(String(format: "%.2gx", viewModel.playbackRate)) (\(masteringManager.preset.shortBadge))"
+            showSaveProfilePopover = true
         default:
-            break
+            if action.hasPrefix("applyProfile_") {
+                let idStr = String(action.dropFirst("applyProfile_".count))
+                if let uuid = UUID(uuidString: idStr),
+                   let profile = prefs.userProfiles.first(where: { $0.id == uuid }) {
+                    viewModel.applyStudioProfile(profile)
+                    viewModel.applyMasterBusInPlaceToCurrentAudio()
+                }
+            }
         }
         syncMiniReaderState()
     }
@@ -1234,6 +1251,107 @@ struct ContentView: View {
                             .menuStyle(.borderlessButton)
                             .fixedSize()
                             .help("Codecaine File Manager 2-second synthesis & instant WAV export mode")
+
+                            // Saved Studio Profiles / Presets Quick Menu
+                            Menu {
+                                Section("★ Saved Studio Profiles (\(prefs.userProfiles.count))") {
+                                    ForEach(prefs.userProfiles) { profile in
+                                        Button {
+                                            viewModel.applyStudioProfile(profile)
+                                            viewModel.applyMasterBusInPlaceToCurrentAudio()
+                                        } label: {
+                                            Label("\(profile.name) — \(profile.subtitle)", systemImage: profile.icon)
+                                        }
+                                    }
+                                }
+                                Divider()
+                                Button {
+                                    let vName = viewModel.selectedVoice?.name.components(separatedBy: " ").first ?? "Studio"
+                                    newProfileName = "\(vName) \(String(format: "%.2gx", viewModel.playbackRate)) (\(masteringManager.preset.shortBadge))"
+                                    showSaveProfilePopover = true
+                                } label: {
+                                    Label("★ Save Current Setup as Favorite Profile…", systemImage: "star.circle.fill")
+                                }
+
+                                let customProfiles = prefs.userProfiles.filter { !$0.isBuiltIn }
+                                if !customProfiles.isEmpty {
+                                    Menu("Delete Custom Profile") {
+                                        ForEach(customProfiles) { profile in
+                                            Button(role: .destructive) {
+                                                prefs.deleteProfile(id: profile.id)
+                                            } label: {
+                                                Label("Delete '\(profile.name)'", systemImage: "trash")
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Button {
+                                    prefs.resetProfilesToDefaults()
+                                } label: {
+                                    Label("Restore Default Starter Profiles", systemImage: "arrow.counterclockwise")
+                                }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "star.circle.fill")
+                                        .font(.system(size: 10.5))
+                                        .foregroundStyle(.yellow)
+                                    Text("Presets (\(prefs.userProfiles.count))")
+                                        .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                                }
+                                .padding(.horizontal, 9)
+                                .padding(.vertical, 5)
+                                .background(Color.yellow.opacity(0.14), in: Capsule())
+                                .overlay(
+                                    Capsule()
+                                        .strokeBorder(Color.yellow.opacity(0.38), lineWidth: 0.8)
+                                )
+                            }
+                            .menuStyle(.borderlessButton)
+                            .fixedSize()
+                            .help("1-click Studio Profiles — save or recall your favorite Model + Voice + Speed + Pitch + Mastering + Theme combinations")
+                            .popover(isPresented: $showSaveProfilePopover, arrowEdge: .bottom) {
+                                VStack(alignment: .leading, spacing: 10) {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "star.circle.fill")
+                                            .foregroundStyle(.yellow)
+                                        Text("Save Current Studio Setup as Profile")
+                                            .font(.system(size: 13, weight: .bold))
+                                    }
+                                    Text("Saves \(viewModel.selectedVoice?.name ?? "Freya") · \(String(format: "%.2gx", viewModel.playbackRate)) · \(masteringManager.preset.shortBadge) · \(viewModel.readAlongTheme.label)")
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(.secondary)
+                                    TextField("Profile name (e.g. Late Night Sci-Fi Narrator)", text: $newProfileName)
+                                        .textFieldStyle(.roundedBorder)
+                                        .font(.system(size: 12))
+                                    HStack {
+                                        Spacer()
+                                        Button("Cancel") {
+                                            showSaveProfilePopover = false
+                                        }
+                                        .buttonStyle(.bordered)
+                                        .controlSize(.small)
+                                        Button("Save Profile") {
+                                            prefs.saveCustomProfile(
+                                                name: newProfileName,
+                                                modelId: viewModel.modelId,
+                                                voice: viewModel.selectedVoice,
+                                                playbackRate: viewModel.playbackRate,
+                                                pitchSemitones: viewModel.pitchSemitones,
+                                                paragraphPauseMs: viewModel.paragraphPauseMs,
+                                                maxChunkLength: viewModel.maxChunkLength,
+                                                theme: viewModel.readAlongTheme,
+                                                masteringPreset: masteringManager.preset
+                                            )
+                                            showSaveProfilePopover = false
+                                        }
+                                        .buttonStyle(.borderedProminent)
+                                        .controlSize(.small)
+                                    }
+                                }
+                                .padding(14)
+                                .frame(width: 340)
+                            }
                         }
                     }
                     .fixedSize(horizontal: false, vertical: true)
@@ -1903,178 +2021,7 @@ struct ContentView: View {
                 }
 
                 // Upper Dock Row: Dedicated Full-Width Built-In Voices Palette + Category Menu + Voice Browser Trigger
-                if !viewModel.builtInVoices.isEmpty || !customVoices.isEmpty {
-                    let allQuickVoices = customVoices + viewModel.builtInVoices
-                    HStack(spacing: 8) {
-                        // Categorized All-Voices Dropdown Menu
-                        Menu {
-                            let conversational = viewModel.builtInVoices.filter { $0.category == "Conversational" }
-                            let narrators = viewModel.builtInVoices.filter { $0.category == "Narrator" }
-                            let characters = viewModel.builtInVoices.filter { $0.category == "Character" }
-                            let clones = viewModel.builtInVoices.filter { $0.category == "Reference Clones" }
-                            let others = viewModel.builtInVoices.filter {
-                                !["Conversational", "Narrator", "Character", "Reference Clones"].contains($0.category)
-                            }
-
-                            if !customVoices.isEmpty {
-                                Section("Custom Cloned Voices (\(customVoices.count))") {
-                                    ForEach(customVoices) { voice in
-                                        Button {
-                                            viewModel.selectedVoice = voice
-                                        } label: {
-                                            Text("\(voice.name) — \(voice.description)")
-                                        }
-                                    }
-                                }
-                            }
-                            if !conversational.isEmpty {
-                                Section("Conversational (\(conversational.count))") {
-                                    ForEach(conversational) { voice in
-                                        Button {
-                                            viewModel.selectedVoice = voice
-                                        } label: {
-                                            Text("\(voice.name) — \(voice.description)")
-                                        }
-                                    }
-                                }
-                            }
-                            if !narrators.isEmpty {
-                                Section("Narrator (\(narrators.count))") {
-                                    ForEach(narrators) { voice in
-                                        Button {
-                                            viewModel.selectedVoice = voice
-                                        } label: {
-                                            Text("\(voice.name) — \(voice.description)")
-                                        }
-                                    }
-                                }
-                            }
-                            if !characters.isEmpty {
-                                Section("Character (\(characters.count))") {
-                                    ForEach(characters) { voice in
-                                        Button {
-                                            viewModel.selectedVoice = voice
-                                        } label: {
-                                            Text("\(voice.name) — \(voice.description)")
-                                        }
-                                    }
-                                }
-                            }
-                            if !clones.isEmpty {
-                                Section("Reference Clones (\(clones.count))") {
-                                    ForEach(clones) { voice in
-                                        Button {
-                                            viewModel.selectedVoice = voice
-                                        } label: {
-                                            Text("\(voice.name) — \(voice.description)")
-                                        }
-                                    }
-                                }
-                            }
-                            if !others.isEmpty {
-                                Section("Model Built-In (\(others.count))") {
-                                    ForEach(others) { voice in
-                                        Button {
-                                            viewModel.selectedVoice = voice
-                                        } label: {
-                                            Text("\(voice.name) — \(voice.description)")
-                                        }
-                                    }
-                                }
-                            }
-                            Divider()
-                            Button {
-                                showVoices = true
-                            } label: {
-                                Label("Open Full Voice Browser & Cloner...", systemImage: "square.grid.2x2")
-                            }
-                        } label: {
-                            HStack(spacing: 5) {
-                                Image(systemName: "person.2.wave.2.fill")
-                                    .font(.system(size: 11, weight: .semibold))
-                                    .foregroundStyle(.blue)
-                                Text("BUILT-IN VOICES (\(viewModel.builtInVoices.count))")
-                                    .font(.system(size: 10.5, weight: .bold, design: .rounded))
-                                    .foregroundStyle(.primary)
-                                Image(systemName: "chevron.down")
-                                    .font(.system(size: 8.5, weight: .bold))
-                                    .foregroundStyle(.secondary)
-                            }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5.5)
-                            .background(
-                                Capsule()
-                                    .fill(Color.blue.opacity(0.14))
-                                    .overlay(
-                                        Capsule()
-                                            .strokeBorder(Color.blue.opacity(0.32), lineWidth: 0.8)
-                                    )
-                            )
-                        }
-                        .menuStyle(.borderlessButton)
-                        .fixedSize()
-                        .help("Browse all \(viewModel.builtInVoices.count) built-in voices grouped by Conversational, Narrator, Character, and Clones")
-
-                        // Full-width horizontal voice strip
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 6) {
-                                ForEach(allQuickVoices) { voice in
-                                    let isSelected = viewModel.selectedVoice?.name == voice.name && viewModel.selectedVoice?.voiceId == voice.voiceId
-                                    Button {
-                                        withAnimation(.spring(response: 0.24, dampingFraction: 0.8)) {
-                                            viewModel.selectedVoice = voice
-                                        }
-                                    } label: {
-                                        HStack(spacing: 6) {
-                                            VoiceAvatar(color: voice.color, size: 15)
-                                            Text(voice.name)
-                                                .font(.system(size: 12, weight: isSelected ? .semibold : .medium))
-                                                .foregroundStyle(isSelected ? .white : .primary.opacity(0.88))
-                                        }
-                                        .padding(.horizontal, 10)
-                                        .padding(.vertical, 5)
-                                        .background(
-                                            Capsule()
-                                                .fill(isSelected ? Color.blue.opacity(0.34) : Color.white.opacity(0.05))
-                                                .overlay(
-                                                    Capsule()
-                                                        .strokeBorder(isSelected ? Color.blue.opacity(0.88) : Color.white.opacity(0.09), lineWidth: 1)
-                                                )
-                                        )
-                                    }
-                                    .buttonStyle(.plain)
-                                    .help("\(voice.name) — \(voice.description)")
-                                }
-                            }
-                        }
-
-                        // 1-Click Visual Voice Browser Grid Button
-                        Button {
-                            showVoices = true
-                        } label: {
-                            HStack(spacing: 4) {
-                                Image(systemName: "square.grid.2x2")
-                                    .font(.system(size: 11, weight: .semibold))
-                                Text("Browse All")
-                                    .font(.system(size: 11.5, weight: .semibold))
-                            }
-                            .foregroundStyle(.blue)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .background(
-                                Capsule()
-                                    .fill(Color.white.opacity(0.05))
-                                    .overlay(
-                                        Capsule()
-                                            .strokeBorder(Color.white.opacity(0.10), lineWidth: 0.8)
-                                    )
-                            )
-                        }
-                        .buttonStyle(.plain)
-                        .fixedSize()
-                        .help("Open visual Voice Browser grid and zero-shot voice cloner")
-                    }
-                }
+                upperDockVoicesPaletteRow
 
                 // Middle Dock Row: Apple Podcasts-style Transport Bar (when audio is generated)
                 if viewModel.audioURL != nil {
@@ -2241,6 +2188,29 @@ struct ContentView: View {
                     .buttonStyle(.plain)
                     .help("Browse all built-in voices or clone a custom voice from audio/microphone")
 
+                    // 1-Click Favorite Active Voice Star Button
+                    if let activeVoice = viewModel.selectedVoice {
+                        let isFavVoice = prefs.isFavoriteVoice(activeVoice)
+                        Button {
+                            prefs.toggleFavoriteVoice(activeVoice)
+                        } label: {
+                            Image(systemName: isFavVoice ? "star.fill" : "star")
+                                .font(.system(size: 13.5, weight: .semibold))
+                                .foregroundStyle(isFavVoice ? .yellow : .secondary)
+                                .frame(width: 38, height: 44)
+                                .background(
+                                    Circle()
+                                        .fill(isFavVoice ? Color.yellow.opacity(0.14) : Color.white.opacity(0.06))
+                                        .overlay(
+                                            Circle()
+                                                .strokeBorder(isFavVoice ? Color.yellow.opacity(0.45) : Color.white.opacity(0.12), lineWidth: 0.8)
+                                        )
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .help(isFavVoice ? "Remove '\(activeVoice.name)' from favorite voices" : "Star '\(activeVoice.name)' as a favorite voice")
+                    }
+
                     // 1-Click Active Voice Audition Button
                     if viewModel.selectedVoice.flatMap(Voice.previewAudioURL(for:)) != nil {
                         Button {
@@ -2272,38 +2242,16 @@ struct ContentView: View {
                         .help("Audition \(viewModel.selectedVoice?.name ?? "selected voice") reference sample")
                     }
 
-                    // Quick Model Engine Picker Capsule (Categorized + Cached Pinned)
-                    Menu {
-                        let cachedPresets = TTSViewModel.presetModels.filter { modelsManager.isModelCached($0.id) }
-                        if !cachedPresets.isEmpty {
-                            Section("✓ Downloaded & Ready on Disk (\(cachedPresets.count))") {
-                                ForEach(cachedPresets, id: \.id) { preset in
-                                    let sizeStr = modelsManager.cachedModelSizeString(preset.id)
-                                    let labelText = "✓ \(preset.name)\(sizeStr.map { " · \($0)" } ?? "")"
-                                    Button {
-                                        viewModel.modelId = preset.id
-                                        Task { await viewModel.reloadModel() }
-                                    } label: {
-                                        if viewModel.modelId == preset.id {
-                                            Label(labelText, systemImage: "checkmark")
-                                        } else {
-                                            Text(labelText)
-                                        }
-                                    }
-                                }
-                            }
-                            Divider()
-                        }
-
-                        Section("Browse \(TTSViewModel.presetModels.count) MLX TTS Engines by Category") {
-                            ForEach(TTSViewModel.categorizedPresetModels, id: \.category) { group in
-                                Menu {
-                                    ForEach(group.models, id: \.id) { preset in
+                    // Quick Model Engine Picker Capsule (Favorites + Categorized + Cached Pinned)
+                    HStack(spacing: 4) {
+                        Menu {
+                            let favPresets = TTSViewModel.presetModels.filter { prefs.isFavoriteTTSModel($0.id) }
+                            if !favPresets.isEmpty {
+                                Section("★ Favorite TTS Engines (\(favPresets.count))") {
+                                    ForEach(favPresets, id: \.id) { preset in
                                         let cached = modelsManager.isModelCached(preset.id)
                                         let sizeStr = modelsManager.cachedModelSizeString(preset.id)
-                                        let labelText = cached
-                                            ? "✓ \(preset.name) [Cached\(sizeStr.map { " · \($0)" } ?? "")]"
-                                            : preset.name
+                                        let labelText = "★ \(preset.name)\(cached ? " · \(sizeStr ?? "Cached")" : "")"
                                         Button {
                                             viewModel.modelId = preset.id
                                             Task { await viewModel.reloadModel() }
@@ -2315,63 +2263,139 @@ struct ContentView: View {
                                             }
                                         }
                                     }
-                                } label: {
-                                    Label("\(group.category) (\(group.models.count))", systemImage: group.icon)
+                                }
+                                Divider()
+                            }
+
+                            let cachedPresets = TTSViewModel.presetModels.filter { modelsManager.isModelCached($0.id) }
+                            if !cachedPresets.isEmpty {
+                                Section("✓ Downloaded & Ready on Disk (\(cachedPresets.count))") {
+                                    ForEach(cachedPresets, id: \.id) { preset in
+                                        let sizeStr = modelsManager.cachedModelSizeString(preset.id)
+                                        let labelText = "✓ \(preset.name)\(sizeStr.map { " · \($0)" } ?? "")"
+                                        Button {
+                                            viewModel.modelId = preset.id
+                                            Task { await viewModel.reloadModel() }
+                                        } label: {
+                                            if viewModel.modelId == preset.id {
+                                                Label(labelText, systemImage: "checkmark")
+                                            } else {
+                                                Text(labelText)
+                                            }
+                                        }
+                                    }
+                                }
+                                Divider()
+                            }
+
+                            Section("Browse \(TTSViewModel.presetModels.count) MLX TTS Engines by Category") {
+                                ForEach(TTSViewModel.categorizedPresetModels, id: \.category) { group in
+                                    Menu {
+                                        ForEach(group.models, id: \.id) { preset in
+                                            let cached = modelsManager.isModelCached(preset.id)
+                                            let sizeStr = modelsManager.cachedModelSizeString(preset.id)
+                                            let isFav = prefs.isFavoriteTTSModel(preset.id)
+                                            let prefix = isFav ? "★ " : ""
+                                            let labelText = cached
+                                                ? "\(prefix)✓ \(preset.name) [Cached\(sizeStr.map { " · \($0)" } ?? "")]"
+                                                : "\(prefix)\(preset.name)"
+                                            Button {
+                                                viewModel.modelId = preset.id
+                                                Task { await viewModel.reloadModel() }
+                                            } label: {
+                                                if viewModel.modelId == preset.id {
+                                                    Label(labelText, systemImage: "checkmark")
+                                                } else {
+                                                    Text(labelText)
+                                                }
+                                            }
+                                        }
+                                    } label: {
+                                        Label("\(group.category) (\(group.models.count))", systemImage: group.icon)
+                                    }
                                 }
                             }
-                        }
-                        Divider()
-                        if modelsManager.isModelCached(viewModel.modelId) {
-                            let activeSize = modelsManager.cachedModelSizeString(viewModel.modelId) ?? "Cached"
-                            let activeName = TTSViewModel.presetModels.first(where: { $0.id == viewModel.modelId })?.name ?? viewModel.modelId
-                            Button(role: .destructive) {
-                                pendingDeleteModel = (name: activeName, id: viewModel.modelId, size: activeSize)
+                            Divider()
+                            Button {
+                                prefs.toggleFavoriteTTSModel(viewModel.modelId)
                             } label: {
-                                Label("Delete Cached \(activeName) (\(activeSize))…", systemImage: "trash")
+                                Label(
+                                    prefs.isFavoriteTTSModel(viewModel.modelId) ? "Remove Current Engine from ★ Favorites" : "Add Current Engine to ★ Favorites",
+                                    systemImage: prefs.isFavoriteTTSModel(viewModel.modelId) ? "star.slash.fill" : "star.fill"
+                                )
                             }
-                        }
-                        Button {
-                            modelsManager.refresh()
-                            showDownloadedModelsSheet = true
+                            if modelsManager.isModelCached(viewModel.modelId) {
+                                let activeSize = modelsManager.cachedModelSizeString(viewModel.modelId) ?? "Cached"
+                                let activeName = TTSViewModel.presetModels.first(where: { $0.id == viewModel.modelId })?.name ?? viewModel.modelId
+                                Button(role: .destructive) {
+                                    pendingDeleteModel = (name: activeName, id: viewModel.modelId, size: activeSize)
+                                } label: {
+                                    Label("Delete Cached \(activeName) (\(activeSize))…", systemImage: "trash")
+                                }
+                            }
+                            Button {
+                                modelsManager.refresh()
+                                showDownloadedModelsSheet = true
+                            } label: {
+                                Label("Manage Downloaded Models (\(modelsManager.completeModelsCount) · \(modelsManager.totalSizeString))…", systemImage: "internaldrive.fill")
+                            }
+                            Button {
+                                showSettings = true
+                            } label: {
+                                Label("Model & Generation Settings…", systemImage: "slider.horizontal.3")
+                            }
                         } label: {
-                            Label("Manage Downloaded Models (\(modelsManager.completeModelsCount) · \(modelsManager.totalSizeString))…", systemImage: "internaldrive.fill")
-                        }
-                        Button {
-                            showSettings = true
-                        } label: {
-                            Label("Model & Generation Settings…", systemImage: "slider.horizontal.3")
-                        }
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: "cpu.fill")
-                                .font(.system(size: 12.5))
-                                .foregroundStyle(.blue)
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(viewModel.modelId.split(separator: "/").last.map(String.init) ?? viewModel.modelId)
-                                    .font(.system(size: 12.5, weight: .semibold))
-                                    .foregroundStyle(.primary)
-                                    .lineLimit(1)
-                                Text("MLX Neural Engine")
-                                    .font(.system(size: 10))
+                            HStack(spacing: 8) {
+                                Image(systemName: "cpu.fill")
+                                    .font(.system(size: 12.5))
+                                    .foregroundStyle(.blue)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(viewModel.modelId.split(separator: "/").last.map(String.init) ?? viewModel.modelId)
+                                        .font(.system(size: 12.5, weight: .semibold))
+                                        .foregroundStyle(.primary)
+                                        .lineLimit(1)
+                                    Text("MLX Neural Engine")
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(.secondary)
+                                }
+                                Image(systemName: "chevron.up.chevron.down")
+                                    .font(.system(size: 10, weight: .semibold))
                                     .foregroundStyle(.secondary)
                             }
-                            Image(systemName: "chevron.up.chevron.down")
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundStyle(.secondary)
+                            .padding(.horizontal, 14)
+                            .frame(height: 44)
+                            .background(
+                                Capsule()
+                                    .fill(Color.white.opacity(0.06))
+                                    .overlay(
+                                        Capsule()
+                                            .strokeBorder(Color.white.opacity(0.12), lineWidth: 0.8)
+                                    )
+                            )
                         }
-                        .padding(.horizontal, 14)
-                        .frame(height: 44)
-                        .background(
-                            Capsule()
-                                .fill(Color.white.opacity(0.06))
-                                .overlay(
-                                    Capsule()
-                                        .strokeBorder(Color.white.opacity(0.12), lineWidth: 0.8)
+                        .menuStyle(.borderlessButton)
+                        .fixedSize()
+
+                        Button {
+                            prefs.toggleFavoriteTTSModel(viewModel.modelId)
+                        } label: {
+                            let isFav = prefs.isFavoriteTTSModel(viewModel.modelId)
+                            Image(systemName: isFav ? "star.fill" : "star")
+                                .font(.system(size: 13.5, weight: .semibold))
+                                .foregroundStyle(isFav ? .yellow : .secondary)
+                                .frame(width: 38, height: 44)
+                                .background(
+                                    Circle()
+                                        .fill(isFav ? Color.yellow.opacity(0.14) : Color.white.opacity(0.06))
+                                        .overlay(
+                                            Circle()
+                                                .strokeBorder(isFav ? Color.yellow.opacity(0.45) : Color.white.opacity(0.12), lineWidth: 0.8)
+                                        )
                                 )
-                        )
+                        }
+                        .buttonStyle(.plain)
+                        .help(prefs.isFavoriteTTSModel(viewModel.modelId) ? "Remove active TTS engine from favorites" : "Star active TTS engine as favorite")
                     }
-                    .menuStyle(.borderlessButton)
-                    .fixedSize()
 
                     // Inspector / Settings Button
                     Button(action: { showSettings = true }) {
@@ -2726,6 +2750,12 @@ struct ContentView: View {
         .onChange(of: customVoices) { _, newValue in
             Voice.saveCustomVoices(newValue)
         }
+        .onChange(of: showTeleprompter) { _, newVal in
+            UserDefaults.standard.set(newVal, forKey: "VoicesApp.VoiceStudio.showTeleprompter")
+        }
+        .onChange(of: cleanOptions) { _, newOpts in
+            newOpts.saveToDefaults()
+        }
         .onChange(of: textInput) { _, newText in
             sessionManager.saveSessionScript(newText, chunkIndex: viewModel.activeChunkIndex)
             syncMiniReaderState()
@@ -2831,6 +2861,244 @@ struct ContentView: View {
         }
     }
 
+    @ViewBuilder
+    private var upperDockVoicesPaletteRow: some View {
+        if !viewModel.builtInVoices.isEmpty || !customVoices.isEmpty {
+            let allQuickVoices = (customVoices + viewModel.builtInVoices).sorted { a, b in
+                let favA = prefs.isFavoriteVoice(a)
+                let favB = prefs.isFavoriteVoice(b)
+                if favA != favB { return favA && !favB }
+                return false
+            }
+            HStack(spacing: 8) {
+                Menu {
+                    let favVoices = (customVoices + viewModel.builtInVoices).filter { prefs.isFavoriteVoice($0) }
+                    let recentVoices = prefs.recentVoiceKeys.compactMap { key in
+                        (customVoices + viewModel.builtInVoices).first(where: { $0.voiceKey == key })
+                    }
+                    let conversational = viewModel.builtInVoices.filter { $0.category == "Conversational" }
+                    let narrators = viewModel.builtInVoices.filter { $0.category == "Narrator" }
+                    let characters = viewModel.builtInVoices.filter { $0.category == "Character" }
+                    let clones = viewModel.builtInVoices.filter { $0.category == "Reference Clones" }
+                    let others = viewModel.builtInVoices.filter {
+                        !["Conversational", "Narrator", "Character", "Reference Clones"].contains($0.category)
+                    }
+
+                    if !favVoices.isEmpty {
+                        Section("★ Favorite Voices (\(favVoices.count))") {
+                            ForEach(favVoices) { voice in
+                                Button {
+                                    viewModel.selectedVoice = voice
+                                } label: {
+                                    if viewModel.selectedVoice?.voiceKey == voice.voiceKey {
+                                        Label("★ \(voice.name) — \(voice.description)", systemImage: "checkmark")
+                                    } else {
+                                        Text("★ \(voice.name) — \(voice.description)")
+                                    }
+                                }
+                            }
+                        }
+                        Divider()
+                    }
+                    if !recentVoices.isEmpty {
+                        Section("Recently Used Voices (\(recentVoices.count))") {
+                            ForEach(recentVoices.prefix(6)) { voice in
+                                Button {
+                                    viewModel.selectedVoice = voice
+                                } label: {
+                                    Text("\(voice.name) — \(voice.description)")
+                                }
+                            }
+                        }
+                        Divider()
+                    }
+                    if !customVoices.isEmpty {
+                        Section("Custom Cloned Voices (\(customVoices.count))") {
+                            ForEach(customVoices) { voice in
+                                Button {
+                                    viewModel.selectedVoice = voice
+                                } label: {
+                                    Text("\(voice.name) — \(voice.description)")
+                                }
+                            }
+                        }
+                    }
+                    if !conversational.isEmpty {
+                        Section("Conversational (\(conversational.count))") {
+                            ForEach(conversational) { voice in
+                                Button {
+                                    viewModel.selectedVoice = voice
+                                } label: {
+                                    Text("\(voice.name) — \(voice.description)")
+                                }
+                            }
+                        }
+                    }
+                    if !narrators.isEmpty {
+                        Section("Narrator (\(narrators.count))") {
+                            ForEach(narrators) { voice in
+                                Button {
+                                    viewModel.selectedVoice = voice
+                                } label: {
+                                    Text("\(voice.name) — \(voice.description)")
+                                }
+                            }
+                        }
+                    }
+                    if !characters.isEmpty {
+                        Section("Character (\(characters.count))") {
+                            ForEach(characters) { voice in
+                                Button {
+                                    viewModel.selectedVoice = voice
+                                } label: {
+                                    Text("\(voice.name) — \(voice.description)")
+                                }
+                            }
+                        }
+                    }
+                    if !clones.isEmpty {
+                        Section("Reference Clones (\(clones.count))") {
+                            ForEach(clones) { voice in
+                                Button {
+                                    viewModel.selectedVoice = voice
+                                } label: {
+                                    Text("\(voice.name) — \(voice.description)")
+                                }
+                            }
+                        }
+                    }
+                    if !others.isEmpty {
+                        Section("Model Built-In (\(others.count))") {
+                            ForEach(others) { voice in
+                                Button {
+                                    viewModel.selectedVoice = voice
+                                } label: {
+                                    Text("\(voice.name) — \(voice.description)")
+                                }
+                            }
+                        }
+                    }
+                    Divider()
+                    Button {
+                        showVoices = true
+                    } label: {
+                        Label("Open Full Voice Browser & Cloner...", systemImage: "square.grid.2x2")
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "person.2.wave.2.fill")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.blue)
+                        Text("BUILT-IN VOICES (\(viewModel.builtInVoices.count))")
+                            .font(.system(size: 10.5, weight: .bold, design: .rounded))
+                            .foregroundStyle(.primary)
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 8.5, weight: .bold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5.5)
+                    .background(
+                        Capsule()
+                            .fill(Color.blue.opacity(0.14))
+                            .overlay(
+                                Capsule()
+                                    .strokeBorder(Color.blue.opacity(0.32), lineWidth: 0.8)
+                            )
+                    )
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("Browse all \(viewModel.builtInVoices.count) built-in voices grouped by Conversational, Narrator, Character, and Clones")
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(allQuickVoices) { voice in
+                            quickVoicePillButton(for: voice)
+                        }
+                    }
+                }
+
+                Button {
+                    showVoices = true
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "square.grid.2x2")
+                            .font(.system(size: 11, weight: .semibold))
+                        Text("Browse All")
+                            .font(.system(size: 11.5, weight: .semibold))
+                    }
+                    .foregroundStyle(.blue)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(
+                        Capsule()
+                            .fill(Color.white.opacity(0.05))
+                            .overlay(
+                                Capsule()
+                                    .strokeBorder(Color.white.opacity(0.10), lineWidth: 0.8)
+                            )
+                    )
+                }
+                .buttonStyle(.plain)
+                .fixedSize()
+                .help("Open visual Voice Browser grid and zero-shot voice cloner")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func quickVoicePillButton(for voice: Voice) -> some View {
+        let isSelected = viewModel.selectedVoice?.name == voice.name && viewModel.selectedVoice?.voiceId == voice.voiceId
+        let isFav = prefs.isFavoriteVoice(voice)
+        let fillStyle: Color = isSelected ? Color.blue.opacity(0.34) : (isFav ? Color.yellow.opacity(0.08) : Color.white.opacity(0.05))
+        let borderStyle: Color = isSelected ? Color.blue.opacity(0.88) : (isFav ? Color.yellow.opacity(0.38) : Color.white.opacity(0.09))
+        Button {
+            withAnimation(.spring(response: 0.24, dampingFraction: 0.8)) {
+                viewModel.selectedVoice = voice
+            }
+        } label: {
+            HStack(spacing: 5) {
+                if isFav {
+                    Image(systemName: "star.fill")
+                        .font(.system(size: 9.5, weight: .bold))
+                        .foregroundStyle(.yellow)
+                }
+                VoiceAvatar(color: voice.color, size: 15)
+                Text(voice.name)
+                    .font(.system(size: 12, weight: isSelected ? .semibold : .medium))
+                    .foregroundStyle(isSelected ? .white : .primary.opacity(0.88))
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(
+                Capsule()
+                    .fill(fillStyle)
+                    .overlay(
+                        Capsule()
+                            .strokeBorder(borderStyle, lineWidth: 1)
+                    )
+            )
+        }
+        .buttonStyle(.plain)
+        .help("\(voice.name) — \(voice.description) (Right-click to ★ Favorite)")
+        .contextMenu {
+            Button {
+                prefs.toggleFavoriteVoice(voice)
+            } label: {
+                Label(
+                    isFav ? "Remove '\(voice.name)' from ★ Favorites" : "Add '\(voice.name)' to ★ Favorites",
+                    systemImage: isFav ? "star.slash.fill" : "star.fill"
+                )
+            }
+            Button {
+                viewModel.selectedVoice = voice
+            } label: {
+                Label("Select '\(voice.name)'", systemImage: "checkmark.circle")
+            }
+        }
+    }
+
     private var canGenerate: Bool {
         !textInput.isEmpty && !viewModel.isGenerating && viewModel.isModelLoaded
     }
@@ -2897,7 +3165,7 @@ struct KaraokeTeleprompterView: View {
     let onSynthesizeFromChunk: (Int) -> Void
     let onQuickExportChunk: (Int) -> Void
 
-    @State private var stageMode: Bool = true
+    @AppStorage("VoicesApp.Teleprompter.stageMode") private var stageMode: Bool = true
     @AppStorage("VoicesApp.Teleprompter.fontSize") private var teleprompterFontSize: Double = 16.0
 
     private func snippet(for chunk: PhononTextChunk?) -> String {

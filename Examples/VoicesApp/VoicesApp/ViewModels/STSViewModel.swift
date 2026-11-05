@@ -87,6 +87,7 @@ class STSViewModel {
 
     var studioMode: AudioStudioMode = .separation {
         didSet {
+            UserDefaults.standard.set(studioMode.rawValue, forKey: "VoicesApp.STSViewModel.studioMode")
             if Self.mode(forModelId: modelId) != studioMode {
                 modelId = Self.defaultOrCachedModelId(for: studioMode)
             }
@@ -176,7 +177,12 @@ class STSViewModel {
     }
 
     init() {
-        studioMode = Self.mode(forModelId: modelId)
+        if let savedModeRaw = UserDefaults.standard.string(forKey: "VoicesApp.STSViewModel.studioMode"),
+           let savedMode = AudioStudioMode(rawValue: savedModeRaw) {
+            studioMode = savedMode
+        } else {
+            studioMode = Self.mode(forModelId: modelId)
+        }
         setupAudioPlayerObservers()
     }
 

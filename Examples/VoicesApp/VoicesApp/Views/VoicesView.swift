@@ -9,6 +9,7 @@ struct VoicesView: View {
     @State private var selectedVoice: Voice?
     @State private var previewingVoiceId: UUID? = nil
     @State private var previewPlayer: AVAudioPlayer? = nil
+    @State private var prefs = StudioUserPreferencesManager.shared
 
     var modelId: String = ""
     var builtInVoices: [Voice] = []
@@ -21,13 +22,27 @@ struct VoicesView: View {
         modelId.split(separator: "/").last.map(String.init) ?? modelId
     }
 
+    private var favoriteCount: Int {
+        (builtInVoices + customVoices).filter { prefs.isFavoriteVoice($0) }.count
+    }
+
+    private var recentCount: Int {
+        let recentSet = Set(prefs.recentVoiceKeys)
+        let matched = (builtInVoices + customVoices).filter { recentSet.contains($0.voiceKey) }.count
+        return max(matched, recentlyUsed.count)
+    }
+
     private var availableCategories: [(name: String, count: Int)] {
         let conversationalCount = builtInVoices.filter { $0.category == "Conversational" }.count
         let narratorCount = builtInVoices.filter { $0.category == "Narrator" }.count
         let characterCount = builtInVoices.filter { $0.category == "Character" }.count
         let cloneCount = builtInVoices.filter { $0.category == "Reference Clones" }.count
         let studioCount = builtInVoices.filter { $0.category == "Studio Voices" }.count
-        var items: [(String, Int)] = [("All", builtInVoices.count + customVoices.count)]
+        var items: [(String, Int)] = [
+            ("All", builtInVoices.count + customVoices.count),
+            ("★ Favorites", favoriteCount)
+        ]
+        if recentCount > 0 { items.append(("Recent", recentCount)) }
         if conversationalCount > 0 { items.append(("Conversational", conversationalCount)) }
         if narratorCount > 0 { items.append(("Narrator", narratorCount)) }
         if characterCount > 0 { items.append(("Character", characterCount)) }
@@ -38,21 +53,51 @@ struct VoicesView: View {
     }
 
     var filteredBuiltInVoices: [Voice] {
-        builtInVoices.filter { voice in
-            let matchesCategory = (selectedCategory == "All") || (voice.category == selectedCategory)
+        let base = builtInVoices.filter { voice in
+            let matchesCategory: Bool
+            switch selectedCategory {
+            case "All":
+                matchesCategory = true
+            case "★ Favorites":
+                matchesCategory = prefs.isFavoriteVoice(voice)
+            case "Recent":
+                matchesCategory = prefs.recentVoiceKeys.contains(voice.voiceKey) ||
+                    recentlyUsed.contains(where: { $0.voiceKey == voice.voiceKey })
+            default:
+                matchesCategory = (voice.category == selectedCategory)
+            }
             let matchesSearch = searchText.isEmpty ||
                 voice.name.localizedCaseInsensitiveContains(searchText) ||
                 voice.description.localizedCaseInsensitiveContains(searchText) ||
                 voice.category.localizedCaseInsensitiveContains(searchText)
             return matchesCategory && matchesSearch
         }
+        return base.sorted { a, b in
+            let favA = prefs.isFavoriteVoice(a)
+            let favB = prefs.isFavoriteVoice(b)
+            if favA != favB { return favA && !favB }
+            return false
+        }
     }
 
     var filteredCustomVoices: [Voice] {
-        customVoices.filter {
-            searchText.isEmpty ||
-            $0.name.localizedCaseInsensitiveContains(searchText) ||
-            $0.description.localizedCaseInsensitiveContains(searchText)
+        customVoices.filter { voice in
+            let matchesCategory: Bool
+            switch selectedCategory {
+            case "All", "Custom":
+                matchesCategory = true
+            case "★ Favorites":
+                matchesCategory = prefs.isFavoriteVoice(voice)
+            case "Recent":
+                matchesCategory = prefs.recentVoiceKeys.contains(voice.voiceKey) ||
+                    recentlyUsed.contains(where: { $0.voiceKey == voice.voiceKey })
+            default:
+                matchesCategory = false
+            }
+            let matchesSearch = searchText.isEmpty ||
+                voice.name.localizedCaseInsensitiveContains(searchText) ||
+                voice.description.localizedCaseInsensitiveContains(searchText)
+            return matchesCategory && matchesSearch
         }
     }
 
@@ -177,15 +222,17 @@ struct VoicesView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     if (selectedCategory != "Custom" && filteredBuiltInVoices.isEmpty) &&
-                       ((selectedCategory != "All" && selectedCategory != "Custom") || filteredCustomVoices.isEmpty) {
+                       filteredCustomVoices.isEmpty {
                         VStack(spacing: 12) {
-                            Image(systemName: "magnifyingglass")
+                            Image(systemName: selectedCategory == "★ Favorites" ? "star.slash" : "magnifyingglass")
                                 .font(.system(size: 36))
                                 .foregroundStyle(.tertiary)
-                            Text("No voices matching \"\(searchText)\"")
+                            Text(selectedCategory == "★ Favorites" && searchText.isEmpty
+                                 ? "No favorite voices starred yet — click the ★ button on any voice card to pin it here."
+                                 : "No voices matching \"\(searchText)\"")
                                 .font(.system(size: 14, weight: .semibold))
                                 .foregroundStyle(.secondary)
-                            Button("Clear Search & Filters") {
+                            Button("Show All Voices") {
                                 searchText = ""
                                 selectedCategory = "All"
                             }
@@ -203,7 +250,9 @@ struct VoicesView: View {
                                 StudioVoiceBentoCard(
                                     voice: voice,
                                     isSelected: isActive,
+                                    isFavorite: prefs.isFavoriteVoice(voice),
                                     isPreviewing: previewingVoiceId == voice.id,
+                                    onToggleFavorite: { prefs.toggleFavoriteVoice(voice) },
                                     onPreview: { togglePreview(for: voice) },
                                     onTap: {
                                         previewPlayer?.stop()
@@ -216,7 +265,7 @@ struct VoicesView: View {
                         }
                     }
 
-                    if (selectedCategory == "All" || selectedCategory == "Custom") && !filteredCustomVoices.isEmpty {
+                    if (selectedCategory == "All" || selectedCategory == "Custom" || selectedCategory == "★ Favorites" || selectedCategory == "Recent") && !filteredCustomVoices.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("CUSTOM & RECORDED VOICES (\(filteredCustomVoices.count))")
                                 .font(.system(size: 11, weight: .bold, design: .rounded))
@@ -228,8 +277,10 @@ struct VoicesView: View {
                                     StudioVoiceBentoCard(
                                         voice: voice,
                                         isSelected: isActive,
+                                        isFavorite: prefs.isFavoriteVoice(voice),
                                         isPreviewing: previewingVoiceId == voice.id,
                                         showDelete: true,
+                                        onToggleFavorite: { prefs.toggleFavoriteVoice(voice) },
                                         onPreview: { togglePreview(for: voice) },
                                         onDelete: {
                                             customVoices.removeAll { $0.id == voice.id }
@@ -252,6 +303,8 @@ struct VoicesView: View {
         #if os(macOS)
         .frame(minWidth: 780, minHeight: 580)
         #endif
+        .background(Color(red: 0.08, green: 0.09, blue: 0.13))
+        .preferredColorScheme(.dark)
         .onDisappear {
             previewPlayer?.stop()
             previewingVoiceId = nil
@@ -292,8 +345,10 @@ struct VoicesView: View {
 struct StudioVoiceBentoCard: View {
     let voice: Voice
     var isSelected: Bool = false
+    var isFavorite: Bool = false
     var isPreviewing: Bool = false
     var showDelete: Bool = false
+    var onToggleFavorite: (() -> Void)? = nil
     var onPreview: (() -> Void)? = nil
     var onDelete: (() -> Void)? = nil
     var onTap: () -> Void
@@ -349,6 +404,16 @@ struct StudioVoiceBentoCard: View {
             }
             .buttonStyle(.plain)
 
+            if let onToggleFavorite {
+                Button(action: onToggleFavorite) {
+                    Image(systemName: isFavorite ? "star.fill" : "star")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(isFavorite ? .yellow : .secondary.opacity(0.65))
+                }
+                .buttonStyle(.plain)
+                .help(isFavorite ? "Remove from favorite voices" : "Add to favorite voices")
+            }
+
             if let onPreview, Voice.previewAudioURL(for: voice) != nil {
                 Button(action: onPreview) {
                     Image(systemName: isPreviewing ? "stop.circle.fill" : "speaker.wave.2.circle.fill")
@@ -376,10 +441,10 @@ struct StudioVoiceBentoCard: View {
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .fill(isSelected ? Color.blue.opacity(0.14) : Color.white.opacity(0.04))
+                .fill(isSelected ? Color.blue.opacity(0.14) : (isFavorite ? Color.yellow.opacity(0.05) : Color.white.opacity(0.04)))
                 .overlay(
                     RoundedRectangle(cornerRadius: 13, style: .continuous)
-                        .strokeBorder(isSelected ? Color.blue.opacity(0.75) : Color.white.opacity(0.09), lineWidth: isSelected ? 1.2 : 0.8)
+                        .strokeBorder(isSelected ? Color.blue.opacity(0.75) : (isFavorite ? Color.yellow.opacity(0.35) : Color.white.opacity(0.09)), lineWidth: isSelected ? 1.2 : 0.8)
                 )
         )
     }
