@@ -65,27 +65,42 @@ public class AudioPlayer: NSObject, ObservableObject {
     // MARK: - Playback Control
 
     public func loadAudio(from url: URL) {
-        do {
-            // Stop any existing playback
-            stop()
+        // Stop any existing playback
+        stop()
 
-            // Setup audio session for iOS
-            #if os(iOS)
-            AudioSessionManager.shared.setupAudioSession()
-            #endif
+        // Setup audio session for iOS
+        #if os(iOS)
+        AudioSessionManager.shared.setupAudioSession()
+        #endif
 
-            // Create new player
-            player = try AVAudioPlayer(contentsOf: url)
+        if let directPlayer = try? AVAudioPlayer(contentsOf: url), directPlayer.duration > 0 {
+            player = directPlayer
             player?.enableRate = true
             player?.rate = playbackRate
             player?.delegate = self
             player?.prepareToPlay()
-
-            // Update state
             currentAudioURL = url
-            duration = player?.duration ?? 0
+            duration = directPlayer.duration
             currentTime = 0
+            return
+        }
 
+        // Fallback: decode any audio/video container (.ogg, .opus, .mkv, .webm, .mp4, .mov, .wma, .m4b, etc.) to a temporary WAV
+        do {
+            let (sr, audioArray) = try loadAudioArray(from: url)
+            let samples = audioArray.asArray(Float.self)
+            let tempWAV = FileManager.default.temporaryDirectory
+                .appendingPathComponent("player_decoded_\(UUID().uuidString).wav")
+            try AudioUtils.writeWavFile(samples: samples, sampleRate: sr, fileURL: tempWAV)
+            let fallbackPlayer = try AVAudioPlayer(contentsOf: tempWAV)
+            player = fallbackPlayer
+            player?.enableRate = true
+            player?.rate = playbackRate
+            player?.delegate = self
+            player?.prepareToPlay()
+            currentAudioURL = tempWAV
+            duration = fallbackPlayer.duration
+            currentTime = 0
         } catch {
             print("Failed to load audio: \(error.localizedDescription)")
             currentAudioURL = nil

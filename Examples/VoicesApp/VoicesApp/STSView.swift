@@ -509,7 +509,7 @@ struct STSView: View {
                             Image(systemName: "arrow.up.doc.fill")
                                 .font(.system(size: 20))
                                 .foregroundStyle(.blue.opacity(0.85))
-                            Text("Drop WAV, MP3, M4A, or AIFF here, or click to browse")
+                            Text("Drop any audio or video file (WAV, MP3, FLAC, OGG, OPUS, M4A, MP4, MKV, MOV) here, or click to browse")
                                 .font(.system(size: 12, weight: .medium))
                                 .foregroundStyle(.primary.opacity(0.85))
                             Button {
@@ -534,12 +534,12 @@ struct STSView: View {
                 }
                 .contentShape(Rectangle())
                 .onTapGesture { isFilePickerPresented = true }
-                .onDrop(of: [.fileURL, .audio, .wav, .mp3, .aiff, .mpeg4Audio], isTargeted: $isDraggingOver) { providers in
+                .onDrop(of: [.fileURL, .item, .audio, .movie, .wav, .mp3, .aiff, .mpeg4Audio], isTargeted: $isDraggingOver) { providers in
                     handleDrop(providers: providers)
                 }
                 .fileImporter(
                     isPresented: $isFilePickerPresented,
-                    allowedContentTypes: [.audio, .wav, .mp3, .aiff, .mpeg4Audio],
+                    allowedContentTypes: [.item, .data, .audio, .movie, .video, .wav, .mp3, .aiff, .mpeg4Audio],
                     allowsMultipleSelection: false
                 ) { result in
                     if case .success(let urls) = result, let url = urls.first {

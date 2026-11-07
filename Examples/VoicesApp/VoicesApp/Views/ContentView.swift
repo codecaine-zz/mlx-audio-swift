@@ -297,6 +297,76 @@ struct ContentView: View {
         ReadAlongTheme(rawValue: rawStudioTheme) ?? viewModel.readAlongTheme
     }
 
+    private func importDocumentsAsync(from urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        if urls.count == 1, let single = urls.first {
+            importDocumentAsync(from: single)
+            return
+        }
+        viewModel.errorMessage = nil
+        viewModel.generationProgress = "Importing \(urls.count) files…"
+
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("VoicesAppDocImports", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+
+        var stagedItems: [(original: URL, staged: URL, name: String)] = []
+        for url in urls {
+            let fileName = url.lastPathComponent
+            let scoped = url.startAccessingSecurityScopedResource()
+            let stagedURL = tempDir.appendingPathComponent("\(UUID().uuidString)_\(fileName)")
+            do {
+                try FileManager.default.linkItem(at: url, to: stagedURL)
+            } catch {
+                try? FileManager.default.copyItem(at: url, to: stagedURL)
+            }
+            if scoped {
+                url.stopAccessingSecurityScopedResource()
+            }
+            let target = FileManager.default.fileExists(atPath: stagedURL.path) ? stagedURL : url
+            stagedItems.append((url, target, fileName))
+        }
+
+        Task.detached(priority: .userInitiated) {
+            var sections: [String] = []
+            for item in stagedItems {
+                if let extracted = try? SpeechTextCleaner.extractDocumentText(from: item.staged) {
+                    let trimmed = extracted.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty {
+                        sections.append("[\(item.name)]\n\(trimmed)")
+                    }
+                }
+                try? FileManager.default.removeItem(at: item.staged)
+            }
+            let combined = sections.joined(separator: "\n\n")
+            let batchTitle = "\(stagedItems.first?.name ?? "Batch") + \(stagedItems.count - 1) more"
+            await MainActor.run {
+                self.viewModel.generationProgress = ""
+                if !combined.isEmpty {
+                    self.viewModel.stop()
+                    self.viewModel.audioURL = nil
+                    self.viewModel.duration = 0
+                    self.viewModel.synthesizedWordTimings = []
+                    self.viewModel.activeChunkIndex = 0
+                    self.viewModel.synthesizingChunkIndex = 0
+                    self.viewModel.synthesizedStartChunkIndex = 0
+                    self.viewModel.synthesizedEndChunkIndex = nil
+                    self.previewWordId = nil
+                    self.textInput = combined
+                    self.viewModel.errorMessage = nil
+                    self.sessionManager.recordRecentDocument(
+                        title: batchTitle,
+                        sourcePath: stagedItems.first?.original.path ?? "",
+                        text: combined,
+                        chunkIndex: 0
+                    )
+                    self.sessionManager.saveSessionScript(combined, chunkIndex: 0, title: batchTitle)
+                } else {
+                    self.viewModel.errorMessage = "No readable text found in selected files."
+                }
+            }
+        }
+    }
+
     private func importDocumentAsync(from url: URL) {
         let fileName = url.lastPathComponent
         viewModel.errorMessage = nil
@@ -363,11 +433,18 @@ struct ContentView: View {
                         self.viewModel.errorMessage = "No readable text found in \(fileName)."
                     }
                 }
-            } catch {
+            } catch let nsErr as NSError {
                 try? FileManager.default.removeItem(at: stagedURL)
                 await MainActor.run {
                     self.viewModel.generationProgress = ""
-                    self.viewModel.errorMessage = "Failed to import \(fileName): \(error.localizedDescription)"
+                    if nsErr.code == 415 && UniversalFileFormatCatalog.isAudioOrVideo(url: url) {
+                        NotificationCenter.default.post(
+                            name: Notification.Name("VoicesApp.OpenAudioInTranscribe"),
+                            object: url
+                        )
+                    } else {
+                        self.viewModel.errorMessage = "Failed to import \(fileName): \(nsErr.localizedDescription)"
+                    }
                 }
             }
         }
@@ -575,7 +652,7 @@ struct ContentView: View {
                 // Unified Apple Glass Action Capsule Group
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 1) {
-                        // Import Document (.pdf, .epub, .docx, .rtf, .md, .html, .srt, .ipynb, .csv, .json, .png/.jpg OCR)
+                        // Import Any File Format (180+ extensions across E-Books, PDF, Office, iWork, Subtitles, Markup, Data, Code, Archives & OCR)
                         Button {
                             showDocImporter = true
                         } label: {
@@ -586,7 +663,7 @@ struct ContentView: View {
                                 .contentShape(Capsule())
                         }
                         .buttonStyle(.plain)
-                        .help("Import PDF, EPUB, DOCX, ODT, Jupyter .ipynb, CSV/TSV, JSON, SRT/VTT, Markdown, HTML, or Image OCR")
+                        .help("Import any file format (\(UniversalFileFormatCatalog.supportedFormatsSummary))")
 
                         Divider().frame(height: 14).opacity(0.35)
 
@@ -777,6 +854,13 @@ struct ContentView: View {
                             handleMiniReaderTransport(action)
                         }
                     }
+                    .onReceive(NotificationCenter.default.publisher(for: Notification.Name("VoicesApp.ImportDocumentURL"))) { note in
+                        if let url = note.object as? URL {
+                            importDocumentAsync(from: url)
+                        } else if let urls = note.object as? [URL] {
+                            importDocumentsAsync(from: urls)
+                        }
+                    }
 
                     Divider().frame(height: 14).opacity(0.35)
 
@@ -926,7 +1010,7 @@ struct ContentView: View {
                             }
                         }
                         Divider()
-                        Section("Karaoke & Read-Along Subtitles") {
+                        Section("Karaoke, Subtitles & Transcripts") {
                             Button {
                                 viewModel.exportSubtitles(text: textInput, format: "srt")
                             } label: {
@@ -941,6 +1025,36 @@ struct ContentView: View {
                                 viewModel.exportSubtitles(text: textInput, format: "ass")
                             } label: {
                                 Label("Export Karaoke Subtitles (.ASS)", systemImage: "music.mic")
+                            }
+                            Button {
+                                viewModel.exportSubtitles(text: textInput, format: "lrc")
+                            } label: {
+                                Label("Export Synchronized Lyrics (.LRC)", systemImage: "music.note.list")
+                            }
+                            Button {
+                                viewModel.exportSubtitles(text: textInput, format: "ttml")
+                            } label: {
+                                Label("Export Broadcast Timed Text (.TTML)", systemImage: "chevron.left.forwardslash.chevron.right")
+                            }
+                            Button {
+                                viewModel.exportSubtitles(text: textInput, format: "sbv")
+                            } label: {
+                                Label("Export YouTube Captions (.SBV)", systemImage: "play.rectangle")
+                            }
+                            Button {
+                                viewModel.exportSubtitles(text: textInput, format: "json")
+                            } label: {
+                                Label("Export Word Timings (.JSON)", systemImage: "curlybraces")
+                            }
+                            Button {
+                                viewModel.exportSubtitles(text: textInput, format: "md")
+                            } label: {
+                                Label("Export Cleaned Document (.MD)", systemImage: "doc.richtext")
+                            }
+                            Button {
+                                viewModel.exportSubtitles(text: textInput, format: "txt")
+                            } label: {
+                                Label("Export Cleaned Plain Text (.TXT)", systemImage: "doc.plaintext")
                             }
                         }
                         Divider()
@@ -1212,7 +1326,7 @@ struct ContentView: View {
 
                             // Codecaine File Manager 2-Second Synthesis Scope Picker
                             Menu {
-                                Section("EPUB & Document Synthesis Speed / Scope") {
+                                Section("Universal Book, Office & Document Synthesis Speed / Scope") {
                                     ForEach(SynthesisScope.allCases) { scope in
                                         Button {
                                             viewModel.synthesisScope = scope
@@ -1615,8 +1729,8 @@ struct ContentView: View {
                     .padding(.top, 16)
                     .padding(.bottom, 52)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if textInput.count > 20_000 && chunks.count > 16 {
-                    // Large Book / EPUB Sectioned Editor Mode (prevents NSTextView from stalling on 500k+ char books)
+                } else if textInput.count > 12_000 && chunks.count > 10 {
+                    // Universal Book & Multi-Format Sectioned Editor Mode (prevents NSTextView from stalling on 500k+ char books/docs)
                     let chunksPerSection = 12
                     let totalSections = max(1, (chunks.count + chunksPerSection - 1) / chunksPerSection)
                     let currentSection = min(totalSections - 1, max(0, activeChunkIdx / chunksPerSection))
@@ -1624,6 +1738,12 @@ struct ContentView: View {
                     let sectionEndIdx = min(chunks.count - 1, sectionStartIdx + chunksPerSection - 1)
                     let sectionChunks = Array(chunks[sectionStartIdx...sectionEndIdx])
                     let sectionWords = sectionChunks.reduce(0) { $0 + $1.wordCount }
+                    let docCategory = UniversalFileFormatCatalog.category(
+                        forExtension: URL(fileURLWithPath: sessionManager.currentDocumentTitle).pathExtension
+                    )
+                    let docBadgeLabel = UniversalFileFormatCatalog.badgeLabel(
+                        forDocumentTitle: sessionManager.currentDocumentTitle
+                    )
                     let sectionBinding = Binding<String>(
                         get: {
                             sectionChunks.map(\.text).joined(separator: "\n\n")
@@ -1639,10 +1759,10 @@ struct ContentView: View {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack(spacing: 10) {
                             HStack(spacing: 6) {
-                                Image(systemName: "book.pages.fill")
+                                Image(systemName: docCategory.icon)
                                     .font(.system(size: 11.5, weight: .bold))
                                     .foregroundStyle(theme.activeWordBackground)
-                                Text("LARGE BOOK / EPUB STUDIO")
+                                Text(docBadgeLabel)
                                     .font(.system(size: 10.5, weight: .bold, design: .rounded))
                                     .foregroundStyle(theme.activeWordBackground)
                             }
@@ -1811,7 +1931,7 @@ struct ContentView: View {
                                                 .buttonStyle(.plain)
                                             }
 
-                                            // Import Document Card
+                                            // Import Any File Format Card
                                             Button {
                                                 showDocImporter = true
                                             } label: {
@@ -1820,14 +1940,15 @@ struct ContentView: View {
                                                         Image(systemName: "doc.badge.plus")
                                                             .font(.system(size: 12, weight: .semibold))
                                                             .foregroundStyle(theme.activeWordBackground)
-                                                        Text("Import Document")
+                                                        Text("Import Any Format")
                                                             .font(.system(size: 12.5, weight: .semibold))
                                                             .foregroundStyle(theme.editorTextColor)
                                                     }
-                                                    Text("PDF · Markdown · SRT · HTML")
+                                                    Text("EPUB · MOBI · PDF · DOCX · PPTX · XLSX · SRT · OCR")
                                                         .font(.system(size: 11))
                                                         .foregroundStyle(.secondary)
-                                                    Text("Extract and clean any document for natural speech synthesis.")
+                                                        .lineLimit(1)
+                                                    Text("Open 180+ file formats: E-Books, Office, iWork, LaTeX, Code, Archives & Images.")
                                                         .font(.system(size: 11))
                                                         .foregroundStyle(theme.upcomingWordForeground)
                                                         .lineLimit(2)
@@ -1952,12 +2073,25 @@ struct ContentView: View {
             }
             .padding(.horizontal, 20)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
-                guard let first = providers.first else { return false }
-                _ = first.loadObject(ofClass: URL.self) { url, _ in
-                    guard let url else { return }
-                    Task { @MainActor in
-                        importDocumentAsync(from: url)
+            .onDrop(of: [.fileURL, .item], isTargeted: $isDropTargeted) { providers in
+                guard !providers.isEmpty else { return false }
+                let group = DispatchGroup()
+                let lock = NSLock()
+                var droppedURLs: [URL] = []
+                for provider in providers {
+                    group.enter()
+                    _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                        if let url {
+                            lock.lock()
+                            droppedURLs.append(url)
+                            lock.unlock()
+                        }
+                        group.leave()
+                    }
+                }
+                group.notify(queue: .main) {
+                    if !droppedURLs.isEmpty {
+                        importDocumentsAsync(from: droppedURLs)
                     }
                 }
                 return true
@@ -2089,7 +2223,7 @@ struct ContentView: View {
                                 }
                             }
                             Divider()
-                            Section("Save Synced Subtitles") {
+                            Section("Save Synced Subtitles & Transcripts") {
                                 Button("Save Subtitles (.SRT)") {
                                     viewModel.exportSubtitles(text: textInput, format: "srt")
                                 }
@@ -2098,6 +2232,18 @@ struct ContentView: View {
                                 }
                                 Button("Save Karaoke (.ASS)") {
                                     viewModel.exportSubtitles(text: textInput, format: "ass")
+                                }
+                                Button("Save Synchronized Lyrics (.LRC)") {
+                                    viewModel.exportSubtitles(text: textInput, format: "lrc")
+                                }
+                                Button("Save Timed Text (.TTML)") {
+                                    viewModel.exportSubtitles(text: textInput, format: "ttml")
+                                }
+                                Button("Save YouTube Captions (.SBV)") {
+                                    viewModel.exportSubtitles(text: textInput, format: "sbv")
+                                }
+                                Button("Save Word Timings (.JSON)") {
+                                    viewModel.exportSubtitles(text: textInput, format: "json")
                                 }
                             }
                         } label: {
@@ -2689,11 +2835,11 @@ struct ContentView: View {
         }
         .fileImporter(
             isPresented: $showDocImporter,
-            allowedContentTypes: [.epub, .pdf, .plainText, .rtf, .html, .json, .image, .data, .item],
-            allowsMultipleSelection: false
+            allowedContentTypes: [.item, .content, .data, .folder],
+            allowsMultipleSelection: true
         ) { result in
-            if case .success(let urls) = result, let url = urls.first {
-                importDocumentAsync(from: url)
+            if case .success(let urls) = result, !urls.isEmpty {
+                importDocumentsAsync(from: urls)
             }
         }
         .sheet(isPresented: $showVoices) {
@@ -4466,7 +4612,7 @@ struct M4BAudiobookExportSheet: View {
             }
             .fileImporter(
                 isPresented: $showCoverPicker,
-                allowedContentTypes: [.image, .png, .jpeg],
+                allowedContentTypes: [.image, .item, .data],
                 allowsMultipleSelection: false
             ) { res in
                 if case .success(let urls) = res, let first = urls.first {

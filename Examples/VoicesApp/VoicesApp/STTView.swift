@@ -340,9 +340,9 @@ struct STTView: View {
                                                 .font(.system(size: 14, weight: .semibold))
                                                 .foregroundStyle(.blue)
                                             VStack(alignment: .leading, spacing: 2) {
-                                                Text("Import Audio File")
+                                                Text("Import Audio / Video / Subtitles")
                                                     .font(.system(size: 13, weight: .semibold))
-                                                Text("WAV, MP3, M4A, AIFF")
+                                                Text("WAV · MP3 · FLAC · OGG · OPUS · M4A · MP4 · MKV · MOV · LRC · SRT")
                                                     .font(.system(size: 11))
                                                     .foregroundStyle(.secondary)
                                             }
@@ -543,7 +543,7 @@ struct STTView: View {
             }
             .padding(.horizontal, 20)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .onDrop(of: [.audio, .fileURL], isTargeted: $isDropTargeted) { providers in
+            .onDrop(of: [.audio, .movie, .fileURL, .item], isTargeted: $isDropTargeted) { providers in
                 guard let first = providers.first else { return false }
                 _ = first.loadObject(ofClass: URL.self) { url, _ in
                     guard let url else { return }
@@ -994,9 +994,15 @@ struct STTView: View {
 
                             Menu {
                                 Button("Export Plain Text (.TXT)") { viewModel.exportTranscription(format: "txt") }
+                                Button("Export Markdown (.MD)") { viewModel.exportTranscription(format: "md") }
+                                Divider()
                                 Button("Export Subtitles (.SRT)") { viewModel.exportTranscription(format: "srt") }
                                 Button("Export WebVTT (.VTT)") { viewModel.exportTranscription(format: "vtt") }
                                 Button("Export Karaoke (.ASS)") { viewModel.exportTranscription(format: "ass") }
+                                Button("Export Synchronized Lyrics (.LRC)") { viewModel.exportTranscription(format: "lrc") }
+                                Button("Export Timed Text (.TTML)") { viewModel.exportTranscription(format: "ttml") }
+                                Button("Export YouTube Captions (.SBV)") { viewModel.exportTranscription(format: "sbv") }
+                                Divider()
                                 Button("Export JSON with Timings (.JSON)") { viewModel.exportTranscription(format: "json") }
                             } label: {
                                 HStack(spacing: 5) {
@@ -1137,7 +1143,7 @@ struct STTView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .fileImporter(
             isPresented: $showFileImporter,
-            allowedContentTypes: [.audio, .wav, .mp3, .mpeg4Audio, .aiff, .plainText],
+            allowedContentTypes: [.item, .data, .audio, .movie, .video, .plainText],
             allowsMultipleSelection: false
         ) { result in
             switch result {

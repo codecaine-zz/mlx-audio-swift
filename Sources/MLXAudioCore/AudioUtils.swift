@@ -61,9 +61,55 @@ public class AudioUtils {
     }
 }
 
-/// Load audio from a file and return the sample rate and audio data.
+/// Load audio from any audio or video file and return the sample rate and audio data.
+/// Supports WAV, MP3, M4A, M4B, FLAC, AIFF, CAF, AAC, OGG, OPUS, WMA, APE, WV, AMR, AC3,
+/// and video containers (MP4, MOV, M4V, MKV, WEBM, AVI, FLV, WMV, TS, 3GP) via native
+/// AVAudioFile -> AVAssetReader -> afconvert -> ffmpeg fallback.
 /// The returned tensor is an immutable snapshot that can be shared across actors.
 public func loadAudioArray(from url: URL, sampleRate: Int? = nil) throws -> (Int, MaterializedArray) {
+    if let (sr, samples) = try? readSamplesViaAVAudioFile(from: url), !samples.isEmpty {
+        return try finalizeLoadedSamples(samples, sourceSampleRate: sr, targetSampleRate: sampleRate)
+    }
+
+    if let (sr, samples) = try? readSamplesViaAVAssetReader(from: url), !samples.isEmpty {
+        return try finalizeLoadedSamples(samples, sourceSampleRate: sr, targetSampleRate: sampleRate)
+    }
+
+    #if os(macOS)
+    if let tempWav = transcodeToTemporaryWAV(from: url, targetSampleRate: sampleRate) {
+        defer { try? FileManager.default.removeItem(at: tempWav) }
+        if let (sr, samples) = try? readSamplesViaAVAudioFile(from: tempWav), !samples.isEmpty {
+            return try finalizeLoadedSamples(samples, sourceSampleRate: sr, targetSampleRate: sampleRate)
+        }
+    }
+    #endif
+
+    // Final attempt with AVAudioFile so the original error is surfaced if all fallbacks failed
+    let (sr, samples) = try readSamplesViaAVAudioFile(from: url)
+    return try finalizeLoadedSamples(samples, sourceSampleRate: sr, targetSampleRate: sampleRate)
+}
+
+private func finalizeLoadedSamples(
+    _ samples: [Float],
+    sourceSampleRate: Int,
+    targetSampleRate: Int?
+) throws -> (Int, MaterializedArray) {
+    let targetSR = targetSampleRate ?? sourceSampleRate
+    if targetSR <= 0 {
+        throw AudioUtils.AudioUtilsErrors.invalidSampleRate(targetSR)
+    }
+    if targetSR == sourceSampleRate {
+        return (sourceSampleRate, MLXArray(samples).materialized())
+    }
+    let resampled = try resampleAudio(
+        samples,
+        from: sourceSampleRate,
+        to: targetSR
+    )
+    return (targetSR, MLXArray(resampled).materialized())
+}
+
+private func readSamplesViaAVAudioFile(from url: URL) throws -> (Int, [Float]) {
     let audioFile = try AVAudioFile(forReading: url)
     let format = audioFile.processingFormat
     let frameCount = AVAudioFrameCount(audioFile.length)
@@ -99,24 +145,131 @@ public func loadAudioArray(from url: URL, sampleRate: Int? = nil) throws -> (Int
         if audioFile.framePosition <= previousPosition { break }
     }
 
-    let sourceSampleRate = Int(format.sampleRate)
-    let targetSampleRate = sampleRate ?? sourceSampleRate
-
-    if targetSampleRate <= 0 {
-        throw AudioUtils.AudioUtilsErrors.invalidSampleRate(targetSampleRate)
-    }
-
-    if targetSampleRate == sourceSampleRate {
-        return (sourceSampleRate, MLXArray(samples).materialized())
-    }
-
-    let resampled = try resampleAudio(
-        samples,
-        from: sourceSampleRate,
-        to: targetSampleRate
-    )
-    return (targetSampleRate, MLXArray(resampled).materialized())
+    return (Int(format.sampleRate), samples)
 }
+
+private func readSamplesViaAVAssetReader(from url: URL) throws -> (Int, [Float]) {
+    let asset = AVURLAsset(url: url)
+    let tracks = asset.tracks(withMediaType: .audio)
+    guard let track = tracks.first else {
+        throw AudioUtils.AudioUtilsErrors.cannotCreateAVAudioFormat
+    }
+
+    var detectedSampleRate = 24_000
+    if let desc = track.formatDescriptions.first {
+        let cfDesc = desc as! CMAudioFormatDescription
+        if let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(cfDesc)?.pointee,
+           asbd.mSampleRate > 0 {
+            detectedSampleRate = Int(asbd.mSampleRate.rounded())
+        }
+    }
+
+    let outputSettings: [String: Any] = [
+        AVFormatIDKey: kAudioFormatLinearPCM,
+        AVLinearPCMBitDepthKey: 32,
+        AVLinearPCMIsFloatKey: true,
+        AVLinearPCMIsBigEndianKey: false,
+        AVLinearPCMIsNonInterleaved: false,
+        AVNumberOfChannelsKey: 1,
+        AVSampleRateKey: Double(detectedSampleRate)
+    ]
+
+    let reader = try AVAssetReader(asset: asset)
+    let output = AVAssetReaderTrackOutput(track: track, outputSettings: outputSettings)
+    output.alwaysCopiesSampleData = false
+    guard reader.canAdd(output) else {
+        throw AudioUtils.AudioUtilsErrors.cannotCreateAudioBuffer
+    }
+    reader.add(output)
+    guard reader.startReading() else {
+        throw reader.error ?? AudioUtils.AudioUtilsErrors.cannotCreateAudioBuffer
+    }
+
+    var samples: [Float] = []
+    while reader.status == .reading {
+        guard let sampleBuffer = output.copyNextSampleBuffer() else { break }
+        if let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer) {
+            let length = CMBlockBufferGetDataLength(blockBuffer)
+            let floatCount = length / MemoryLayout<Float>.size
+            if floatCount > 0 {
+                var chunk = [Float](repeating: 0, count: floatCount)
+                chunk.withUnsafeMutableBytes { rawPtr in
+                    if let base = rawPtr.baseAddress {
+                        _ = CMBlockBufferCopyDataBytes(blockBuffer, atOffset: 0, dataLength: length, destination: base)
+                    }
+                }
+                samples.append(contentsOf: chunk)
+            }
+        }
+        CMSampleBufferInvalidate(sampleBuffer)
+    }
+
+    guard !samples.isEmpty else {
+        throw AudioUtils.AudioUtilsErrors.cannotReadFloatChannelData
+    }
+    return (detectedSampleRate, samples)
+}
+
+#if os(macOS)
+public func transcodeToTemporaryWAV(from url: URL, targetSampleRate: Int? = nil) -> URL? {
+    let tempWAV = FileManager.default.temporaryDirectory
+        .appendingPathComponent("mlx_audio_transcode_\(UUID().uuidString).wav")
+
+    // 1. Try ffmpeg first for broad container support (.ogg, .opus, .mkv, .webm, .wma, .mp4, .mov, .avi, .flv, .ape, .wv, .m4b)
+    let ffmpegCandidates = [
+        "/opt/homebrew/bin/ffmpeg",
+        "/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg",
+        "/usr/local/bin/ffmpeg",
+        "/usr/local/opt/ffmpeg-full/bin/ffmpeg",
+        "/usr/bin/ffmpeg"
+    ]
+    if let ffmpegPath = ffmpegCandidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) {
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: ffmpegPath)
+        var args = ["-y", "-v", "error", "-i", url.path, "-vn", "-ac", "1"]
+        if let sr = targetSampleRate, sr > 0 {
+            args += ["-ar", "\(sr)"]
+        }
+        args += ["-acodec", "pcm_f32le", tempWAV.path]
+        proc.arguments = args
+        proc.standardInput = FileHandle.nullDevice
+        proc.standardOutput = FileHandle.nullDevice
+        proc.standardError = FileHandle.nullDevice
+        try? proc.run()
+        proc.waitUntilExit()
+        if proc.terminationStatus == 0,
+           FileManager.default.fileExists(atPath: tempWAV.path),
+           let attrs = try? FileManager.default.attributesOfItem(atPath: tempWAV.path),
+           (attrs[.size] as? UInt64 ?? 0) > 64 {
+            return tempWAV
+        }
+        try? FileManager.default.removeItem(at: tempWAV)
+    }
+
+    // 2. Fallback to native macOS /usr/bin/afconvert
+    let afconvertPath = "/usr/bin/afconvert"
+    if FileManager.default.isExecutableFile(atPath: afconvertPath) {
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: afconvertPath)
+        let dataFmt = (targetSampleRate != nil && targetSampleRate! > 0) ? "LEF32@\(targetSampleRate!)" : "LEF32"
+        proc.arguments = ["-f", "WAVE", "-d", dataFmt, "-c", "1", url.path, tempWAV.path]
+        proc.standardInput = FileHandle.nullDevice
+        proc.standardOutput = FileHandle.nullDevice
+        proc.standardError = FileHandle.nullDevice
+        try? proc.run()
+        proc.waitUntilExit()
+        if proc.terminationStatus == 0,
+           FileManager.default.fileExists(atPath: tempWAV.path),
+           let attrs = try? FileManager.default.attributesOfItem(atPath: tempWAV.path),
+           (attrs[.size] as? UInt64 ?? 0) > 64 {
+            return tempWAV
+        }
+        try? FileManager.default.removeItem(at: tempWAV)
+    }
+
+    return nil
+}
+#endif
 
 /// Save audio data to a WAV file.
 func saveAudioArray(_ audio: MLXArray, sampleRate: Double, to url: URL) throws {

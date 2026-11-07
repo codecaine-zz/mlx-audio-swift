@@ -140,7 +140,7 @@ struct AddVoiceView: View {
                                             .foregroundStyle(.secondary)
                                     }
                                 } else {
-                                    Text("Or select existing audio file (.wav / .mp3 / .aiff)")
+                                    Text("Or select existing audio / video file (.wav / .mp3 / .flac / .ogg / .m4a / .mp4 / .mov)")
                                         .foregroundStyle(.primary)
                                 }
                                 Spacer()
@@ -312,7 +312,7 @@ struct AddVoiceView: View {
             }
             .fileImporter(
                 isPresented: $showFilePicker,
-                allowedContentTypes: [.audio, .wav, .mp3, .aiff],
+                allowedContentTypes: [.item, .data, .audio, .movie, .video, .wav, .mp3, .aiff],
                 allowsMultipleSelection: false
             ) { result in
                 handleFileSelection(result)
@@ -366,8 +366,18 @@ struct AddVoiceView: View {
             let scoped = sourceURL.startAccessingSecurityScopedResource()
             defer { if scoped { sourceURL.stopAccessingSecurityScopedResource() } }
 
-            try fileManager.copyItem(at: sourceURL, to: destURL)
-            return destURL
+            if (try? AVAudioPlayer(contentsOf: sourceURL)) != nil {
+                try fileManager.copyItem(at: sourceURL, to: destURL)
+                return destURL
+            } else if let (sr, audioData) = try? loadAudioArray(from: sourceURL), sr > 0 {
+                let wavDest = voicesDir.appendingPathComponent("\(UUID().uuidString)_\(sourceURL.deletingPathExtension().lastPathComponent).wav")
+                let samples = audioData.asArray(Float.self)
+                try AudioUtils.writeWavFile(samples: samples, sampleRate: Double(sr), fileURL: wavDest)
+                return wavDest
+            } else {
+                try fileManager.copyItem(at: sourceURL, to: destURL)
+                return destURL
+            }
         } catch {
             print("Failed to copy audio file: \(error)")
             return nil

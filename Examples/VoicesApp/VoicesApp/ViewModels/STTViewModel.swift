@@ -952,12 +952,25 @@ class STTViewModel {
         case "srt":
             content = SubtitleExporter.formatSRT(timings: timings)
             ext = "srt"
-        case "vtt":
+        case "vtt", "webvtt":
             content = SubtitleExporter.formatVTT(timings: timings)
             ext = "vtt"
-        case "ass":
+        case "ass", "ssa":
             content = SubtitleExporter.formatASSKaraoke(timings: timings)
             ext = "ass"
+        case "lrc":
+            content = SubtitleExporter.formatLRC(timings: timings)
+            ext = "lrc"
+        case "ttml", "dfxp":
+            content = SubtitleExporter.formatTTML(timings: timings)
+            ext = "ttml"
+        case "sbv":
+            content = SubtitleExporter.formatSBV(timings: timings)
+            ext = "sbv"
+        case "md", "markdown":
+            let title = audioFileName ?? "Studio Transcription"
+            content = "# \(title)\n\n\(trimmed)\n"
+            ext = "md"
         case "json":
             let payload: [String: Any] = [
                 "text": trimmed,
@@ -1070,14 +1083,19 @@ enum SongLyricsExtractor {
         let inspectURL = fallbackURL ?? primaryURL
         let ext = primaryURL.pathExtension.lowercased()
 
-        // 1. Direct lyric/text file (.lrc, .srt, .vtt, .txt, .lyrics)
-        if ["lrc", "srt", "vtt", "txt", "lyrics"].contains(ext),
+        // 1. Direct lyric, subtitle, e-book, office, or document file (.lrc, .srt, .vtt, .ass, .ssa, .sub, .sbv, .ttml, .txt, .md, .epub, .pdf, .docx, etc.)
+        if ["lrc", "srt", "vtt", "webvtt", "ass", "ssa", "sub", "sbv", "ttml", "dfxp", "smi", "sami", "txt", "lyrics"].contains(ext),
            let text = readTextFile(at: inspectURL) ?? readTextFile(at: primaryURL),
            isValidLyrics(text) {
             return ExtractedSongLyrics(lyrics: text, source: ".\(ext.uppercased()) File")
         }
+        if UniversalFileFormatCatalog.allReadableDocumentExtensions.contains(ext) && !UniversalFileFormatCatalog.allAudioAndVideoExtensions.contains(ext),
+           let docText = try? SpeechTextCleaner.extractDocumentText(from: inspectURL),
+           isValidLyrics(docText) {
+            return ExtractedSongLyrics(lyrics: docText, source: ".\(ext.uppercased()) Document")
+        }
 
-        // 2. Sidecar lyric file in the same directory (<song>.lrc, <song>.lyrics.txt, <song>.txt, <song>.srt)
+        // 2. Sidecar lyric/subtitle file in the same directory (<song>.lrc, <song>.lyrics.txt, <song>.txt, <song>.srt, <song>.vtt, <song>.ass)
         if let sidecar = extractSidecarLyrics(near: primaryURL) {
             return sidecar
         }
@@ -1154,7 +1172,7 @@ enum SongLyricsExtractor {
         let baseName = audioURL.deletingPathExtension().lastPathComponent
         guard !baseName.isEmpty else { return nil }
 
-        let suffixes = [".lrc", ".LRC", ".lyrics.txt", ".lyrics", ".srt", ".vtt", ".txt"]
+        let suffixes = [".lrc", ".LRC", ".lyrics.txt", ".lyrics", ".srt", ".vtt", ".ass", ".ssa", ".sub", ".sbv", ".ttml", ".txt"]
         for suffix in suffixes {
             let candidate = dir.appendingPathComponent(baseName + suffix)
             if FileManager.default.fileExists(atPath: candidate.path),

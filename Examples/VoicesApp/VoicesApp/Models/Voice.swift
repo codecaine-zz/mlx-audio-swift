@@ -2160,6 +2160,206 @@ struct SpeechCleanOptions: Equatable, Codable, Sendable {
     }
 }
 
+// MARK: - Universal File Format Catalog (All E-Books, Documents, Office, Subtitles, Data, Code, OCR, Archives & Media)
+
+enum StudioFileCategory: String, CaseIterable, Identifiable, Sendable {
+    case ebook = "E-Books & Publishing"
+    case pdfPrint = "PDF & Print"
+    case office = "Office, iWork & Slides"
+    case spreadsheet = "Spreadsheets & Tables"
+    case subtitle = "Subtitles, Captions & Lyrics"
+    case document = "Text, Markdown & Docs"
+    case webEmail = "Web, HTML & Email"
+    case structuredData = "Notebooks, JSON, YAML & Logs"
+    case sourceCode = "Source Code & Scripts"
+    case imageOCR = "Images & Scanned OCR"
+    case archive = "Archives & Bundles"
+    case audio = "Audio Containers"
+    case video = "Video Containers"
+
+    var id: String { rawValue }
+
+    var icon: String {
+        switch self {
+        case .ebook: return "book.pages.fill"
+        case .pdfPrint: return "doc.richtext.fill"
+        case .office: return "doc.text.fill"
+        case .spreadsheet: return "tablecells.fill"
+        case .subtitle: return "captions.bubble.fill"
+        case .document: return "text.alignleft"
+        case .webEmail: return "globe"
+        case .structuredData: return "curlybraces.square.fill"
+        case .sourceCode: return "chevron.left.forwardslash.chevron.right"
+        case .imageOCR: return "text.viewfinder"
+        case .archive: return "archivebox.fill"
+        case .audio: return "waveform.circle.fill"
+        case .video: return "film.stack.fill"
+        }
+    }
+}
+
+enum UniversalFileFormatCatalog {
+    static let ebookExtensions: Set<String> = [
+        "epub", "ibooks", "mobi", "azw", "azw3", "azw4", "kf8", "kfx",
+        "fb2", "fbz", "lit", "pdb", "prc", "pobi", "djvu", "djv",
+        "cbz", "cbr", "cb7", "cbt", "snb", "tcr"
+    ]
+
+    static let pdfPrintExtensions: Set<String> = [
+        "pdf", "ps", "eps", "xps", "oxps"
+    ]
+
+    static let officeDocumentExtensions: Set<String> = [
+        "docx", "doc", "docm", "dotx", "dot", "odt", "fodt", "ott",
+        "rtf", "rtfd", "pages", "wordml", "wpd", "wps", "abw",
+        "pptx", "ppt", "ppsx", "pps", "odp", "fodp", "key"
+    ]
+
+    static let spreadsheetExtensions: Set<String> = [
+        "xlsx", "xlsm", "xls", "ods", "fods", "numbers",
+        "csv", "tsv", "psv", "tab", "dif"
+    ]
+
+    static let subtitleExtensions: Set<String> = [
+        "srt", "vtt", "webvtt", "ass", "ssa", "sub", "sbv",
+        "lrc", "ttml", "dfxp", "smi", "sami", "scc", "stl", "itt", "lyrics"
+    ]
+
+    static let markupAndDocExtensions: Set<String> = [
+        "txt", "text", "md", "markdown", "mdx", "rmd", "qmd",
+        "rst", "rest", "org", "adoc", "asciidoc", "asc",
+        "tex", "latex", "ltx", "bib", "textile", "wiki", "mediawiki",
+        "pod", "man", "1", "2", "3", "4", "5", "6", "7", "8", "9",
+        "nfo", "roff", "troff", "groff", "me", "ms"
+    ]
+
+    static let webAndEmailExtensions: Set<String> = [
+        "html", "htm", "xhtml", "shtml", "mhtml", "mht",
+        "webarchive", "maff", "eml", "mbox", "msg"
+    ]
+
+    static let structuredDataExtensions: Set<String> = [
+        "ipynb", "json", "jsonl", "ndjson", "geojson", "har",
+        "yaml", "yml", "toml", "xml", "plist", "rss", "atom", "opml", "rdf",
+        "ini", "cfg", "conf", "properties", "env", "log", "out", "err"
+    ]
+
+    static let sourceCodeExtensions: Set<String> = [
+        "swift", "py", "pyw", "js", "mjs", "cjs", "ts", "tsx", "jsx",
+        "rs", "go", "c", "h", "cpp", "hpp", "cc", "cxx", "m", "mm",
+        "java", "kt", "kts", "scala", "groovy", "rb", "erb", "php",
+        "cs", "fs", "vb", "lua", "r", "jl", "pl", "pm",
+        "sh", "bash", "zsh", "fish", "ps1", "bat", "cmd",
+        "sql", "graphql", "gql", "proto", "css", "scss", "sass", "less",
+        "vue", "svelte", "astro", "dart", "ex", "exs", "erl", "hs",
+        "clj", "lisp", "scm", "el", "vim", "zig", "nim", "v", "sol",
+        "wgsl", "metal", "glsl", "hlsl", "dockerfile", "makefile",
+        "cmake", "gradle", "nix", "tf", "hcl"
+    ]
+
+    static let imageOCRExtensions: Set<String> = [
+        "png", "jpg", "jpeg", "jpe", "jfif", "webp", "tiff", "tif",
+        "bmp", "dib", "heic", "heif", "avif", "gif", "svg",
+        "icns", "ico", "jp2", "j2k", "pbm", "pgm", "ppm", "pnm",
+        "exr", "hdr", "dng", "cr2", "nef", "arw"
+    ]
+
+    static let archiveExtensions: Set<String> = [
+        "zip", "tar", "tgz", "gz", "bz2", "xz"
+    ]
+
+    static let audioExtensions: Set<String> = [
+        "wav", "wave", "bwf", "mp3", "mp2", "mp1", "mpga",
+        "m4a", "m4b", "m4p", "m4r", "aac", "adts",
+        "flac", "ogg", "oga", "opus", "spx",
+        "aiff", "aif", "aifc", "caf", "wma",
+        "ac3", "eac3", "dts", "amr", "awb", "3ga",
+        "ape", "wv", "tta", "mka", "au", "snd", "gsm", "voc",
+        "w64", "rf64", "dsf", "dff", "pcm", "raw", "ulaw", "alaw"
+    ]
+
+    static let videoExtensions: Set<String> = [
+        "mp4", "m4v", "mov", "qt", "mkv", "webm", "avi",
+        "flv", "f4v", "wmv", "asf", "ts", "mts", "m2ts",
+        "mpg", "mpeg", "mpe", "vob", "ogv", "3gp", "3g2",
+        "divx", "rm", "rmvb", "dv", "mxf"
+    ]
+
+    static let allAudioAndVideoExtensions: Set<String> = {
+        audioExtensions.union(videoExtensions)
+    }()
+
+    static let allReadableDocumentExtensions: Set<String> = {
+        var set = Set<String>()
+        set.formUnion(ebookExtensions)
+        set.formUnion(pdfPrintExtensions)
+        set.formUnion(officeDocumentExtensions)
+        set.formUnion(spreadsheetExtensions)
+        set.formUnion(subtitleExtensions)
+        set.formUnion(markupAndDocExtensions)
+        set.formUnion(webAndEmailExtensions)
+        set.formUnion(structuredDataExtensions)
+        set.formUnion(sourceCodeExtensions)
+        set.formUnion(imageOCRExtensions)
+        set.formUnion(archiveExtensions)
+        return set
+    }()
+
+    static let allSupportedWatchFolderExtensions: Set<String> = {
+        allReadableDocumentExtensions.union(allAudioAndVideoExtensions)
+    }()
+
+    static func category(forExtension rawExt: String) -> StudioFileCategory {
+        let ext = rawExt.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
+        if ebookExtensions.contains(ext) { return .ebook }
+        if pdfPrintExtensions.contains(ext) { return .pdfPrint }
+        if officeDocumentExtensions.contains(ext) { return .office }
+        if spreadsheetExtensions.contains(ext) { return .spreadsheet }
+        if subtitleExtensions.contains(ext) { return .subtitle }
+        if webAndEmailExtensions.contains(ext) { return .webEmail }
+        if structuredDataExtensions.contains(ext) { return .structuredData }
+        if sourceCodeExtensions.contains(ext) { return .sourceCode }
+        if imageOCRExtensions.contains(ext) { return .imageOCR }
+        if archiveExtensions.contains(ext) { return .archive }
+        if audioExtensions.contains(ext) { return .audio }
+        if videoExtensions.contains(ext) { return .video }
+        return .document
+    }
+
+    static func badgeLabel(forDocumentTitle title: String) -> String {
+        let ext = URL(fileURLWithPath: title).pathExtension.lowercased()
+        guard !ext.isEmpty else {
+            return "UNIVERSAL BOOK & DOCUMENT STUDIO"
+        }
+        let cat = category(forExtension: ext)
+        return "\(cat.rawValue.uppercased()) · .\(ext.uppercased())"
+    }
+
+    static func isPureAudioOrVideo(url: URL) -> Bool {
+        let ext = url.pathExtension.lowercased()
+        return allAudioAndVideoExtensions.contains(ext)
+    }
+
+    static func isAudioOrVideo(url: URL) -> Bool {
+        isPureAudioOrVideo(url: url)
+    }
+
+    static func isReadableDocument(url: URL) -> Bool {
+        let ext = url.pathExtension.lowercased()
+        if allReadableDocumentExtensions.contains(ext) {
+            return true
+        }
+        var isDir: ObjCBool = false
+        if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue {
+            return true
+        }
+        return false
+    }
+
+    static let supportedFormatsSummary: String =
+        "E-Books (.epub, .mobi, .azw3, .fb2, .lit, .cbz), PDF/Print (.pdf, .xps, .ps), Office & iWork (.docx, .doc, .pptx, .xlsx, .odt, .pages, .key, .numbers), Subtitles (.srt, .vtt, .ass, .lrc, .ttml, .sbv), Docs/Web (.txt, .md, .tex, .rst, .org, .html, .eml), Data/Code (.ipynb, .json, .jsonl, .csv, .tsv, .yaml, .toml, .plist, .swift, .py, .ts), Archives (.zip, .tar) & Images via OCR (.png, .jpg, .webp, .heic, .tiff, .svg)"
+}
+
 enum SpeechTextCleaner {
     private static let regexLock = NSLock()
     nonisolated(unsafe) private static var regexCache: [String: NSRegularExpression] = [:]
@@ -2178,17 +2378,7 @@ enum SpeechTextCleaner {
             s = replaceRegex(s, pattern: "(?i)<style\\b[^>]*>[^<]*(?:<(?!/?style\\b)[^<]*)*</style>", with: " ")
             // Preserve <|speaker:0|> and <|...|> model control tokens
             s = replaceRegex(s, pattern: "<(?!\\|)[^>]+>", with: " ")
-            s = s
-                .replacingOccurrences(of: "&nbsp;", with: " ")
-                .replacingOccurrences(of: "&#160;", with: " ")
-                .replacingOccurrences(of: "&amp;", with: " and ")
-                .replacingOccurrences(of: "&lt;", with: " less than ")
-                .replacingOccurrences(of: "&gt;", with: " greater than ")
-                .replacingOccurrences(of: "&quot;", with: "\"")
-                .replacingOccurrences(of: "&#39;", with: "'")
-                .replacingOccurrences(of: "&apos;", with: "'")
-                .replacingOccurrences(of: "&mdash;", with: " — ")
-                .replacingOccurrences(of: "&ndash;", with: " – ")
+            s = decodeHTMLEntities(s)
         }
 
         if options.stripTimestamps {
@@ -2196,6 +2386,11 @@ enum SpeechTextCleaner {
             s = replaceRegex(
                 s,
                 pattern: "(?m)^\\d{1,2}:\\d{2}(?::\\d{2})?[.,]\\d{1,3}\\s*-->\\s*\\d{1,2}:\\d{2}(?::\\d{2})?[.,]\\d{1,3}.*$",
+                with: ""
+            )
+            s = replaceRegex(
+                s,
+                pattern: "(?m)^\\d{1,2}:\\d{2}:\\d{2}[.,]\\d{1,3}\\s*,\\s*\\d{1,2}:\\d{2}:\\d{2}[.,]\\d{1,3}\\s*$",
                 with: ""
             )
             s = replaceRegex(s, pattern: "\\[\\d{1,2}:\\d{2}(?:[.:]\\d{1,3})?\\]", with: " ")
@@ -2236,9 +2431,72 @@ enum SpeechTextCleaner {
         return s.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    static func decodeHTMLEntities(_ input: String) -> String {
+        var s = input
+            .replacingOccurrences(of: "&nbsp;", with: " ")
+            .replacingOccurrences(of: "&#160;", with: " ")
+            .replacingOccurrences(of: "&#xa0;", with: " ", options: .caseInsensitive)
+            .replacingOccurrences(of: "&amp;", with: " and ")
+            .replacingOccurrences(of: "&#38;", with: " and ")
+            .replacingOccurrences(of: "&lt;", with: " less than ")
+            .replacingOccurrences(of: "&gt;", with: " greater than ")
+            .replacingOccurrences(of: "&quot;", with: "\"")
+            .replacingOccurrences(of: "&#34;", with: "\"")
+            .replacingOccurrences(of: "&#39;", with: "'")
+            .replacingOccurrences(of: "&apos;", with: "'")
+            .replacingOccurrences(of: "&rsquo;", with: "’")
+            .replacingOccurrences(of: "&lsquo;", with: "‘")
+            .replacingOccurrences(of: "&rdquo;", with: "”")
+            .replacingOccurrences(of: "&ldquo;", with: "“")
+            .replacingOccurrences(of: "&mdash;", with: " — ")
+            .replacingOccurrences(of: "&#8212;", with: " — ")
+            .replacingOccurrences(of: "&ndash;", with: " – ")
+            .replacingOccurrences(of: "&#8211;", with: " – ")
+            .replacingOccurrences(of: "&hellip;", with: "…")
+            .replacingOccurrences(of: "&#8230;", with: "…")
+            .replacingOccurrences(of: "&copy;", with: "©")
+            .replacingOccurrences(of: "&reg;", with: "®")
+            .replacingOccurrences(of: "&trade;", with: "™")
+        // Decode numeric decimal entities &#NNN;
+        if s.contains("&#"),
+           let regex = try? NSRegularExpression(pattern: "&#(\\d{2,5});", options: []) {
+            let ns = s as NSString
+            let matches = regex.matches(in: s, options: [], range: NSRange(location: 0, length: ns.length)).reversed()
+            let mutable = NSMutableString(string: s)
+            for match in matches where match.numberOfRanges >= 2 {
+                let codeStr = ns.substring(with: match.range(at: 1))
+                if let code = UInt32(codeStr), let scalar = UnicodeScalar(code) {
+                    mutable.replaceCharacters(in: match.range, with: String(Character(scalar)))
+                }
+            }
+            s = mutable as String
+        }
+        return s
+    }
+
     static func extractDocumentText(from url: URL) throws -> String {
         let ext = url.pathExtension.lowercased()
+        let bookCleanOpts = SpeechCleanOptions(
+            stripMarkdown: false,
+            stripHtml: true,
+            stripCodeBlocks: false,
+            simplifyUrls: true,
+            stripTimestamps: false,
+            stripDividers: true
+        )
+
         #if os(macOS)
+        // 0. Directory / Folder bundle check (if user dropped a folder of chapters/files)
+        var isDir: ObjCBool = false
+        if FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir),
+           isDir.boolValue,
+           !["rtfd", "epub", "ibooks", "pages", "numbers", "key", "webarchive"].contains(ext) {
+            if let folderText = extractFolderOrArchiveDocuments(at: url), !folderText.isEmpty {
+                return folderText
+            }
+        }
+
+        // 1. PDF & Print Documents (.pdf, .ps, .eps, .xps, .oxps)
         if ext == "pdf" {
             if let pdf = PDFDocument(url: url) {
                 var pages: [String] = []
@@ -2261,7 +2519,7 @@ enum SpeechTextCleaner {
             // Fallback 2: Scanned PDF pages via Vision OCR
             if let pdf = PDFDocument(url: url) {
                 var ocrPages: [String] = []
-                let maxPages = min(pdf.pageCount, 30)
+                let maxPages = min(pdf.pageCount, 50)
                 for i in 0..<maxPages {
                     if let page = pdf.page(at: i) {
                         let rect = page.bounds(for: .mediaBox)
@@ -2278,27 +2536,104 @@ enum SpeechTextCleaner {
                 }
             }
         }
-        // EPUB (zip archive, unpacked macOS .epub bundle, or Pandoc)
-        if ext == "epub" {
-            let epubCleanOpts = SpeechCleanOptions(
-                stripMarkdown: false,
-                stripHtml: true,
-                stripCodeBlocks: false,
-                simplifyUrls: true,
-                stripTimestamps: false,
-                stripDividers: true
-            )
+
+        if ext == "xps" || ext == "oxps" {
+            if let xpsText = extractXPSText(from: url), !xpsText.isEmpty {
+                return xpsText
+            }
+        }
+
+        if ext == "ps" || ext == "eps" {
+            if let ps2ascii = StudioPackageManager.findExecutable(names: ["ps2ascii"]),
+               let out = runCLI(executable: ps2ascii, arguments: [url.path]),
+               !out.isEmpty {
+                return clean(out)
+            }
+        }
+
+        // 2. E-Books: EPUB / iBooks (.epub, .ibooks)
+        if ext == "epub" || ext == "ibooks" {
             if let pandoc = StudioPackageManager.findExecutable(names: ["pandoc"]),
                let out = runCLI(executable: pandoc, arguments: ["-t", "plain", url.path]),
                !out.isEmpty {
-                return clean(out, options: epubCleanOpts)
+                return clean(out, options: bookCleanOpts)
             }
             if let epubText = extractEpubText(from: url), !epubText.isEmpty {
                 return epubText
             }
+            if let calibreText = runEbookConvertToText(from: url), !calibreText.isEmpty {
+                return clean(calibreText, options: bookCleanOpts)
+            }
         }
-        // DOCX / ODT / DOC / RTF / WEBARCHIVE / TEX / RST / ORG via Pandoc or native macOS /usr/bin/textutil
-        if ["docx", "odt", "doc", "rtf", "rtfd", "webarchive", "wordml", "tex", "rst", "org"].contains(ext) {
+
+        // 3. E-Books: FictionBook (.fb2, .fbz)
+        if ext == "fb2" || ext == "fbz" || url.lastPathComponent.lowercased().hasSuffix(".fb2.zip") {
+            if let pandoc = StudioPackageManager.findExecutable(names: ["pandoc"]),
+               ext == "fb2",
+               let out = runCLI(executable: pandoc, arguments: ["-f", "fb2", "-t", "plain", url.path]),
+               !out.isEmpty {
+                return clean(out, options: bookCleanOpts)
+            }
+            if let fb2Text = extractFB2Text(from: url), !fb2Text.isEmpty {
+                return fb2Text
+            }
+            if let calibreText = runEbookConvertToText(from: url), !calibreText.isEmpty {
+                return clean(calibreText, options: bookCleanOpts)
+            }
+        }
+
+        // 4. E-Books: Kindle / Mobipocket / PalmDOC / DjVu / Comic Archives (.mobi, .azw, .azw3, .azw4, .kf8, .kfx, .prc, .pdb, .lit, .snb, .tcr, .djvu, .cbz, .cbr)
+        if ["mobi", "azw", "azw3", "azw4", "kf8", "kfx", "prc", "pdb", "pobi", "lit", "snb", "tcr"].contains(ext) {
+            if let calibreText = runEbookConvertToText(from: url), !calibreText.isEmpty {
+                return clean(calibreText, options: bookCleanOpts)
+            }
+            if let mobiText = extractMobiOrPalmDocText(from: url), !mobiText.isEmpty {
+                return mobiText
+            }
+        }
+
+        if ext == "djvu" || ext == "djv" {
+            if let djvutxt = StudioPackageManager.findExecutable(names: ["djvutxt"]),
+               let out = runCLI(executable: djvutxt, arguments: [url.path]),
+               !out.isEmpty {
+                return clean(out, options: bookCleanOpts)
+            }
+            if let calibreText = runEbookConvertToText(from: url), !calibreText.isEmpty {
+                return clean(calibreText, options: bookCleanOpts)
+            }
+        }
+
+        if ["cbz", "cbr", "cb7", "cbt"].contains(ext) {
+            if let comicText = extractComicArchiveOCRText(from: url), !comicText.isEmpty {
+                return comicText
+            }
+        }
+
+        // 5. Apple iWork Documents (.pages, .numbers, .key)
+        if ["pages", "numbers", "key"].contains(ext) {
+            if let iworkText = extractIWorkText(from: url), !iworkText.isEmpty {
+                return iworkText
+            }
+        }
+
+        // 6. Presentations & Spreadsheets (.pptx, .ppt, .ppsx, .odp, .fodp, .xlsx, .xlsm, .xls, .ods, .fods)
+        if ["pptx", "ppt", "ppsx", "pps", "odp", "fodp", "xlsx", "xlsm", "xls", "ods", "fods"].contains(ext) {
+            if let pandoc = StudioPackageManager.findExecutable(names: ["pandoc"]),
+               ["pptx", "odp", "xlsx", "ods"].contains(ext),
+               let out = runCLI(executable: pandoc, arguments: ["-t", "plain", url.path]),
+               !out.isEmpty {
+                return clean(out)
+            }
+            if let officeXML = extractOfficeZipXMLText(from: url, ext: ext), !officeXML.isEmpty {
+                return officeXML
+            }
+            if let binaryText = extractLegacyBinaryOfficeText(from: url), !binaryText.isEmpty {
+                return binaryText
+            }
+        }
+
+        // 7. Word & Rich Text Documents (.docx, .docm, .dotx, .odt, .fodt, .ott, .doc, .rtf, .rtfd, .webarchive, .wordml, .wpd, .wps, .abw)
+        if ["docx", "docm", "dotx", "dot", "odt", "fodt", "ott", "doc", "rtf", "rtfd", "webarchive", "wordml", "wpd", "wps", "abw"].contains(ext) {
             if let pandoc = StudioPackageManager.findExecutable(names: ["pandoc"]),
                let out = runCLI(executable: pandoc, arguments: ["-t", "plain", url.path]),
                !out.isEmpty {
@@ -2307,33 +2642,101 @@ enum SpeechTextCleaner {
             if let textutilOut = runTextutil(on: url), !textutilOut.isEmpty {
                 return clean(textutilOut)
             }
-            if let attr = try? NSAttributedString(url: url, options: [:], documentAttributes: nil) {
+            if let officeXML = extractOfficeZipXMLText(from: url, ext: ext), !officeXML.isEmpty {
+                return officeXML
+            }
+            if let attr = try? NSAttributedString(url: url, options: [:], documentAttributes: nil),
+               !attr.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 return attr.string
             }
+            if let binaryText = extractLegacyBinaryOfficeText(from: url), !binaryText.isEmpty {
+                return binaryText
+            }
         }
-        // Images via macOS Vision On-Device OCR (VNRecognizeTextRequest)
-        if ["png", "jpg", "jpeg", "webp", "tiff", "tif", "bmp", "heic"].contains(ext) {
+
+        // 8. Academic & Markup Formats (.tex, .latex, .ltx, .bib, .rst, .rest, .org, .adoc, .asciidoc, .textile, .wiki, .mediawiki, .man, .roff, .troff, .groff)
+        if ["tex", "latex", "ltx", "bib", "rst", "rest", "org", "adoc", "asciidoc", "asc", "textile", "wiki", "mediawiki", "pod", "man", "roff", "troff", "groff"].contains(ext) {
+            if let pandoc = StudioPackageManager.findExecutable(names: ["pandoc"]),
+               let out = runCLI(executable: pandoc, arguments: ["-t", "plain", url.path]),
+               !out.isEmpty {
+                return clean(out)
+            }
+            if let rawMarkup = readTextWithFallbackEncoding(from: url), !rawMarkup.isEmpty {
+                if ["tex", "latex", "ltx"].contains(ext) {
+                    return cleanLaTeXForSpeech(rawMarkup)
+                }
+                return clean(rawMarkup)
+            }
+        }
+
+        // 9. Images & Scanned Pages via macOS Vision On-Device OCR + Tesseract fallback
+        if UniversalFileFormatCatalog.imageOCRExtensions.contains(ext) {
+            if ext == "svg", let rawSVG = readTextWithFallbackEncoding(from: url) {
+                let svgText = extractSVGTextElements(from: rawSVG)
+                if !svgText.isEmpty { return svgText }
+            }
             if let ocrText = recognizeImageText(from: url), !ocrText.isEmpty {
                 return ocrText
             }
         }
-        if ext == "html" || ext == "htm" {
-            if let attr = try? NSAttributedString(url: url, options: [:], documentAttributes: nil) {
+
+        // 10. ZIP / TAR / GZ Archives containing documents or chapters
+        if UniversalFileFormatCatalog.archiveExtensions.contains(ext) {
+            if let archiveText = extractArchiveDocuments(from: url), !archiveText.isEmpty {
+                return archiveText
+            }
+        }
+
+        // 11. Audio & Video Containers dropped into Document Reader (extract embedded lyrics, subtitles, or metadata)
+        if UniversalFileFormatCatalog.allAudioAndVideoExtensions.contains(ext) {
+            if let mediaText = extractMediaLyricsOrSubtitles(from: url), !mediaText.isEmpty {
+                return mediaText
+            }
+        }
+
+        // 12. HTML / XHTML / MHTML / EML / MBOX
+        if ["html", "htm", "xhtml", "shtml"].contains(ext) {
+            if let rawHTML = readTextWithFallbackEncoding(from: url), !rawHTML.isEmpty {
+                let formatted = insertParagraphBreaksInHTML(rawHTML)
+                let cleaned = clean(formatted, options: bookCleanOpts)
+                if !cleaned.isEmpty { return cleaned }
+            }
+            if let attr = try? NSAttributedString(url: url, options: [:], documentAttributes: nil),
+               !attr.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 return attr.string
+            }
+        }
+
+        if ["eml", "mbox", "mhtml", "mht"].contains(ext) {
+            if let rawEmail = readTextWithFallbackEncoding(from: url), !rawEmail.isEmpty {
+                let extractedEmail = extractEmailOrMHTMLText(from: rawEmail)
+                if !extractedEmail.isEmpty { return extractedEmail }
             }
         }
         #endif
 
-        var detectedEncoding: String.Encoding = .utf8
-        let raw: String
-        if let utf8Str = try? String(contentsOf: url, encoding: .utf8) {
-            raw = utf8Str
-        } else if let detectedStr = try? String(contentsOf: url, usedEncoding: &detectedEncoding) {
-            raw = detectedStr
-        } else {
-            raw = try String(contentsOf: url, encoding: .isoLatin1)
+        // 13. Binary or XML Apple Property List (.plist)
+        if ext == "plist", let data = try? Data(contentsOf: url),
+           let plistObj = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) {
+            let prose = structuredObjectToProse(plistObj)
+            if !prose.isEmpty { return prose }
         }
-        // Jupyter Notebook (.ipynb)
+
+        guard let raw = readTextWithFallbackEncoding(from: url) else {
+            throw NSError(
+                domain: "SpeechTextCleaner",
+                code: 422,
+                userInfo: [NSLocalizedDescriptionKey: "Could not extract readable text from \(url.lastPathComponent)"]
+            )
+        }
+
+        // 14. Subtitles, Captions & Synced Lyrics (.srt, .vtt, .webvtt, .ass, .ssa, .sub, .sbv, .lrc, .ttml, .dfxp, .smi, .sami, .scc, .stl, .itt, .lyrics)
+        if UniversalFileFormatCatalog.subtitleExtensions.contains(ext) {
+            let subText = cleanSubtitleOrLyricText(raw, ext: ext)
+            if !subText.isEmpty { return subText }
+        }
+
+        // 15. Jupyter Notebook (.ipynb)
         if ext == "ipynb", let data = raw.data(using: .utf8),
            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let cells = json["cells"] as? [[String: Any]] {
@@ -2357,44 +2760,355 @@ enum SpeechTextCleaner {
                 return blocks.joined(separator: "\n\n")
             }
         }
-        // CSV / TSV structured table -> spoken prose
-        if ext == "csv" || ext == "tsv" {
-            let delimiter: Character = (ext == "tsv") ? "\t" : ","
-            let lines = raw.components(separatedBy: .newlines).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-            if lines.count >= 2 {
-                let headers = lines[0].split(separator: delimiter).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                var spokenRows: [String] = []
-                for rowLine in lines.dropFirst().prefix(500) {
-                    let cols = rowLine.split(separator: delimiter, omittingEmptySubsequences: false).map {
-                        $0.trimmingCharacters(in: .whitespacesAndNewlines)
-                    }
-                    var pairs: [String] = []
-                    for (idx, val) in cols.enumerated() where !val.isEmpty {
-                        if idx < headers.count && !headers[idx].isEmpty {
-                            pairs.append("\(headers[idx]): \(val)")
-                        } else {
-                            pairs.append(val)
-                        }
-                    }
-                    if !pairs.isEmpty {
-                        spokenRows.append(pairs.joined(separator: ", ") + ".")
-                    }
-                }
-                if !spokenRows.isEmpty {
-                    return spokenRows.joined(separator: "\n")
-                }
-            }
+
+        // 16. CSV / TSV / PSV / TAB structured table -> spoken prose
+        if ["csv", "tsv", "psv", "tab"].contains(ext) {
+            let delimiter: Character = (ext == "tsv" || ext == "tab") ? "\t" : (ext == "psv" ? "|" : ",")
+            let spoken = parseDelimitedTableToProse(raw, delimiter: delimiter)
+            if !spoken.isEmpty { return spoken }
         }
-        // JSON structured object -> spoken prose
-        if ext == "json", let data = raw.data(using: .utf8),
+
+        // 17. JSON / GeoJSON / HAR structured object -> spoken prose
+        if ["json", "geojson", "har"].contains(ext), let data = raw.data(using: .utf8),
            let obj = try? JSONSerialization.jsonObject(with: data) {
             let prose = structuredObjectToProse(obj)
             if !prose.isEmpty { return prose }
         }
-        if ["md", "markdown", "srt", "vtt", "lrc", "html", "htm", "xml"].contains(ext) {
+
+        // 18. JSONL / NDJSON (newline-delimited JSON) -> spoken prose
+        if ext == "jsonl" || ext == "ndjson" {
+            let lines = raw.components(separatedBy: .newlines).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+            var proseRecords: [String] = []
+            for line in lines.prefix(1000) {
+                if let data = line.data(using: .utf8),
+                   let obj = try? JSONSerialization.jsonObject(with: data) {
+                    let p = structuredObjectToProse(obj)
+                    if !p.isEmpty { proseRecords.append(p) }
+                }
+            }
+            if !proseRecords.isEmpty {
+                return proseRecords.joined(separator: "\n\n")
+            }
+        }
+
+        // 19. YAML / TOML / INI / CONF / ENV
+        if ["yaml", "yml", "toml", "ini", "cfg", "conf", "properties", "env"].contains(ext) {
+            let cleanedConfig = cleanConfigOrYAMLToProse(raw)
+            if !cleanedConfig.isEmpty { return cleanedConfig }
+        }
+
+        // 20. XML / RSS / Atom / OPML / RDF
+        if ["xml", "rss", "atom", "opml", "rdf"].contains(ext) {
+            let formattedXML = insertParagraphBreaksInHTML(raw)
+            let cleanedXML = clean(formattedXML, options: bookCleanOpts)
+            if !cleanedXML.isEmpty { return cleanedXML }
+        }
+
+        // 21. Markdown & Documentation
+        if ["md", "markdown", "mdx", "rmd", "qmd", "html", "htm"].contains(ext) {
             return clean(raw)
         }
-        return raw
+
+        return raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func readTextWithFallbackEncoding(from url: URL) -> String? {
+        if let utf8 = try? String(contentsOf: url, encoding: .utf8), !utf8.contains("\0") {
+            return utf8
+        }
+        var detectedEncoding: String.Encoding = .utf8
+        if let detected = try? String(contentsOf: url, usedEncoding: &detectedEncoding), !detected.contains("\0") {
+            return detected
+        }
+        if let utf16 = try? String(contentsOf: url, encoding: .utf16), !utf16.isEmpty {
+            return utf16
+        }
+        if let win1252 = try? String(contentsOf: url, encoding: .windowsCP1252), !win1252.contains("\0") {
+            return win1252
+        }
+        if let latin1 = try? String(contentsOf: url, encoding: .isoLatin1), !latin1.contains("\0") {
+            return latin1
+        }
+        // If binary file with embedded text strings, extract printable UTF-8/ASCII passages
+        if let data = try? Data(contentsOf: url), !data.isEmpty {
+            let extracted = extractPrintableTextFromBinaryData(data)
+            if !extracted.isEmpty { return extracted }
+        }
+        return nil
+    }
+
+    private static func insertParagraphBreaksInHTML(_ html: String) -> String {
+        html
+            .replacingOccurrences(of: "</p>", with: "</p>\n\n", options: .caseInsensitive)
+            .replacingOccurrences(of: "</div>", with: "</div>\n\n", options: .caseInsensitive)
+            .replacingOccurrences(of: "</section>", with: "</section>\n\n", options: .caseInsensitive)
+            .replacingOccurrences(of: "</article>", with: "</article>\n\n", options: .caseInsensitive)
+            .replacingOccurrences(of: "</h1>", with: "</h1>\n\n", options: .caseInsensitive)
+            .replacingOccurrences(of: "</h2>", with: "</h2>\n\n", options: .caseInsensitive)
+            .replacingOccurrences(of: "</h3>", with: "</h3>\n\n", options: .caseInsensitive)
+            .replacingOccurrences(of: "</h4>", with: "</h4>\n\n", options: .caseInsensitive)
+            .replacingOccurrences(of: "</li>", with: "</li>\n", options: .caseInsensitive)
+            .replacingOccurrences(of: "</tr>", with: "</tr>\n", options: .caseInsensitive)
+            .replacingOccurrences(of: "<br>", with: "\n", options: .caseInsensitive)
+            .replacingOccurrences(of: "<br/>", with: "\n", options: .caseInsensitive)
+            .replacingOccurrences(of: "<br />", with: "\n", options: .caseInsensitive)
+    }
+
+    private static func cleanSubtitleOrLyricText(_ raw: String, ext: String) -> String {
+        let normalized = raw.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+        let lines = normalized.components(separatedBy: "\n")
+
+        // ASS / SSA subtitle format: Dialogue: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
+        if ext == "ass" || ext == "ssa" || normalized.contains("[Events]") || normalized.contains("Dialogue:") {
+            var cues: [String] = []
+            for line in lines {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                guard trimmed.lowercased().hasPrefix("dialogue:") else { continue }
+                let afterPrefix = trimmed.dropFirst("dialogue:".count)
+                let parts = afterPrefix.split(separator: ",", maxSplits: 9, omittingEmptySubsequences: false)
+                guard parts.count >= 10 else { continue }
+                var textPart = String(parts[9])
+                // Strip {\...} ASS override tags
+                textPart = replaceRegex(textPart, pattern: "\\{[^}]*\\}", with: "")
+                textPart = textPart
+                    .replacingOccurrences(of: "\\N", with: " ")
+                    .replacingOccurrences(of: "\\n", with: " ")
+                    .replacingOccurrences(of: "\\h", with: " ")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !textPart.isEmpty && cues.last != textPart {
+                    cues.append(textPart)
+                }
+            }
+            if !cues.isEmpty {
+                return cues.joined(separator: "\n")
+            }
+        }
+
+        // MicroDVD .sub format: {123}{456}First line|Second line
+        if ext == "sub" {
+            var cues: [String] = []
+            for line in lines {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                if trimmed.hasPrefix("{") {
+                    let stripped = replaceRegex(trimmed, pattern: "^\\{\\d+\\}\\{\\d+\\}", with: "")
+                        .replacingOccurrences(of: "|", with: " ")
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !stripped.isEmpty {
+                        cues.append(stripped)
+                    }
+                } else if !trimmed.isEmpty && trimmed.range(of: "^\\d{2}:\\d{2}:\\d{2}", options: .regularExpression) == nil {
+                    cues.append(trimmed)
+                }
+            }
+            if !cues.isEmpty {
+                return cues.joined(separator: "\n")
+            }
+        }
+
+        // TTML / DFXP / ITT / SAMI XML subtitles
+        if ["ttml", "dfxp", "itt", "smi", "sami"].contains(ext) {
+            let formatted = insertParagraphBreaksInHTML(normalized)
+            return clean(formatted, options: SpeechCleanOptions(stripMarkdown: false, stripHtml: true, stripTimestamps: true))
+        }
+
+        // LRC / SRT / VTT / SBV
+        var outLines: [String] = []
+        for line in lines {
+            var s = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if s.isEmpty { continue }
+            let upper = s.uppercased()
+            if upper == "WEBVTT" || upper.hasPrefix("WEBVTT ") || upper.hasPrefix("NOTE ") || upper.hasPrefix("STYLE") {
+                continue
+            }
+            // Skip LRC metadata tags like [ti:Title], [ar:Artist], [al:Album], [by:Author], [offset:0]
+            if s.range(of: "^\\[(?:ti|ar|al|by|offset|re|ve|length):", options: [.regularExpression, .caseInsensitive]) != nil {
+                continue
+            }
+            // Skip numeric cue indices
+            if s.range(of: "^\\d+$", options: .regularExpression) != nil {
+                continue
+            }
+            // Skip SRT/VTT/SBV timestamp lines
+            if s.range(of: "^\\d{1,2}:\\d{2}(?::\\d{2})?[.,]\\d{1,3}\\s*(?:-->|,)\\s*\\d{1,2}:\\d{2}", options: .regularExpression) != nil {
+                continue
+            }
+            // Strip inline LRC [mm:ss.xx] or <mm:ss.xx> word timestamps
+            s = replaceRegex(s, pattern: "[\\[<]\\d{1,2}:\\d{2}(?:[.:]\\d{1,3})?[\\]>]", with: " ")
+            // Strip VTT/HTML tags
+            s = replaceRegex(s, pattern: "<[^>]+>", with: " ")
+            s = decodeHTMLEntities(s).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !s.isEmpty {
+                outLines.append(s)
+            }
+        }
+        return outLines.joined(separator: "\n")
+    }
+
+    private static func parseDelimitedTableToProse(_ raw: String, delimiter: Character) -> String {
+        let lines = raw.components(separatedBy: .newlines).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        guard !lines.isEmpty else { return "" }
+        let headers = splitCSVRow(lines[0], delimiter: delimiter)
+        guard lines.count >= 2 else {
+            return headers.joined(separator: ", ")
+        }
+        var spokenRows: [String] = []
+        for rowLine in lines.dropFirst().prefix(2000) {
+            let cols = splitCSVRow(rowLine, delimiter: delimiter)
+            var pairs: [String] = []
+            for (idx, val) in cols.enumerated() where !val.isEmpty {
+                if idx < headers.count && !headers[idx].isEmpty {
+                    pairs.append("\(headers[idx]): \(val)")
+                } else {
+                    pairs.append(val)
+                }
+            }
+            if !pairs.isEmpty {
+                spokenRows.append(pairs.joined(separator: ", ") + ".")
+            }
+        }
+        return spokenRows.joined(separator: "\n")
+    }
+
+    private static func splitCSVRow(_ line: String, delimiter: Character) -> [String] {
+        var result: [String] = []
+        var current = ""
+        var inQuotes = false
+        var iterator = line.makeIterator()
+        while let ch = iterator.next() {
+            if ch == "\"" {
+                inQuotes.toggle()
+            } else if ch == delimiter && !inQuotes {
+                result.append(current.trimmingCharacters(in: .whitespacesAndNewlines))
+                current = ""
+            } else {
+                current.append(ch)
+            }
+        }
+        result.append(current.trimmingCharacters(in: .whitespacesAndNewlines))
+        return result
+    }
+
+    private static func cleanConfigOrYAMLToProse(_ raw: String) -> String {
+        let lines = raw.components(separatedBy: .newlines)
+        var out: [String] = []
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty || trimmed.hasPrefix("#") || trimmed.hasPrefix(";") || trimmed == "---" || trimmed == "..." {
+                continue
+            }
+            out.append(trimmed)
+        }
+        return out.joined(separator: "\n")
+    }
+
+    private static func cleanLaTeXForSpeech(_ raw: String) -> String {
+        var s = raw
+        // If \begin{document} exists, focus on document body while keeping \title if present
+        var extractedTitle = ""
+        if let titleRange = s.range(of: "\\\\title\\{([^}]+)\\}", options: .regularExpression) {
+            extractedTitle = String(s[titleRange])
+                .replacingOccurrences(of: "\\title{", with: "")
+                .replacingOccurrences(of: "}", with: "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let beginDoc = s.range(of: "\\begin{document}") {
+            s = String(s[beginDoc.upperBound...])
+        }
+        if let endDoc = s.range(of: "\\end{document}") {
+            s = String(s[..<endDoc.lowerBound])
+        }
+        // Strip LaTeX comments
+        s = replaceRegex(s, pattern: "(?m)(?<!\\\\)%.*$", with: "")
+        // Convert section headings to plain lines
+        s = replaceRegex(s, pattern: "\\\\(?:part|chapter|section|subsection|subsubsection|paragraph)\\*?\\{([^}]*)\\}", with: "\n\n$1.\n\n")
+        // Unwrap formatting commands \textbf{...}, \textit{...}, \emph{...}, \underline{...}, \texttt{...}
+        for _ in 0..<3 {
+            s = replaceRegex(s, pattern: "\\\\(?:textbf|textit|emph|underline|texttt|textsc|textrm|textsf|mbox)\\{([^}]*)\\}", with: "$1")
+        }
+        // Strip citations, labels, refs, footnotes, package/environment boilerplate
+        s = replaceRegex(s, pattern: "\\\\(?:cite|citep|citet|ref|eqref|pageref|label|bibliographystyle|bibliography|usepackage|documentclass|maketitle)(?:\\[[^\\]]*\\])?\\{[^}]*\\}", with: "")
+        s = replaceRegex(s, pattern: "\\\\(?:begin|end)\\{[^}]*\\}(?:\\[[^\\]]*\\])?", with: "\n")
+        s = replaceRegex(s, pattern: "\\\\item\\b", with: "\n• ")
+        s = replaceRegex(s, pattern: "\\\\[a-zA-Z]+\\*?", with: " ")
+        s = s.replacingOccurrences(of: "{", with: "").replacingOccurrences(of: "}", with: "")
+        s = s.replacingOccurrences(of: "~", with: " ")
+        let body = clean(s)
+        if !extractedTitle.isEmpty && !body.hasPrefix(extractedTitle) {
+            return "\(extractedTitle).\n\n\(body)"
+        }
+        return body
+    }
+
+    private static func extractEmailOrMHTMLText(from raw: String) -> String {
+        let normalized = raw.replacingOccurrences(of: "\r\n", with: "\n")
+        var headerLines: [String] = []
+        let parts = normalized.components(separatedBy: "\n\n")
+        let rawHeaders = parts.first ?? ""
+        for hLine in rawHeaders.components(separatedBy: "\n") {
+            let lower = hLine.lowercased()
+            if lower.hasPrefix("subject:") || lower.hasPrefix("from:") || lower.hasPrefix("date:") {
+                headerLines.append(hLine.trimmingCharacters(in: .whitespaces))
+            }
+        }
+        var body = parts.dropFirst().joined(separator: "\n\n")
+        // Decode quoted-printable soft line breaks and =XX hex sequences if present
+        if normalized.lowercased().contains("quoted-printable") || body.contains("=3D") || body.contains("=\n") {
+            body = body.replacingOccurrences(of: "=\n", with: "")
+            body = body.replacingOccurrences(of: "=3D", with: "=")
+            body = body.replacingOccurrences(of: "=20", with: " ")
+            body = body.replacingOccurrences(of: "=09", with: "\t")
+        }
+        // Strip MIME boundary lines and part headers
+        body = replaceRegex(body, pattern: "(?m)^--[-A-Za-z0-9_.=+]+.*$", with: "\n")
+        body = replaceRegex(body, pattern: "(?im)^content-(?:type|transfer-encoding|disposition|id|location):.*$", with: "")
+        let formatted = insertParagraphBreaksInHTML(body)
+        let cleanedBody = clean(formatted, options: SpeechCleanOptions(stripMarkdown: false, stripHtml: true))
+        if headerLines.isEmpty { return cleanedBody }
+        return (headerLines.joined(separator: "\n") + "\n\n" + cleanedBody).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func extractSVGTextElements(from rawSVG: String) -> String {
+        guard let regex = try? NSRegularExpression(pattern: "<text\\b[^>]*>([\\s\\S]*?)</text>", options: [.caseInsensitive]) else {
+            return ""
+        }
+        let ns = rawSVG as NSString
+        let matches = regex.matches(in: rawSVG, options: [], range: NSRange(location: 0, length: ns.length))
+        var texts: [String] = []
+        for match in matches where match.numberOfRanges >= 2 {
+            let inner = ns.substring(with: match.range(at: 1))
+            let stripped = replaceRegex(inner, pattern: "<[^>]+>", with: " ")
+            let decoded = decodeHTMLEntities(stripped).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !decoded.isEmpty {
+                texts.append(decoded)
+            }
+        }
+        return texts.joined(separator: "\n")
+    }
+
+    private static func extractPrintableTextFromBinaryData(_ data: Data) -> String {
+        // Extract contiguous UTF-8 / ASCII prose sequences (>= 16 printable chars)
+        var passages: [String] = []
+        var currentBytes: [UInt8] = []
+        let maxScan = min(data.count, 8 * 1024 * 1024)
+        data.prefix(maxScan).forEach { byte in
+            if (byte >= 32 && byte <= 126) || byte == 9 || byte == 10 || byte == 13 {
+                currentBytes.append(byte)
+            } else {
+                if currentBytes.count >= 24,
+                   let str = String(bytes: currentBytes, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   str.contains(" ") {
+                    passages.append(str)
+                }
+                currentBytes.removeAll(keepingCapacity: true)
+            }
+        }
+        if currentBytes.count >= 24,
+           let str = String(bytes: currentBytes, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+           str.contains(" ") {
+            passages.append(str)
+        }
+        let joined = passages.joined(separator: "\n\n")
+        return clean(insertParagraphBreaksInHTML(joined), options: SpeechCleanOptions(stripMarkdown: false, stripHtml: true))
     }
 
     private static func structuredObjectToProse(_ obj: Any, depth: Int = 0) -> String {
@@ -2445,6 +3159,25 @@ enum SpeechTextCleaner {
         runCLI(executable: "/usr/bin/textutil", arguments: ["-convert", "txt", "-stdout", url.path])
     }
 
+    private static func runEbookConvertToText(from url: URL) -> String? {
+        let extraDirs = [
+            "/Applications/calibre.app/Contents/MacOS",
+            "/opt/homebrew/bin",
+            "/usr/local/bin"
+        ]
+        guard let ebookConvert = StudioPackageManager.findExecutable(names: ["ebook-convert"], extraDirs: extraDirs) else {
+            return nil
+        }
+        let tempTxt = FileManager.default.temporaryDirectory
+            .appendingPathComponent("calibre_\(UUID().uuidString).txt")
+        defer { try? FileManager.default.removeItem(at: tempTxt) }
+        _ = runCLI(executable: ebookConvert, arguments: [url.path, tempTxt.path])
+        if let str = readTextWithFallbackEncoding(from: tempTxt), !str.isEmpty {
+            return str
+        }
+        return nil
+    }
+
     private static func extractEpubText(from url: URL) -> String? {
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else { return nil }
@@ -2456,55 +3189,730 @@ enum SpeechTextCleaner {
             stripTimestamps: false,
             stripDividers: true
         )
+
+        let rootDir: URL
+        var tempUnpackDir: URL? = nil
+        defer {
+            if let tempUnpackDir {
+                try? FileManager.default.removeItem(at: tempUnpackDir)
+            }
+        }
+
         if isDir.boolValue {
-            guard let enumerator = FileManager.default.enumerator(at: url, includingPropertiesForKeys: nil) else { return nil }
-            var htmlFiles: [URL] = []
-            for case let fileURL as URL in enumerator {
-                let ext = fileURL.pathExtension.lowercased()
-                if ["xhtml", "html", "htm"].contains(ext) {
-                    htmlFiles.append(fileURL)
-                }
-            }
-            htmlFiles.sort { $0.path < $1.path }
-            let chapters = htmlFiles.compactMap { try? String(contentsOf: $0, encoding: .utf8) }.map {
-                let withParagraphBreaks = $0
-                    .replacingOccurrences(of: "</p>", with: "</p>\n\n", options: .caseInsensitive)
-                    .replacingOccurrences(of: "</div>", with: "</div>\n\n", options: .caseInsensitive)
-                    .replacingOccurrences(of: "</h1>", with: "</h1>\n\n", options: .caseInsensitive)
-                    .replacingOccurrences(of: "</h2>", with: "</h2>\n\n", options: .caseInsensitive)
-                    .replacingOccurrences(of: "</h3>", with: "</h3>\n\n", options: .caseInsensitive)
-                    .replacingOccurrences(of: "<br>", with: "\n", options: .caseInsensitive)
-                    .replacingOccurrences(of: "<br/>", with: "\n", options: .caseInsensitive)
-                    .replacingOccurrences(of: "<br />", with: "\n", options: .caseInsensitive)
-                return clean(withParagraphBreaks, options: htmlOnlyOpts)
-            }
-            return chapters.filter { !$0.isEmpty }.joined(separator: "\n\n")
+            rootDir = url
         } else {
+            let unpack = FileManager.default.temporaryDirectory
+                .appendingPathComponent("epub_unpack_\(UUID().uuidString)", isDirectory: true)
+            try? FileManager.default.createDirectory(at: unpack, withIntermediateDirectories: true)
             let proc = Process()
             proc.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
-            proc.arguments = ["-p", url.path, "*.xhtml", "*.html", "*.htm"]
-            let pipe = Pipe()
-            proc.standardOutput = pipe
+            proc.arguments = ["-q", "-o", url.path, "-d", unpack.path]
+            proc.standardInput = FileHandle.nullDevice
+            proc.standardOutput = FileHandle.nullDevice
             proc.standardError = FileHandle.nullDevice
-            do {
-                try proc.run()
-                let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                proc.waitUntilExit()
-                if let str = String(data: data, encoding: .utf8), !str.isEmpty {
-                    let withParagraphBreaks = str
-                        .replacingOccurrences(of: "</p>", with: "</p>\n\n", options: .caseInsensitive)
-                        .replacingOccurrences(of: "</div>", with: "</div>\n\n", options: .caseInsensitive)
-                        .replacingOccurrences(of: "</h1>", with: "</h1>\n\n", options: .caseInsensitive)
-                        .replacingOccurrences(of: "</h2>", with: "</h2>\n\n", options: .caseInsensitive)
-                        .replacingOccurrences(of: "</h3>", with: "</h3>\n\n", options: .caseInsensitive)
-                        .replacingOccurrences(of: "<br>", with: "\n", options: .caseInsensitive)
-                        .replacingOccurrences(of: "<br/>", with: "\n", options: .caseInsensitive)
-                        .replacingOccurrences(of: "<br />", with: "\n", options: .caseInsensitive)
-                    return clean(withParagraphBreaks, options: htmlOnlyOpts)
+            try? proc.run()
+            proc.waitUntilExit()
+            tempUnpackDir = unpack
+            rootDir = unpack
+        }
+
+        // 1. Try reading OPF spine order (META-INF/container.xml -> content.opf)
+        var orderedChapterURLs: [URL] = []
+        let containerURL = rootDir.appendingPathComponent("META-INF/container.xml")
+        if let containerXML = try? String(contentsOf: containerURL, encoding: .utf8),
+           let opfRelPath = firstRegexCapture(in: containerXML, pattern: "full-path\\s*=\\s*[\"']([^\"']+\\.opf)[\"']") {
+            let opfURL = rootDir.appendingPathComponent(opfRelPath)
+            let opfBaseDir = opfURL.deletingLastPathComponent()
+            if let opfXML = try? String(contentsOf: opfURL, encoding: .utf8) {
+                var manifestMap: [String: String] = [:]
+                if let itemRegex = try? NSRegularExpression(pattern: "<item\\b[^>]+>", options: [.caseInsensitive]) {
+                    let ns = opfXML as NSString
+                    for match in itemRegex.matches(in: opfXML, options: [], range: NSRange(location: 0, length: ns.length)) {
+                        let tag = ns.substring(with: match.range)
+                        if let itemId = firstRegexCapture(in: tag, pattern: "\\bid\\s*=\\s*[\"']([^\"']+)[\"']"),
+                           let href = firstRegexCapture(in: tag, pattern: "\\bhref\\s*=\\s*[\"']([^\"'#]+)[\"']") {
+                            manifestMap[itemId] = href.removingPercentEncoding ?? href
+                        }
+                    }
                 }
-            } catch {}
+                if let spineRegex = try? NSRegularExpression(pattern: "<itemref\\b[^>]+>", options: [.caseInsensitive]) {
+                    let ns = opfXML as NSString
+                    for match in spineRegex.matches(in: opfXML, options: [], range: NSRange(location: 0, length: ns.length)) {
+                        let tag = ns.substring(with: match.range)
+                        if let idref = firstRegexCapture(in: tag, pattern: "\\bidref\\s*=\\s*[\"']([^\"']+)[\"']"),
+                           let href = manifestMap[idref] {
+                            let candidate = opfBaseDir.appendingPathComponent(href)
+                            if FileManager.default.fileExists(atPath: candidate.path) {
+                                orderedChapterURLs.append(candidate)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Fallback: enumerate all HTML/XHTML files in natural sort order
+        if orderedChapterURLs.isEmpty,
+           let enumerator = FileManager.default.enumerator(at: rootDir, includingPropertiesForKeys: nil) {
+            for case let fileURL as URL in enumerator {
+                let ext = fileURL.pathExtension.lowercased()
+                let name = fileURL.lastPathComponent.lowercased()
+                if ["xhtml", "html", "htm"].contains(ext) && !name.contains("toc") && !name.contains("nav") {
+                    orderedChapterURLs.append(fileURL)
+                }
+            }
+            orderedChapterURLs.sort {
+                $0.path.localizedStandardCompare($1.path) == .orderedAscending
+            }
+        }
+
+        let chapters = orderedChapterURLs.compactMap { readTextWithFallbackEncoding(from: $0) }.map {
+            clean(insertParagraphBreaksInHTML($0), options: htmlOnlyOpts)
+        }.filter { !$0.isEmpty }
+
+        return chapters.isEmpty ? nil : chapters.joined(separator: "\n\n")
+    }
+
+    private static func firstRegexCapture(in text: String, pattern: String) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return nil }
+        let ns = text as NSString
+        guard let match = regex.firstMatch(in: text, options: [], range: NSRange(location: 0, length: ns.length)),
+              match.numberOfRanges >= 2 else {
             return nil
         }
+        return ns.substring(with: match.range(at: 1))
+    }
+
+    // MARK: - Native FictionBook (.fb2 / .fbz) Extractor
+    private static func extractFB2Text(from url: URL) -> String? {
+        var rawXML: String? = nil
+        if let data = try? Data(contentsOf: url), data.count >= 4 {
+            // Check if ZIP archive (PK\x03\x04)
+            if data[0] == 0x50 && data[1] == 0x4B && data[2] == 0x03 && data[3] == 0x04 {
+                let unpack = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("fb2_unpack_\(UUID().uuidString)", isDirectory: true)
+                defer { try? FileManager.default.removeItem(at: unpack) }
+                try? FileManager.default.createDirectory(at: unpack, withIntermediateDirectories: true)
+                let proc = Process()
+                proc.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
+                proc.arguments = ["-q", "-o", url.path, "-d", unpack.path]
+                proc.standardInput = FileHandle.nullDevice
+                proc.standardOutput = FileHandle.nullDevice
+                proc.standardError = FileHandle.nullDevice
+                try? proc.run()
+                proc.waitUntilExit()
+                if let enumerator = FileManager.default.enumerator(at: unpack, includingPropertiesForKeys: nil) {
+                    for case let fileURL as URL in enumerator {
+                        if ["fb2", "xml"].contains(fileURL.pathExtension.lowercased()),
+                           let s = readTextWithFallbackEncoding(from: fileURL), !s.isEmpty {
+                            rawXML = s
+                            break
+                        }
+                    }
+                }
+            }
+        }
+        if rawXML == nil {
+            rawXML = readTextWithFallbackEncoding(from: url)
+        }
+        guard var xml = rawXML, !xml.isEmpty else { return nil }
+
+        // Strip base64 <binary>...</binary> cover image blocks so TTS never reads base64 strings
+        xml = replaceRegex(xml, pattern: "(?is)<binary\\b[^>]*>.*?</binary>", with: " ")
+        xml = replaceRegex(xml, pattern: "(?is)<stylesheet\\b[^>]*>.*?</stylesheet>", with: " ")
+        xml = xml
+            .replacingOccurrences(of: "</title>", with: "</title>\n\n", options: .caseInsensitive)
+            .replacingOccurrences(of: "</subtitle>", with: "</subtitle>\n\n", options: .caseInsensitive)
+            .replacingOccurrences(of: "</p>", with: "</p>\n\n", options: .caseInsensitive)
+            .replacingOccurrences(of: "</v>", with: "</v>\n", options: .caseInsensitive)
+            .replacingOccurrences(of: "<empty-line/>", with: "\n\n", options: .caseInsensitive)
+            .replacingOccurrences(of: "<empty-line />", with: "\n\n", options: .caseInsensitive)
+
+        let htmlOnlyOpts = SpeechCleanOptions(
+            stripMarkdown: false,
+            stripHtml: true,
+            stripCodeBlocks: false,
+            simplifyUrls: true,
+            stripTimestamps: false,
+            stripDividers: true
+        )
+        return clean(xml, options: htmlOnlyOpts)
+    }
+
+    // MARK: - Native Kindle / Mobipocket / PalmDOC (.mobi, .azw, .azw3, .prc, .pdb) Decompressor & Extractor
+    private static func extractMobiOrPalmDocText(from url: URL) -> String? {
+        guard let data = try? Data(contentsOf: url), data.count > 86 else { return nil }
+        let bytes = [UInt8](data)
+
+        func readUInt16BE(_ offset: Int) -> Int {
+            guard offset + 1 < bytes.count else { return 0 }
+            return (Int(bytes[offset]) << 8) | Int(bytes[offset + 1])
+        }
+
+        func readUInt32BE(_ offset: Int) -> Int {
+            guard offset + 3 < bytes.count else { return 0 }
+            return (Int(bytes[offset]) << 24) | (Int(bytes[offset + 1]) << 16) | (Int(bytes[offset + 2]) << 8) | Int(bytes[offset + 3])
+        }
+
+        let numRecords = readUInt16BE(76)
+        guard numRecords > 1 && numRecords < 65535, 78 + numRecords * 8 <= bytes.count else {
+            return extractPrintableTextFromBinaryData(data)
+        }
+
+        var recordOffsets: [Int] = []
+        recordOffsets.reserveCapacity(numRecords)
+        for i in 0..<numRecords {
+            let recOffset = readUInt32BE(78 + i * 8)
+            recordOffsets.append(recOffset)
+        }
+
+        let rec0Start = recordOffsets[0]
+        guard rec0Start >= 0 && rec0Start + 16 <= bytes.count else {
+            return extractPrintableTextFromBinaryData(data)
+        }
+
+        let compression = readUInt16BE(rec0Start) // 1 = None, 2 = PalmDOC LZ77, 17480 = HUFF/CDIC
+        let textRecordCount = max(1, min(readUInt16BE(rec0Start + 8), numRecords - 1))
+
+        // Check MOBI extraDataFlags at offset rec0Start + 242 if MOBI header is present
+        var extraDataFlags = 0
+        if rec0Start + 244 <= bytes.count,
+           bytes[rec0Start + 16] == 0x4D, // 'M'
+           bytes[rec0Start + 17] == 0x4F, // 'O'
+           bytes[rec0Start + 18] == 0x42, // 'B'
+           bytes[rec0Start + 19] == 0x49  // 'I'
+        {
+            let mobiHeaderLen = readUInt32BE(rec0Start + 20)
+            if mobiHeaderLen >= 228 {
+                extraDataFlags = readUInt16BE(rec0Start + 242)
+            }
+        }
+
+        if compression == 1 || compression == 2 {
+            var decompressedBytes: [UInt8] = []
+            decompressedBytes.reserveCapacity(min(data.count * 2, 16 * 1024 * 1024))
+
+            for r in 1...textRecordCount {
+                guard r < recordOffsets.count else { break }
+                let start = recordOffsets[r]
+                let end = (r + 1 < recordOffsets.count) ? min(bytes.count, recordOffsets[r + 1]) : bytes.count
+                guard start >= 0 && end > start && end <= bytes.count else { continue }
+                var sliceEnd = end
+
+                // Trim trailing MOBI extra data entries if flagged
+                if extraDataFlags != 0 {
+                    var flags = extraDataFlags >> 1
+                    while flags != 0 && sliceEnd > start {
+                        if (flags & 1) != 0 {
+                            // Variable-length backward-encoded size at end of record
+                            var size = 0
+                            var shift = 0
+                            var pos = sliceEnd - 1
+                            while pos >= start && shift < 28 {
+                                let b = Int(bytes[pos])
+                                size |= (b & 0x7F) << shift
+                                pos -= 1
+                                shift += 7
+                                if (b & 0x80) != 0 { break }
+                            }
+                            if size > 0 && size <= (sliceEnd - start) {
+                                sliceEnd -= size
+                            }
+                        }
+                        flags >>= 1
+                    }
+                    if (extraDataFlags & 1) != 0 && sliceEnd > start {
+                        let multibyteOverlap = Int(bytes[sliceEnd - 1] & 0x03) + 1
+                        if multibyteOverlap <= (sliceEnd - start) {
+                            sliceEnd -= multibyteOverlap
+                        }
+                    }
+                }
+
+                let recordSlice = bytes[start..<sliceEnd]
+                if compression == 1 {
+                    decompressedBytes.append(contentsOf: recordSlice)
+                } else {
+                    decompressedBytes.append(contentsOf: decompressPalmDOC(recordSlice))
+                }
+            }
+
+            if !decompressedBytes.isEmpty {
+                let decodedStr = String(bytes: decompressedBytes, encoding: .utf8)
+                    ?? String(bytes: decompressedBytes, encoding: .windowsCP1252)
+                    ?? String(bytes: decompressedBytes, encoding: .isoLatin1)
+                    ?? ""
+                let withBreaks = insertParagraphBreaksInHTML(decodedStr)
+                    .replacingOccurrences(of: "<mbp:pagebreak/>", with: "\n\n", options: .caseInsensitive)
+                let cleaned = clean(withBreaks, options: SpeechCleanOptions(stripMarkdown: false, stripHtml: true))
+                if !cleaned.isEmpty {
+                    return cleaned
+                }
+            }
+        }
+
+        return extractPrintableTextFromBinaryData(data)
+    }
+
+    private static func decompressPalmDOC(_ input: ArraySlice<UInt8>) -> [UInt8] {
+        var out: [UInt8] = []
+        out.reserveCapacity(input.count * 2)
+        var idx = input.startIndex
+        let end = input.endIndex
+
+        while idx < end {
+            let b = input[idx]
+            idx += 1
+            if b == 0x00 {
+                out.append(0x00)
+            } else if b >= 0x01 && b <= 0x08 {
+                let count = Int(b)
+                for _ in 0..<count where idx < end {
+                    out.append(input[idx])
+                    idx += 1
+                }
+            } else if b >= 0x09 && b <= 0x7F {
+                out.append(b)
+            } else if b >= 0x80 && b <= 0xBF {
+                guard idx < end else { break }
+                let next = input[idx]
+                idx += 1
+                let pair = (Int(b) << 8) | Int(next)
+                let distance = (pair & 0x3FFF) >> 3
+                let length = (pair & 0x07) + 3
+                if distance > 0 && distance <= out.count {
+                    for _ in 0..<length {
+                        let srcIdx = out.count - distance
+                        out.append(out[srcIdx])
+                    }
+                }
+            } else {
+                // 0xC0..0xFF: space followed by (b ^ 0x80)
+                out.append(0x20)
+                out.append(b ^ 0x80)
+            }
+        }
+        return out
+    }
+
+    // MARK: - Native Office OpenXML & OpenDocument (.docx, .pptx, .xlsx, .odt, .odp, .ods) Extractor
+    private static func extractOfficeZipXMLText(from url: URL, ext: String) -> String? {
+        // Handle flat XML OpenDocument formats directly (.fodt, .fodp, .fods, .wordml)
+        if ["fodt", "fodp", "fods", "wordml", "abw"].contains(ext),
+           let rawXML = readTextWithFallbackEncoding(from: url) {
+            return cleanOfficeXMLString(rawXML)
+        }
+
+        let unpack = FileManager.default.temporaryDirectory
+            .appendingPathComponent("office_unpack_\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: unpack) }
+        try? FileManager.default.createDirectory(at: unpack, withIntermediateDirectories: true)
+
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
+        proc.arguments = ["-q", "-o", url.path, "-d", unpack.path]
+        proc.standardInput = FileHandle.nullDevice
+        proc.standardOutput = FileHandle.nullDevice
+        proc.standardError = FileHandle.nullDevice
+        try? proc.run()
+        proc.waitUntilExit()
+
+        // 1. Word (.docx, .docm, .dotx): word/document.xml
+        let wordDocURL = unpack.appendingPathComponent("word/document.xml")
+        if FileManager.default.fileExists(atPath: wordDocURL.path),
+           let xml = try? String(contentsOf: wordDocURL, encoding: .utf8) {
+            return cleanOfficeXMLString(xml)
+        }
+
+        // 2. PowerPoint (.pptx, .ppsx): ppt/slides/slide*.xml
+        let slidesDir = unpack.appendingPathComponent("ppt/slides", isDirectory: true)
+        if let slideFiles = try? FileManager.default.contentsOfDirectory(at: slidesDir, includingPropertiesForKeys: nil) {
+            let sortedSlides = slideFiles
+                .filter { $0.pathExtension.lowercased() == "xml" && $0.lastPathComponent.lowercased().hasPrefix("slide") }
+                .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+            var slideTexts: [String] = []
+            for (idx, slideURL) in sortedSlides.enumerated() {
+                if let xml = try? String(contentsOf: slideURL, encoding: .utf8) {
+                    let text = cleanOfficeXMLString(xml)
+                    if !text.isEmpty {
+                        slideTexts.append("Slide \(idx + 1).\n\(text)")
+                    }
+                }
+            }
+            if !slideTexts.isEmpty {
+                return slideTexts.joined(separator: "\n\n")
+            }
+        }
+
+        // 3. Excel (.xlsx, .xlsm): xl/sharedStrings.xml + xl/worksheets/sheet*.xml
+        let xlDir = unpack.appendingPathComponent("xl", isDirectory: true)
+        if FileManager.default.fileExists(atPath: xlDir.path) {
+            if let xlsxText = extractXLSXText(fromUnpackedXLDir: xlDir), !xlsxText.isEmpty {
+                return xlsxText
+            }
+        }
+
+        // 4. OpenDocument (.odt, .ott, .odp, .ods): content.xml
+        let odtContentURL = unpack.appendingPathComponent("content.xml")
+        if FileManager.default.fileExists(atPath: odtContentURL.path),
+           let xml = try? String(contentsOf: odtContentURL, encoding: .utf8) {
+            return cleanOfficeXMLString(xml)
+        }
+
+        return nil
+    }
+
+    private static func cleanOfficeXMLString(_ xml: String) -> String {
+        let withBreaks = xml
+            .replacingOccurrences(of: "</w:p>", with: "\n\n")
+            .replacingOccurrences(of: "<w:br/>", with: "\n")
+            .replacingOccurrences(of: "<w:br />", with: "\n")
+            .replacingOccurrences(of: "<w:cr/>", with: "\n")
+            .replacingOccurrences(of: "<w:tab/>", with: " ")
+            .replacingOccurrences(of: "</a:p>", with: "\n")
+            .replacingOccurrences(of: "</text:p>", with: "\n\n")
+            .replacingOccurrences(of: "</text:h>", with: "\n\n")
+            .replacingOccurrences(of: "</table:table-row>", with: "\n")
+            .replacingOccurrences(of: "</table:table-cell>", with: ", ")
+            .replacingOccurrences(of: "<text:line-break/>", with: "\n")
+        let stripped = replaceRegex(withBreaks, pattern: "<[^>]+>", with: "")
+        let decoded = decodeHTMLEntities(stripped)
+        return clean(decoded, options: SpeechCleanOptions(stripMarkdown: false, stripHtml: false))
+    }
+
+    private static func extractXLSXText(fromUnpackedXLDir xlDir: URL) -> String? {
+        var sharedStrings: [String] = []
+        let sharedURL = xlDir.appendingPathComponent("sharedStrings.xml")
+        if let sharedXML = try? String(contentsOf: sharedURL, encoding: .utf8),
+           let siRegex = try? NSRegularExpression(pattern: "<si\\b[^>]*>([\\s\\S]*?)</si>", options: []) {
+            let ns = sharedXML as NSString
+            for match in siRegex.matches(in: sharedXML, options: [], range: NSRange(location: 0, length: ns.length)) where match.numberOfRanges >= 2 {
+                let siContent = ns.substring(with: match.range(at: 1))
+                let stripped = replaceRegex(siContent, pattern: "<[^>]+>", with: "")
+                sharedStrings.append(decodeHTMLEntities(stripped).trimmingCharacters(in: .whitespacesAndNewlines))
+            }
+        }
+
+        let sheetsDir = xlDir.appendingPathComponent("worksheets", isDirectory: true)
+        guard let sheetFiles = try? FileManager.default.contentsOfDirectory(at: sheetsDir, includingPropertiesForKeys: nil) else {
+            return sharedStrings.isEmpty ? nil : sharedStrings.joined(separator: "\n")
+        }
+        let sortedSheets = sheetFiles
+            .filter { $0.pathExtension.lowercased() == "xml" }
+            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+
+        var allRows: [String] = []
+        let rowRegex = try? NSRegularExpression(pattern: "<row\\b[^>]*>([\\s\\S]*?)</row>", options: [])
+        let cellRegex = try? NSRegularExpression(pattern: "<c\\b([^>]*)>([\\s\\S]*?)</c>", options: [])
+
+        for sheetURL in sortedSheets {
+            guard let sheetXML = try? String(contentsOf: sheetURL, encoding: .utf8),
+                  let rowRegex, let cellRegex else { continue }
+            let nsSheet = sheetXML as NSString
+            var headers: [String] = []
+            for (rowIdx, rowMatch) in rowRegex.matches(in: sheetXML, options: [], range: NSRange(location: 0, length: nsSheet.length)).prefix(1000).enumerated() where rowMatch.numberOfRanges >= 2 {
+                let rowContent = nsSheet.substring(with: rowMatch.range(at: 1))
+                let nsRow = rowContent as NSString
+                var rowVals: [String] = []
+                for cellMatch in cellRegex.matches(in: rowContent, options: [], range: NSRange(location: 0, length: nsRow.length)) where cellMatch.numberOfRanges >= 3 {
+                    let attrs = nsRow.substring(with: cellMatch.range(at: 1))
+                    let inner = nsRow.substring(with: cellMatch.range(at: 2))
+                    let isShared = attrs.contains("t=\"s\"") || attrs.contains("t='s'")
+                    if isShared,
+                       let vStr = firstRegexCapture(in: inner, pattern: "<v>([^<]+)</v>"),
+                       let sIdx = Int(vStr.trimmingCharacters(in: .whitespacesAndNewlines)),
+                       sIdx >= 0 && sIdx < sharedStrings.count {
+                        rowVals.append(sharedStrings[sIdx])
+                    } else if let inlineStr = firstRegexCapture(in: inner, pattern: "<t[^>]*>([^<]+)</t>") {
+                        rowVals.append(decodeHTMLEntities(inlineStr))
+                    } else if let vStr = firstRegexCapture(in: inner, pattern: "<v>([^<]+)</v>") {
+                        rowVals.append(decodeHTMLEntities(vStr))
+                    }
+                }
+                let nonEmpty = rowVals.filter { !$0.isEmpty }
+                if nonEmpty.isEmpty { continue }
+                if rowIdx == 0 && headers.isEmpty {
+                    headers = rowVals
+                    allRows.append(nonEmpty.joined(separator: ", ") + ".")
+                } else if !headers.isEmpty {
+                    var pairs: [String] = []
+                    for (cIdx, val) in rowVals.enumerated() where !val.isEmpty {
+                        if cIdx < headers.count && !headers[cIdx].isEmpty {
+                            pairs.append("\(headers[cIdx]): \(val)")
+                        } else {
+                            pairs.append(val)
+                        }
+                    }
+                    if !pairs.isEmpty {
+                        allRows.append(pairs.joined(separator: ", ") + ".")
+                    }
+                } else {
+                    allRows.append(nonEmpty.joined(separator: ", ") + ".")
+                }
+            }
+        }
+
+        if !allRows.isEmpty {
+            return allRows.joined(separator: "\n")
+        }
+        return sharedStrings.isEmpty ? nil : sharedStrings.joined(separator: "\n")
+    }
+
+    // MARK: - Apple iWork (.pages, .numbers, .key) & XPS & Legacy Binary Office Extractors
+    private static func extractIWorkText(from url: URL) -> String? {
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else { return nil }
+
+        let rootDir: URL
+        var tempUnpackDir: URL? = nil
+        defer {
+            if let tempUnpackDir {
+                try? FileManager.default.removeItem(at: tempUnpackDir)
+            }
+        }
+
+        if isDir.boolValue {
+            rootDir = url
+        } else {
+            let unpack = FileManager.default.temporaryDirectory
+                .appendingPathComponent("iwork_unpack_\(UUID().uuidString)", isDirectory: true)
+            try? FileManager.default.createDirectory(at: unpack, withIntermediateDirectories: true)
+            let proc = Process()
+            proc.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
+            proc.arguments = ["-q", "-o", url.path, "-d", unpack.path]
+            proc.standardInput = FileHandle.nullDevice
+            proc.standardOutput = FileHandle.nullDevice
+            proc.standardError = FileHandle.nullDevice
+            try? proc.run()
+            proc.waitUntilExit()
+            tempUnpackDir = unpack
+            rootDir = unpack
+        }
+
+        // 1. Check QuickLook/Preview.pdf or Preview.pdf inside the iWork bundle
+        for relPDF in ["QuickLook/Preview.pdf", "Preview.pdf"] {
+            let pdfURL = rootDir.appendingPathComponent(relPDF)
+            if FileManager.default.fileExists(atPath: pdfURL.path),
+               let pdf = PDFDocument(url: pdfURL) {
+                var pages: [String] = []
+                for i in 0..<pdf.pageCount {
+                    if let t = pdf.page(at: i)?.string?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty {
+                        pages.append(t)
+                    }
+                }
+                if !pages.isEmpty {
+                    return pages.joined(separator: "\n\n")
+                }
+            }
+        }
+
+        // 2. Check legacy iWork '09 index.xml
+        let indexXMLURL = rootDir.appendingPathComponent("index.xml")
+        if FileManager.default.fileExists(atPath: indexXMLURL.path),
+           let xml = try? String(contentsOf: indexXMLURL, encoding: .utf8) {
+            let text = cleanOfficeXMLString(xml)
+            if !text.isEmpty { return text }
+        }
+
+        // 3. Scan Index/Document.iwa or other files inside bundle for readable text
+        if let enumerator = FileManager.default.enumerator(at: rootDir, includingPropertiesForKeys: nil) {
+            var chunks: [String] = []
+            for case let fileURL as URL in enumerator {
+                if fileURL.pathExtension.lowercased() == "pdf",
+                   let pdf = PDFDocument(url: fileURL) {
+                    for i in 0..<pdf.pageCount {
+                        if let t = pdf.page(at: i)?.string?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty {
+                            chunks.append(t)
+                        }
+                    }
+                } else if fileURL.pathExtension.lowercased() == "iwa",
+                          let data = try? Data(contentsOf: fileURL) {
+                    let s = extractPrintableTextFromBinaryData(data)
+                    if !s.isEmpty { chunks.append(s) }
+                }
+            }
+            if !chunks.isEmpty {
+                return chunks.joined(separator: "\n\n")
+            }
+        }
+
+        return nil
+    }
+
+    private static func extractXPSText(from url: URL) -> String? {
+        let unpack = FileManager.default.temporaryDirectory
+            .appendingPathComponent("xps_unpack_\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: unpack) }
+        try? FileManager.default.createDirectory(at: unpack, withIntermediateDirectories: true)
+
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
+        proc.arguments = ["-q", "-o", url.path, "-d", unpack.path]
+        proc.standardInput = FileHandle.nullDevice
+        proc.standardOutput = FileHandle.nullDevice
+        proc.standardError = FileHandle.nullDevice
+        try? proc.run()
+        proc.waitUntilExit()
+
+        guard let enumerator = FileManager.default.enumerator(at: unpack, includingPropertiesForKeys: nil),
+              let glyphRegex = try? NSRegularExpression(pattern: "UnicodeString\\s*=\\s*[\"']([^\"']+)[\"']", options: [.caseInsensitive]) else {
+            return nil
+        }
+
+        var pageURLs: [URL] = []
+        for case let fileURL as URL in enumerator {
+            if ["fpage", "xml"].contains(fileURL.pathExtension.lowercased()) {
+                pageURLs.append(fileURL)
+            }
+        }
+        pageURLs.sort { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+
+        var pagesText: [String] = []
+        for pageURL in pageURLs {
+            guard let xml = try? String(contentsOf: pageURL, encoding: .utf8) else { continue }
+            let ns = xml as NSString
+            var lines: [String] = []
+            for match in glyphRegex.matches(in: xml, options: [], range: NSRange(location: 0, length: ns.length)) where match.numberOfRanges >= 2 {
+                let str = decodeHTMLEntities(ns.substring(with: match.range(at: 1))).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !str.isEmpty { lines.append(str) }
+            }
+            if !lines.isEmpty {
+                pagesText.append(lines.joined(separator: " "))
+            }
+        }
+        return pagesText.isEmpty ? nil : pagesText.joined(separator: "\n\n")
+    }
+
+    private static func extractLegacyBinaryOfficeText(from url: URL) -> String? {
+        if let soffice = StudioPackageManager.findExecutable(
+            names: ["soffice", "libreoffice"],
+            extraDirs: ["/Applications/LibreOffice.app/Contents/MacOS"]
+        ) {
+            let outDir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("soffice_\(UUID().uuidString)", isDirectory: true)
+            defer { try? FileManager.default.removeItem(at: outDir) }
+            try? FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
+            _ = runCLI(executable: soffice, arguments: ["--headless", "--convert-to", "txt:Text", "--outdir", outDir.path, url.path])
+            if let files = try? FileManager.default.contentsOfDirectory(at: outDir, includingPropertiesForKeys: nil),
+               let txtFile = files.first(where: { $0.pathExtension.lowercased() == "txt" }),
+               let str = readTextWithFallbackEncoding(from: txtFile), !str.isEmpty {
+                return clean(str)
+            }
+        }
+        if let data = try? Data(contentsOf: url) {
+            let extracted = extractPrintableTextFromBinaryData(data)
+            if !extracted.isEmpty { return extracted }
+        }
+        return nil
+    }
+
+    // MARK: - Comic Book Archive (.cbz / .cbr) & Multi-Document Archive / Folder Extractors
+    private static func extractComicArchiveOCRText(from url: URL) -> String? {
+        let unpack = FileManager.default.temporaryDirectory
+            .appendingPathComponent("comic_unpack_\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: unpack) }
+        try? FileManager.default.createDirectory(at: unpack, withIntermediateDirectories: true)
+
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
+        proc.arguments = ["-q", "-o", url.path, "-d", unpack.path]
+        proc.standardInput = FileHandle.nullDevice
+        proc.standardOutput = FileHandle.nullDevice
+        proc.standardError = FileHandle.nullDevice
+        try? proc.run()
+        proc.waitUntilExit()
+
+        guard let enumerator = FileManager.default.enumerator(at: unpack, includingPropertiesForKeys: nil) else { return nil }
+        var imageURLs: [URL] = []
+        var comicInfoText = ""
+        for case let fileURL as URL in enumerator {
+            let ext = fileURL.pathExtension.lowercased()
+            if fileURL.lastPathComponent.lowercased() == "comicinfo.xml",
+               let xml = try? String(contentsOf: fileURL, encoding: .utf8) {
+                comicInfoText = cleanOfficeXMLString(xml)
+            } else if UniversalFileFormatCatalog.imageOCRExtensions.contains(ext) {
+                imageURLs.append(fileURL)
+            }
+        }
+        imageURLs.sort { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+
+        var pageTexts: [String] = []
+        if !comicInfoText.isEmpty { pageTexts.append(comicInfoText) }
+        for imgURL in imageURLs.prefix(40) {
+            if let ocr = recognizeImageText(from: imgURL), !ocr.isEmpty {
+                pageTexts.append(ocr)
+            }
+        }
+        return pageTexts.isEmpty ? nil : pageTexts.joined(separator: "\n\n")
+    }
+
+    private static func extractArchiveDocuments(from url: URL) -> String? {
+        let ext = url.pathExtension.lowercased()
+        let unpack = FileManager.default.temporaryDirectory
+            .appendingPathComponent("archive_unpack_\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: unpack) }
+        try? FileManager.default.createDirectory(at: unpack, withIntermediateDirectories: true)
+
+        let proc = Process()
+        if ext == "zip" {
+            proc.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
+            proc.arguments = ["-q", "-o", url.path, "-d", unpack.path]
+        } else {
+            proc.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
+            proc.arguments = ["-xf", url.path, "-C", unpack.path]
+        }
+        proc.standardInput = FileHandle.nullDevice
+        proc.standardOutput = FileHandle.nullDevice
+        proc.standardError = FileHandle.nullDevice
+        try? proc.run()
+        proc.waitUntilExit()
+
+        return extractFolderOrArchiveDocuments(at: unpack)
+    }
+
+    private static func extractFolderOrArchiveDocuments(at rootURL: URL) -> String? {
+        guard let enumerator = FileManager.default.enumerator(
+            at: rootURL,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else { return nil }
+
+        var docURLs: [URL] = []
+        for case let fileURL as URL in enumerator {
+            let ext = fileURL.pathExtension.lowercased()
+            if UniversalFileFormatCatalog.allReadableDocumentExtensions.contains(ext),
+               !UniversalFileFormatCatalog.archiveExtensions.contains(ext) {
+                docURLs.append(fileURL)
+            }
+        }
+        docURLs.sort { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+
+        var sections: [String] = []
+        for docURL in docURLs.prefix(200) {
+            if let extracted = try? extractDocumentText(from: docURL),
+               !extracted.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                sections.append(extracted.trimmingCharacters(in: .whitespacesAndNewlines))
+            }
+        }
+        return sections.isEmpty ? nil : sections.joined(separator: "\n\n")
+    }
+
+    private static func extractMediaLyricsOrSubtitles(from url: URL) -> String? {
+        // 1. Check embedded/sidecar song lyrics or subtitle tracks via SongLyricsExtractor
+        if let extracted = SongLyricsExtractor.extractLyrics(from: url) {
+            return cleanSubtitleOrLyricText(extracted.lyrics, ext: "lrc")
+        }
+        // 2. Check embedded subtitle stream inside MP4/MKV/MOV/WEBM via ffmpeg if installed
+        if let ffmpeg = StudioPackageManager.findExecutable(
+            names: ["ffmpeg"],
+            extraDirs: ["/opt/homebrew/opt/ffmpeg-full/bin", "/usr/local/opt/ffmpeg-full/bin"]
+        ),
+           let srtOut = runCLI(executable: ffmpeg, arguments: ["-v", "error", "-i", url.path, "-map", "0:s:0", "-f", "srt", "-"]),
+           !srtOut.isEmpty {
+            let cleanedSub = cleanSubtitleOrLyricText(srtOut, ext: "srt")
+            if !cleanedSub.isEmpty { return cleanedSub }
+        }
+        return nil
     }
 
     private static func recognizeCGImageText(_ cgImage: CGImage) -> String? {
@@ -2525,11 +3933,25 @@ enum SpeechTextCleaner {
     }
 
     private static func recognizeImageText(from url: URL) -> String? {
-        guard let cgImageSource = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let cgImage = CGImageSourceCreateImageAtIndex(cgImageSource, 0, nil) else {
-            return nil
+        if let cgImageSource = CGImageSourceCreateWithURL(url as CFURL, nil),
+           let cgImage = CGImageSourceCreateImageAtIndex(cgImageSource, 0, nil),
+           let visionText = recognizeCGImageText(cgImage),
+           !visionText.isEmpty {
+            return visionText
         }
-        return recognizeCGImageText(cgImage)
+        if let nsImage = NSImage(contentsOf: url),
+           let cgImage = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil),
+           let visionText = recognizeCGImageText(cgImage),
+           !visionText.isEmpty {
+            return visionText
+        }
+        // Fallback: Tesseract OCR CLI if installed
+        if let tesseract = StudioPackageManager.findExecutable(names: ["tesseract"]),
+           let out = runCLI(executable: tesseract, arguments: [url.path, "stdout", "--oem", "1", "-l", "eng"]),
+           !out.isEmpty {
+            return clean(out)
+        }
+        return nil
     }
     #endif
 
@@ -4019,17 +5441,102 @@ enum SubtitleExporter {
         let cs = totalCs % 100
         return String(format: "%d:%02d:%02d.%02d", h, m, s, cs)
     }
+
+    static func formatLRC(timings: [WordTiming], wordsPerCue: Int = 8) -> String {
+        let playable = timings.filter { $0.end >= $0.start && !($0.start == 0 && $0.end == 0) }
+        guard !playable.isEmpty else { return "" }
+        var lines: [String] = [
+            "[ti:Codecaine MLX Audio Studio]",
+            "[ar:Studio Narrator]"
+        ]
+        var i = 0
+        while i < playable.count {
+            let endIdx = min(i + wordsPerCue, playable.count)
+            let slice = playable[i..<endIdx]
+            let start = slice.first!.start
+            let text = slice.map(\.word).joined(separator: " ")
+            lines.append("[\(lrcTime(start))]\(text)")
+            i = endIdx
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    static func formatSBV(timings: [WordTiming], wordsPerCue: Int = 8) -> String {
+        let playable = timings.filter { $0.end >= $0.start && !($0.start == 0 && $0.end == 0) }
+        guard !playable.isEmpty else { return "" }
+        var lines: [String] = []
+        var i = 0
+        while i < playable.count {
+            let endIdx = min(i + wordsPerCue, playable.count)
+            let slice = playable[i..<endIdx]
+            let start = slice.first!.start
+            let end = slice.last!.end
+            let text = slice.map(\.word).joined(separator: " ")
+            lines.append("\(sbvTime(start)),\(sbvTime(end))")
+            lines.append(text)
+            lines.append("")
+            i = endIdx
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    static func formatTTML(timings: [WordTiming], wordsPerCue: Int = 8) -> String {
+        let playable = timings.filter { $0.end >= $0.start && !($0.start == 0 && $0.end == 0) }
+        var xmlLines: [String] = [
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>",
+            "<tt xmlns=\"http://www.w3.org/ns/ttml\" xml:lang=\"en\">",
+            "  <body>",
+            "    <div>"
+        ]
+        var i = 0
+        while i < playable.count {
+            let endIdx = min(i + wordsPerCue, playable.count)
+            let slice = playable[i..<endIdx]
+            let start = slice.first!.start
+            let end = slice.last!.end
+            let escaped = slice.map(\.word).joined(separator: " ")
+                .replacingOccurrences(of: "&", with: "&amp;")
+                .replacingOccurrences(of: "<", with: "&lt;")
+                .replacingOccurrences(of: ">", with: "&gt;")
+            xmlLines.append("      <p begin=\"\(vttTime(start))\" end=\"\(vttTime(end))\">\(escaped)</p>")
+            i = endIdx
+        }
+        xmlLines.append("    </div>")
+        xmlLines.append("  </body>")
+        xmlLines.append("</tt>")
+        return xmlLines.joined(separator: "\n")
+    }
+
+    private static func lrcTime(_ t: TimeInterval) -> String {
+        let totalCs = max(0, Int(round(t * 100)))
+        let m = totalCs / 6000
+        let s = (totalCs % 6000) / 100
+        let cs = totalCs % 100
+        return String(format: "%02d:%02d.%02d", m, s, cs)
+    }
+
+    private static func sbvTime(_ t: TimeInterval) -> String {
+        let totalMs = max(0, Int(round(t * 1000)))
+        let h = totalMs / 3_600_000
+        let m = (totalMs % 3_600_000) / 60_000
+        let s = (totalMs % 60_000) / 1000
+        let ms = totalMs % 1000
+        return String(format: "%d:%02d:%02d.%03d", h, m, s, ms)
+    }
 }
 
-// MARK: - Multi-Format Audio Exporter (.wav, .m4b, .aiff, .m4a, .mp3, .flac, .caf)
+// MARK: - Multi-Format Audio Exporter (.wav, .m4b, .aiff, .m4a, .mp3, .flac, .ogg, .opus, .aac, .caf)
 
 enum AudioExportFormat: String, CaseIterable, Identifiable {
     case wav = "wav"
     case m4b = "m4b"
     case m4a = "m4a"
-    case aiff = "aiff"
-    case flac = "flac"
     case mp3 = "mp3"
+    case flac = "flac"
+    case ogg = "ogg"
+    case opus = "opus"
+    case aac = "aac"
+    case aiff = "aiff"
     case caf = "caf"
 
     var id: String { rawValue }
@@ -4039,9 +5546,12 @@ enum AudioExportFormat: String, CaseIterable, Identifiable {
         case .wav: return "WAV (24 kHz PCM)"
         case .m4b: return "M4B Audiobook (Chapters + Cover)"
         case .m4a: return "M4A / AAC (Apple Compact)"
-        case .aiff: return "AIFF (Apple Uncompressed)"
-        case .flac: return "FLAC (Lossless)"
         case .mp3: return "MP3 (Universal)"
+        case .flac: return "FLAC (Lossless)"
+        case .ogg: return "OGG Vorbis (Open Web)"
+        case .opus: return "OPUS (Ultra-Compact Voice)"
+        case .aac: return "AAC (Raw ADTS Stream)"
+        case .aiff: return "AIFF (Apple Uncompressed)"
         case .caf: return "CAF (CoreAudio)"
         }
     }
@@ -4051,9 +5561,12 @@ enum AudioExportFormat: String, CaseIterable, Identifiable {
         case .wav: return "audio/wav"
         case .m4b: return "audio/mp4"
         case .m4a: return "audio/mp4"
-        case .aiff: return "audio/aiff"
-        case .flac: return "audio/flac"
         case .mp3: return "audio/mpeg"
+        case .flac: return "audio/flac"
+        case .ogg: return "audio/ogg"
+        case .opus: return "audio/opus"
+        case .aac: return "audio/aac"
+        case .aiff: return "audio/aiff"
         case .caf: return "audio/x-caf"
         }
     }
@@ -4431,18 +5944,27 @@ enum AudioFormatExporter {
             return
         }
 
-        // Prefer ffmpeg for mp3/flac if installed (including keg-only ffmpeg-full) with multi-threaded fast encoding
-        if format == .mp3 || format == .flac {
+        // Prefer ffmpeg for mp3/flac/ogg/opus/aac if installed (including keg-only ffmpeg-full) with multi-threaded fast encoding
+        if format == .mp3 || format == .flac || format == .ogg || format == .opus || format == .aac {
             if let ffmpeg = StudioPackageManager.findExecutable(
                 names: ["ffmpeg"],
                 extraDirs: ["/opt/homebrew/opt/ffmpeg-full/bin", "/usr/local/opt/ffmpeg-full/bin"]
             ) {
                 let proc = Process()
                 proc.executableURL = URL(fileURLWithPath: ffmpeg)
-                if format == .mp3 {
+                switch format {
+                case .mp3:
                     proc.arguments = ["-y", "-threads", "0", "-i", sourceWAV.path, "-codec:a", "libmp3lame", "-qscale:a", "2", destinationURL.path]
-                } else {
+                case .flac:
                     proc.arguments = ["-y", "-threads", "0", "-i", sourceWAV.path, "-compression_level", "1", destinationURL.path]
+                case .ogg:
+                    proc.arguments = ["-y", "-threads", "0", "-i", sourceWAV.path, "-codec:a", "libvorbis", "-qscale:a", "5", destinationURL.path]
+                case .opus:
+                    proc.arguments = ["-y", "-threads", "0", "-i", sourceWAV.path, "-codec:a", "libopus", "-b:a", "96k", destinationURL.path]
+                case .aac:
+                    proc.arguments = ["-y", "-threads", "0", "-i", sourceWAV.path, "-codec:a", "aac", "-b:a", "128k", "-f", "adts", destinationURL.path]
+                default:
+                    proc.arguments = ["-y", "-threads", "0", "-i", sourceWAV.path, destinationURL.path]
                 }
                 proc.standardInput = FileHandle.nullDevice
                 proc.standardOutput = FileHandle.nullDevice
@@ -4455,14 +5977,16 @@ enum AudioFormatExporter {
             }
         }
 
-        // Native macOS /usr/bin/afconvert fallback (supports m4a, m4b, aiff, flac, caf, wav natively in ~0.2s!)
+        // Native macOS /usr/bin/afconvert fallback (supports m4a, m4b, aac, aiff, flac, caf, wav natively in ~0.2s!)
         let afconvertPath = "/usr/bin/afconvert"
         if FileManager.default.isExecutableFile(atPath: afconvertPath) {
             let proc = Process()
             proc.executableURL = URL(fileURLWithPath: afconvertPath)
             switch format {
-            case .m4b, .m4a, .mp3:
+            case .m4b, .m4a, .mp3, .ogg, .opus:
                 proc.arguments = ["-f", "m4af", "-d", "aac", sourceWAV.path, destinationURL.path]
+            case .aac:
+                proc.arguments = ["-f", "adts", "-d", "aac", sourceWAV.path, destinationURL.path]
             case .aiff:
                 proc.arguments = ["-f", "AIFF", "-d", "BEI16", sourceWAV.path, destinationURL.path]
             case .flac:
@@ -4654,118 +6178,140 @@ struct VoiceBiometricsProfile {
 
 enum VoiceBiometricsAnalyzer {
     static func analyzeAudio(url: URL) -> VoiceBiometricsProfile? {
-        guard let file = try? AVAudioFile(forReading: url) else { return nil }
-        let sr = file.processingFormat.sampleRate
-        let totalFrames = AVAudioFrameCount(file.length)
-        guard sr > 0, totalFrames > 256,
-              let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: min(totalFrames, 48_000 * 30)) else {
+        var samples: [Float] = []
+        var sr: Double = 24_000
+        var durationSec: Double = 0
+
+        if let file = try? AVAudioFile(forReading: url),
+           file.processingFormat.sampleRate > 0,
+           file.length > 256,
+           let buffer = AVAudioPCMBuffer(
+               pcmFormat: file.processingFormat,
+               frameCapacity: min(AVAudioFrameCount(file.length), 48_000 * 30)
+           ),
+           (try? file.read(into: buffer)) != nil,
+           let channelData = buffer.floatChannelData?[0],
+           buffer.frameLength > 512 {
+            sr = file.processingFormat.sampleRate
+            let nFrames = Int(buffer.frameLength)
+            samples = Array(UnsafeBufferPointer(start: channelData, count: nFrames))
+            durationSec = Double(file.length) / sr
+        } else if let (loadedSR, audioArray) = try? loadAudioArray(from: url),
+                  loadedSR > 0 {
+            sr = Double(loadedSR)
+            let flat = audioArray.asArray(Float.self)
+            guard flat.count > 512 else { return nil }
+            let maxSamples = min(flat.count, loadedSR * 30)
+            samples = Array(flat.prefix(maxSamples))
+            durationSec = Double(flat.count) / sr
+        } else {
             return nil
         }
-        try? file.read(into: buffer)
-        guard let channel = buffer.floatChannelData?[0] else { return nil }
-        let n = Int(buffer.frameLength)
+
+        let n = samples.count
         guard n > 512 else { return nil }
+        return samples.withUnsafeBufferPointer { sampleBuf -> VoiceBiometricsProfile? in
+            guard let channel = sampleBuf.baseAddress else { return nil }
 
-        let durationSec = Double(totalFrames) / sr
+            // RMS and Noise Floor for SNR dB (45ms window so low-pitched male F0 down to 65Hz fits > 2 periods)
+            let frameSize = max(512, Int(sr * 0.045))
+            var frameRms: [Double] = []
+            var pos = 0
+            while pos + frameSize <= n {
+                var meanSq: Float = 0
+                vDSP_measqv(channel + pos, 1, &meanSq, vDSP_Length(frameSize))
+                frameRms.append(sqrt(Double(meanSq)))
+                pos += frameSize / 2
+            }
+            let sortedRms = frameRms.sorted()
+            let noiseFloor = max(1e-5, sortedRms.isEmpty ? 1e-4 : sortedRms[max(0, Int(Double(sortedRms.count) * 0.15))])
+            let speechPeak = max(noiseFloor * 1.5, sortedRms.isEmpty ? 0.05 : sortedRms[max(0, Int(Double(sortedRms.count) * 0.85))])
+            let snrDb = min(48.0, max(6.0, 20.0 * log10(speechPeak / noiseFloor)))
 
-        // RMS and Noise Floor for SNR dB (45ms window so low-pitched male F0 down to 65Hz fits > 2 periods)
-        let frameSize = max(512, Int(sr * 0.045))
-        var frameRms: [Double] = []
-        var pos = 0
-        while pos + frameSize <= n {
-            var meanSq: Float = 0
-            vDSP_measqv(channel + pos, 1, &meanSq, vDSP_Length(frameSize))
-            frameRms.append(sqrt(Double(meanSq)))
-            pos += frameSize / 2
-        }
-        let sortedRms = frameRms.sorted()
-        let noiseFloor = max(1e-5, sortedRms.isEmpty ? 1e-4 : sortedRms[max(0, Int(Double(sortedRms.count) * 0.15))])
-        let speechPeak = max(noiseFloor * 1.5, sortedRms.isEmpty ? 0.05 : sortedRms[max(0, Int(Double(sortedRms.count) * 0.85))])
-        let snrDb = min(48.0, max(6.0, 20.0 * log10(speechPeak / noiseFloor)))
-
-        // Normalized overlap autocorrelation F0 pitch estimation (65 Hz .. 400 Hz)
-        let minLag = max(1, Int(sr / 400.0))
-        let maxLag = max(minLag + 1, Int(sr / 65.0))
-        var f0Candidates: [Double] = []
-        pos = 0
-        while pos + frameSize <= n && f0Candidates.count < 80 {
-            var meanSq: Float = 0
-            vDSP_measqv(channel + pos, 1, &meanSq, vDSP_Length(frameSize))
-            let rms = sqrt(Double(meanSq))
-            if rms > noiseFloor * 2.2 {
-                var bestLag = 0
-                var bestCorr: Double = 0
-                var lag = minLag
-                let upperLag = min(maxLag, frameSize - 32)
-                while lag <= upperLag {
-                    let overlap = vDSP_Length(frameSize - lag)
-                    var corrF: Float = 0
-                    var e0F: Float = 0
-                    var eLagF: Float = 0
-                    vDSP_dotpr(channel + pos, 1, channel + pos + lag, 1, &corrF, overlap)
-                    vDSP_svesq(channel + pos, 1, &e0F, overlap)
-                    vDSP_svesq(channel + pos + lag, 1, &eLagF, overlap)
-                    let denom = sqrt(max(Double(e0F) * Double(eLagF), 1e-12))
-                    let normCorr = Double(corrF) / denom
-                    if normCorr > bestCorr {
-                        bestCorr = normCorr
-                        bestLag = lag
+            // Normalized overlap autocorrelation F0 pitch estimation (65 Hz .. 400 Hz)
+            let minLag = max(1, Int(sr / 400.0))
+            let maxLag = max(minLag + 1, Int(sr / 65.0))
+            var f0Candidates: [Double] = []
+            pos = 0
+            while pos + frameSize <= n && f0Candidates.count < 80 {
+                var meanSq: Float = 0
+                vDSP_measqv(channel + pos, 1, &meanSq, vDSP_Length(frameSize))
+                let rms = sqrt(Double(meanSq))
+                if rms > noiseFloor * 2.2 {
+                    var bestLag = 0
+                    var bestCorr: Double = 0
+                    var lag = minLag
+                    let upperLag = min(maxLag, frameSize - 32)
+                    while lag <= upperLag {
+                        let overlap = vDSP_Length(frameSize - lag)
+                        var corrF: Float = 0
+                        var e0F: Float = 0
+                        var eLagF: Float = 0
+                        vDSP_dotpr(channel + pos, 1, channel + pos + lag, 1, &corrF, overlap)
+                        vDSP_svesq(channel + pos, 1, &e0F, overlap)
+                        vDSP_svesq(channel + pos + lag, 1, &eLagF, overlap)
+                        let denom = sqrt(max(Double(e0F) * Double(eLagF), 1e-12))
+                        let normCorr = Double(corrF) / denom
+                        if normCorr > bestCorr {
+                            bestCorr = normCorr
+                            bestLag = lag
+                        }
+                        lag += 1
                     }
-                    lag += 1
+                    if bestCorr > 0.28 && bestLag > 0 {
+                        f0Candidates.append(sr / Double(bestLag))
+                    }
                 }
-                if bestCorr > 0.28 && bestLag > 0 {
-                    f0Candidates.append(sr / Double(bestLag))
+                pos += frameSize
+            }
+
+            let sortedF0 = f0Candidates.sorted()
+            let medianF0 = sortedF0.isEmpty ? 165.0 : sortedF0[sortedF0.count / 2]
+
+            let register: String
+            let baseVoice: String
+            if medianF0 < 115 {
+                register = "Bass / Deep Baritone"
+                baseVoice = "Hugh"
+            } else if medianF0 < 150 {
+                register = "Baritone"
+                baseVoice = "Edwin"
+            } else if medianF0 < 190 {
+                register = "Tenor / Warm Alto"
+                baseVoice = "Zoey"
+            } else if medianF0 < 235 {
+                register = "Mezzo-Soprano"
+                baseVoice = "Bryony"
+            } else {
+                register = "Bright Soprano"
+                baseVoice = "Lottie"
+            }
+
+            // Zero-crossing spectral brightness estimate for 4-band formant energy
+            var zeroCrossings = 0
+            for i in 1..<n {
+                if (channel[i - 1] >= 0 && channel[i] < 0) || (channel[i - 1] < 0 && channel[i] >= 0) {
+                    zeroCrossings += 1
                 }
             }
-            pos += frameSize
+            let zcrHz = (Double(zeroCrossings) / Double(n)) * (sr / 2.0)
+            let brightness = min(1.0, max(0.15, zcrHz / 2200.0))
+            let timbre = brightness > 0.62 ? "Crisp & Articulate" : (brightness < 0.38 ? "Warm & Resonant" : "Balanced Studio")
+
+            return VoiceBiometricsProfile(
+                durationSec: durationSec,
+                sampleRate: Int(sr),
+                medianF0Hz: medianF0,
+                voiceRegister: register,
+                timbreLabel: timbre,
+                snrDb: snrDb,
+                formantLow: max(0.2, 1.0 - brightness * 0.55),
+                formantMidLow: 0.78,
+                formantMidHigh: min(0.95, 0.45 + brightness * 0.45),
+                formantAir: min(0.90, 0.25 + brightness * 0.60),
+                recommendedBaseVoice: baseVoice
+            )
         }
-
-        let sortedF0 = f0Candidates.sorted()
-        let medianF0 = sortedF0.isEmpty ? 165.0 : sortedF0[sortedF0.count / 2]
-
-        let register: String
-        let baseVoice: String
-        if medianF0 < 115 {
-            register = "Bass / Deep Baritone"
-            baseVoice = "Hugh"
-        } else if medianF0 < 150 {
-            register = "Baritone"
-            baseVoice = "Edwin"
-        } else if medianF0 < 190 {
-            register = "Tenor / Warm Alto"
-            baseVoice = "Zoey"
-        } else if medianF0 < 235 {
-            register = "Mezzo-Soprano"
-            baseVoice = "Bryony"
-        } else {
-            register = "Bright Soprano"
-            baseVoice = "Lottie"
-        }
-
-        // Zero-crossing spectral brightness estimate for 4-band formant energy
-        var zeroCrossings = 0
-        for i in 1..<n {
-            if (channel[i - 1] >= 0 && channel[i] < 0) || (channel[i - 1] < 0 && channel[i] >= 0) {
-                zeroCrossings += 1
-            }
-        }
-        let zcrHz = (Double(zeroCrossings) / Double(n)) * (sr / 2.0)
-        let brightness = min(1.0, max(0.15, zcrHz / 2200.0))
-        let timbre = brightness > 0.62 ? "Crisp & Articulate" : (brightness < 0.38 ? "Warm & Resonant" : "Balanced Studio")
-
-        return VoiceBiometricsProfile(
-            durationSec: durationSec,
-            sampleRate: Int(sr),
-            medianF0Hz: medianF0,
-            voiceRegister: register,
-            timbreLabel: timbre,
-            snrDb: snrDb,
-            formantLow: max(0.2, 1.0 - brightness * 0.55),
-            formantMidLow: 0.78,
-            formantMidHigh: min(0.95, 0.45 + brightness * 0.45),
-            formantAir: min(0.90, 0.25 + brightness * 0.60),
-            recommendedBaseVoice: baseVoice
-        )
     }
 }
 
@@ -5083,9 +6629,7 @@ final class LocalhostServerManager {
         return host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "[::1]"
     }
 
-    private static let allowedAudioExtensions: Set<String> = [
-        "wav", "mp3", "m4a", "flac", "ogg", "opus", "aac", "aiff", "aif", "caf", "mp4", "webm"
-    ]
+    private static let allowedAudioExtensions: Set<String> = UniversalFileFormatCatalog.allAudioAndVideoExtensions
 
     private func dispatchHTTP(headerString: String, body: Data, connection: NWConnection, port: UInt16) async {
         let startTime = CFAbsoluteTimeGetCurrent()
@@ -5264,7 +6808,17 @@ final class LocalhostServerManager {
 
             case ("POST", "/v1/audio/speech"):
                 let json = (try? JSONSerialization.jsonObject(with: body) as? [String: Any]) ?? [:]
-                let rawText = (json["input"] as? String) ?? (json["text"] as? String) ?? ""
+                var rawText = (json["input"] as? String) ?? (json["text"] as? String) ?? ""
+                if rawText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   let docPath = (json["file"] as? String) ?? (json["document_path"] as? String),
+                   !docPath.contains("\0") && !docPath.components(separatedBy: "/").contains("..") {
+                    let expanded = (docPath as NSString).expandingTildeInPath
+                    let docURL = URL(fileURLWithPath: expanded).standardizedFileURL
+                    if FileManager.default.fileExists(atPath: docURL.path),
+                       let extracted = try? SpeechTextCleaner.extractDocumentText(from: docURL) {
+                        rawText = extracted
+                    }
+                }
                 let requestedModel = (json["model"] as? String) ?? "phonon"
                 let requestedVoice = (json["voice"] as? String) ?? "Zoey"
                 let responseFormatStr = ((json["response_format"] as? String) ?? "wav").lowercased()
@@ -5454,10 +7008,52 @@ final class LocalhostServerManager {
 
             case ("POST", "/v1/audio/clean"):
                 let json = (try? JSONSerialization.jsonObject(with: body) as? [String: Any]) ?? [:]
-                let rawText = (json["text"] as? String) ?? (json["input"] as? String) ?? ""
+                var rawText = (json["text"] as? String) ?? (json["input"] as? String) ?? ""
+                if rawText.isEmpty,
+                   let docPath = (json["file"] as? String) ?? (json["document_path"] as? String),
+                   !docPath.contains("\0") && !docPath.components(separatedBy: "/").contains("..") {
+                    let expanded = (docPath as NSString).expandingTildeInPath
+                    let docURL = URL(fileURLWithPath: expanded).standardizedFileURL
+                    if FileManager.default.fileExists(atPath: docURL.path),
+                       let extracted = try? SpeechTextCleaner.extractDocumentText(from: docURL) {
+                        rawText = extracted
+                    }
+                }
                 let cleaned = SpeechTextCleaner.clean(rawText)
                 responseData = try JSONSerialization.data(withJSONObject: ["text": cleaned], options: [.prettyPrinted])
                 logSummary = "Cleaned speech text (\(cleaned.count) chars)"
+
+            case ("POST", "/v1/documents/extract"):
+                let json = (try? JSONSerialization.jsonObject(with: body) as? [String: Any]) ?? [:]
+                let docPath = (json["file"] as? String) ?? (json["path"] as? String) ?? (json["document_path"] as? String) ?? ""
+                guard !docPath.isEmpty && !docPath.contains("\0") && !docPath.components(separatedBy: "/").contains("..") else {
+                    status = 400
+                    responseData = try JSONSerialization.data(withJSONObject: ["error": "Invalid or missing 'file' path"])
+                    logSummary = "400 Invalid document path"
+                    break
+                }
+                let expanded = (docPath as NSString).expandingTildeInPath
+                let docURL = URL(fileURLWithPath: expanded).standardizedFileURL
+                guard FileManager.default.fileExists(atPath: docURL.path) else {
+                    status = 404
+                    responseData = try JSONSerialization.data(withJSONObject: ["error": "File not found: \(docPath)"])
+                    logSummary = "404 File not found"
+                    break
+                }
+                let extracted = try SpeechTextCleaner.extractDocumentText(from: docURL)
+                let cleaned = SpeechTextCleaner.clean(extracted)
+                let category = UniversalFileFormatCatalog.category(forExtension: docURL.pathExtension)
+                let payload: [String: Any] = [
+                    "file": docURL.lastPathComponent,
+                    "extension": docURL.pathExtension.lowercased(),
+                    "category": category.rawValue,
+                    "badge": UniversalFileFormatCatalog.badgeLabel(forDocumentTitle: docURL.lastPathComponent),
+                    "raw_characters": extracted.count,
+                    "cleaned_characters": cleaned.count,
+                    "text": cleaned
+                ]
+                responseData = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted])
+                logSummary = "Extracted \(docURL.lastPathComponent) (\(cleaned.count) chars)"
 
             case ("POST", "/v1/audio/subtitles"):
                 let json = (try? JSONSerialization.jsonObject(with: body) as? [String: Any]) ?? [:]
@@ -5467,10 +7063,13 @@ final class LocalhostServerManager {
                 let payload: [String: Any] = [
                     "srt": SubtitleExporter.formatSRT(timings: timings),
                     "vtt": SubtitleExporter.formatVTT(timings: timings),
-                    "ass": SubtitleExporter.formatASSKaraoke(timings: timings)
+                    "ass": SubtitleExporter.formatASSKaraoke(timings: timings),
+                    "lrc": SubtitleExporter.formatLRC(timings: timings),
+                    "sbv": SubtitleExporter.formatSBV(timings: timings),
+                    "ttml": SubtitleExporter.formatTTML(timings: timings)
                 ]
                 responseData = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted])
-                logSummary = "Generated SRT/VTT/ASS subtitles (\(timings.count) words)"
+                logSummary = "Generated SRT/VTT/ASS/LRC/SBV/TTML subtitles (\(timings.count) words)"
 
             case ("POST", "/v1/audio/diarize"):
                 let json = (try? JSONSerialization.jsonObject(with: body) as? [String: Any]) ?? [:]
@@ -6638,11 +8237,24 @@ extension Voice {
         let clonesDir = docs.appendingPathComponent("ClonedVoices", isDirectory: true)
         try? fileManager.createDirectory(at: clonesDir, withIntermediateDirectories: true)
 
-        let ext = audioURL.pathExtension.isEmpty ? "wav" : audioURL.pathExtension
-        let savedURL = clonesDir.appendingPathComponent("clone_\(UUID().uuidString).\(ext)")
+        let ext = audioURL.pathExtension.isEmpty ? "wav" : audioURL.pathExtension.lowercased()
+        let savedURL: URL
         do {
-            if audioURL.path != savedURL.path {
-                try fileManager.copyItem(at: audioURL, to: savedURL)
+            // If AVAudioFile can open the source directly, keep its extension; otherwise decode any audio/video container to WAV
+            if (try? AVAudioFile(forReading: audioURL)) != nil {
+                savedURL = clonesDir.appendingPathComponent("clone_\(UUID().uuidString).\(ext)")
+                if audioURL.path != savedURL.path {
+                    try fileManager.copyItem(at: audioURL, to: savedURL)
+                }
+            } else if let (sr, audioData) = try? loadAudioArray(from: audioURL), sr > 0 {
+                savedURL = clonesDir.appendingPathComponent("clone_\(UUID().uuidString).wav")
+                let samples = audioData.asArray(Float.self)
+                try AudioUtils.writeWavFile(samples: samples, sampleRate: Double(sr), fileURL: savedURL)
+            } else {
+                savedURL = clonesDir.appendingPathComponent("clone_\(UUID().uuidString).\(ext)")
+                if audioURL.path != savedURL.path {
+                    try fileManager.copyItem(at: audioURL, to: savedURL)
+                }
             }
         } catch {
             return nil
@@ -7224,7 +8836,7 @@ final class StudioWatchFolderManager {
 
     var isWatching: Bool = false
     var isProcessing: Bool = false
-    var statusBanner: String = "Idle — Drop .txt, .md, .epub, or .pdf files into Input folder"
+    var statusBanner: String = "Idle — Drop any file (.epub, .mobi, .pdf, .docx, .pptx, .xlsx, .txt, .md, .srt, .html, images, etc.) into Input folder"
     var jobs: [WatchFolderJobRecord] = [] {
         didSet {
             saveJobs()
@@ -7317,11 +8929,14 @@ final class StudioWatchFolderManager {
             options: [.skipsHiddenFiles]
         ) else { return }
 
-        let supportedTextExts: Set<String> = ["txt", "md", "epub", "pdf", "rtf", "html"]
-        let candidates = contents.filter { supportedTextExts.contains($0.pathExtension.lowercased()) }
+        let supportedTextExts: Set<String> = UniversalFileFormatCatalog.allSupportedWatchFolderExtensions
+        let candidates = contents.filter { url in
+            let ext = url.pathExtension.lowercased()
+            return supportedTextExts.contains(ext) || UniversalFileFormatCatalog.isReadableDocument(url: url)
+        }
         guard !candidates.isEmpty else {
             if forceReprocess {
-                statusBanner = "No .txt, .md, .epub, or .pdf files found in \(inURL.lastPathComponent)/"
+                statusBanner = "No readable documents, books, office files, subtitles, or images found in \(inURL.lastPathComponent)/"
             }
             return
         }

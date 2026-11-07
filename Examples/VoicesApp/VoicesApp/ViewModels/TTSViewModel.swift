@@ -926,9 +926,14 @@ class TTSViewModel {
             return
         }
         let targetChunk = chunkIndex ?? activeChunkIndex
+        let rawDocStem = URL(fileURLWithPath: StudioDocumentSessionManager.shared.currentDocumentTitle)
+            .deletingPathExtension().lastPathComponent
+            .replacingOccurrences(of: "[^A-Za-z0-9_\\-]+", with: "_", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "_"))
+        let docPrefix = rawDocStem.isEmpty ? "studio_doc" : String(rawDocStem.prefix(28)).lowercased()
         let baseName = scope == .fullDocument
-            ? "audiobook_full"
-            : (scope == .fastSection ? "epub_section_from_\(targetChunk + 1)" : "epub_chunk_\(targetChunk + 1)")
+            ? "\(docPrefix)_full"
+            : (scope == .fastSection ? "\(docPrefix)_section_from_\(targetChunk + 1)" : "\(docPrefix)_chunk_\(targetChunk + 1)")
         saveAudioInFormat(
             format,
             from: nil,
@@ -1983,12 +1988,44 @@ class TTSViewModel {
         let content: String
         let ext: String
         switch format.lowercased() {
-        case "vtt":
+        case "vtt", "webvtt":
             content = SubtitleExporter.formatVTT(timings: timings)
             ext = "vtt"
-        case "ass":
+        case "ass", "ssa":
             content = SubtitleExporter.formatASSKaraoke(timings: timings, theme: readAlongTheme)
             ext = "ass"
+        case "lrc":
+            content = SubtitleExporter.formatLRC(timings: timings)
+            ext = "lrc"
+        case "ttml", "dfxp":
+            content = SubtitleExporter.formatTTML(timings: timings)
+            ext = "ttml"
+        case "sbv":
+            content = SubtitleExporter.formatSBV(timings: timings)
+            ext = "sbv"
+        case "json":
+            let rows: [[String: Any]] = timings.map { w in
+                [
+                    "word": w.word,
+                    "start": round(w.start * 1000) / 1000,
+                    "end": round(w.end * 1000) / 1000,
+                    "chunk_index": w.chunkIndex
+                ]
+            }
+            if let data = try? JSONSerialization.data(withJSONObject: ["timings": rows, "text": cleaned], options: [.prettyPrinted, .sortedKeys]),
+               let jsonStr = String(data: data, encoding: .utf8) {
+                content = jsonStr
+            } else {
+                content = "{\"text\": \"\"}"
+            }
+            ext = "json"
+        case "txt":
+            content = cleaned
+            ext = "txt"
+        case "md", "markdown":
+            let docTitle = StudioDocumentSessionManager.shared.currentDocumentTitle
+            content = "# \(docTitle)\n\n\(cleaned)\n"
+            ext = "md"
         default:
             content = SubtitleExporter.formatSRT(timings: timings)
             ext = "srt"

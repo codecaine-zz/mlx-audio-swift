@@ -693,7 +693,7 @@ struct AppleStudioShellView: View {
                     }
                     .buttonStyle(.plain)
                     .fixedSize()
-                    .help("Watch-Folder Batch Automation — drop .txt/.epub/.pdf files to auto-export .M4B audiobooks & .SRT subtitles (⇧⌘W)")
+                    .help("Watch-Folder Batch Automation — drop any document, e-book, office file, subtitle, or image to auto-export .M4B audiobooks & .SRT subtitles (⇧⌘W)")
 
                     // Menu Bar Mini-Reader Controller Popover Pill
                     Button {
@@ -919,6 +919,34 @@ struct AppleStudioShellView: View {
                 selectedTab = 1
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("VoicesApp.OpenAudioInTranscribe"))) { note in
+            visitedTabs.insert(1)
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                selectedTab = 1
+            }
+            if let url = note.object as? URL {
+                UserDefaults.standard.set(url.path, forKey: "VoicesApp.Transcribe.pendingAudioPath")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                    NotificationCenter.default.post(name: .sendAudioToTranscribe, object: url)
+                }
+            }
+        }
+        .onOpenURL { url in
+            if UniversalFileFormatCatalog.isAudioOrVideo(url: url) {
+                visitedTabs.insert(1)
+                selectedTab = 1
+                UserDefaults.standard.set(url.path, forKey: "VoicesApp.Transcribe.pendingAudioPath")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                    NotificationCenter.default.post(name: .sendAudioToTranscribe, object: url)
+                }
+            } else {
+                visitedTabs.insert(0)
+                selectedTab = 0
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                    NotificationCenter.default.post(name: Notification.Name("VoicesApp.ImportDocumentURL"), object: url)
+                }
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .toggleShortcutsSheet)) { note in
             if (note.object as? String) == "commandPalette" {
                 showCommandPalette.toggle()
@@ -1101,7 +1129,7 @@ struct WatchFolderAutomationSheet: View {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("Watch-Folder Batch Automation")
                             .font(.headline)
-                        Text("Automatically converts any .txt, .md, .epub, or .pdf dropped into your Input folder into chapterized .M4B audiobooks (or .WAV / .MP3) plus synced .SRT subtitles in your Output folder.")
+                        Text("Automatically converts any document, e-book, office file, subtitle, code, or image (.epub, .mobi, .fb2, .pdf, .docx, .pptx, .xlsx, .odt, .txt, .md, .srt, .html, .png, etc.) dropped into your Input folder into chapterized .M4B audiobooks (or .WAV / .MP3 / .FLAC / .OGG / .OPUS) plus synced .SRT subtitles in your Output folder.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -1176,7 +1204,7 @@ struct WatchFolderAutomationSheet: View {
                 // Output Format + Actions Row
                 HStack(spacing: 12) {
                     Picker("Output Format", selection: $manager.exportFormat) {
-                        ForEach([AudioExportFormat.m4b, .wav, .m4a, .mp3]) { fmt in
+                        ForEach(AudioExportFormat.allCases) { fmt in
                             Text(fmt.label).tag(fmt)
                         }
                     }
@@ -1473,7 +1501,7 @@ struct MasterCommandPaletteSheet: View {
                 id: "watch_folder",
                 category: "Automation & Ecosystem",
                 title: "Watch-Folder Batch Automation Studio…",
-                subtitle: "Auto-monitors Input folder for dropped .txt/.epub/.pdf files and batch exports .M4B + .SRT",
+                subtitle: "Auto-monitors Input folder for all 180+ document, e-book, office, subtitle & image formats and batch exports .M4B + .SRT",
                 icon: "folder.fill.badge.gearshape",
                 badge: "⇧⌘W",
                 tint: .teal
