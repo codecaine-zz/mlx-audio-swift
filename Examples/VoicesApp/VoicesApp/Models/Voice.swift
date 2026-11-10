@@ -6546,13 +6546,63 @@ enum M4BAudiobookExporter {
     }
     #endif
 
-    private static func escapeFFMetadata(_ value: String) -> String {
+    static func detectedBookChapterCount(in text: String, maxChunkChars: Int = 520) -> Int {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return 1 }
+        let chunks = HierarchicalChunker.splitText(trimmed, maxChars: max(180, maxChunkChars), mergeShortParagraphs: true)
+        guard !chunks.isEmpty else { return 1 }
+        let estDuration = max(60.0, Double(trimmed.count) / 14.0)
+        return max(1, buildChapters(chunks: chunks, timings: [], totalDurationSec: estDuration).count)
+    }
+
+    static func escapeFFMetadata(_ value: String) -> String {
         value
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "=", with: "\\=")
             .replacingOccurrences(of: ";", with: "\\;")
             .replacingOccurrences(of: "#", with: "\\#")
             .replacingOccurrences(of: "\n", with: " ")
+    }
+
+    static func buildFFMetadataContent(
+        title: String,
+        author: String,
+        voiceName: String,
+        genre: String = "Audiobook",
+        mediaType: Int = 2,
+        chapters: [M4BChapterMarker],
+        totalDurationSec: Double
+    ) -> String {
+        let totalMs = max(500, Int(round(totalDurationSec * 1000.0)))
+        var metaLines: [String] = [
+            ";FFMETADATA1",
+            "title=\(escapeFFMetadata(title))",
+            "artist=\(escapeFFMetadata(author))",
+            "album=\(escapeFFMetadata(title))",
+            "composer=\(escapeFFMetadata(voiceName))",
+            "genre=\(escapeFFMetadata(genre))",
+            "media_type=\(mediaType)"
+        ]
+        var cursorMs = 0
+        let validChapters = chapters.filter { Int(round($0.startSec * 1000.0)) < totalMs - 120 }
+        let listToWrite = validChapters.isEmpty
+            ? [M4BChapterMarker(id: 0, title: title, startSec: 0, endSec: Double(totalMs) / 1000.0)]
+            : validChapters
+        for (idx, ch) in listToWrite.enumerated() {
+            let rawStart = max(cursorMs, min(totalMs - 100, Int(round(ch.startSec * 1000.0))))
+            guard rawStart < totalMs - 50 else { break }
+            let isLast = (idx + 1 == listToWrite.count)
+            let desiredEnd = isLast ? totalMs : Int(round(ch.endSec * 1000.0))
+            let rawEnd = min(totalMs, max(rawStart + 50, desiredEnd))
+            guard rawEnd > rawStart else { continue }
+            cursorMs = rawEnd
+            metaLines.append("[CHAPTER]")
+            metaLines.append("TIMEBASE=1/1000")
+            metaLines.append("START=\(rawStart)")
+            metaLines.append("END=\(rawEnd)")
+            metaLines.append("title=\(escapeFFMetadata(ch.title))")
+        }
+        return metaLines.joined(separator: "\n") + "\n"
     }
 
     static func exportM4B(
@@ -6638,6 +6688,7 @@ enum M4BAudiobookExporter {
                     "-c:a", "aac", "-b:a", "128k",
                     "-c:v", "png",
                     "-disposition:v:0", "attached_pic",
+                    "-max_interleave_delta", "0",
                     "-movflags", "+faststart",
                     "-f", "ipod",
                     destinationURL.path
@@ -7150,6 +7201,7 @@ enum ReadAlongVideoExporter {
         sourceWAV: URL,
         cues: [ReadAlongCue],
         slides: [ReadAlongVisualSlide],
+        chapters: [M4BChapterMarker] = [],
         theme: ReadAlongTheme,
         aspect: ReadAlongVideoAspect,
         title: String,
@@ -7169,11 +7221,26 @@ enum ReadAlongVideoExporter {
         let tempVideoURL = stageDir.appendingPathComponent("video_only.mp4")
         let tempAudioURL = stageDir.appendingPathComponent("audio_track.m4a")
         let tempSRTURL = stageDir.appendingPathComponent("subtitles.srt")
+        let tempMetaURL = stageDir.appendingPathComponent("chapters.ffmetadata")
         let stagedMP4URL = stageDir.appendingPathComponent("staged_final.mp4")
 
         if !srtContent.isEmpty {
             try? srtContent.write(to: tempSRTURL, atomically: true, encoding: .utf8)
         }
+
+        let normalizedChapters: [M4BChapterMarker] = chapters.isEmpty
+            ? [M4BChapterMarker(id: 0, title: title, startSec: 0, endSec: max(1.0, Double(totalDurationMs) / 1000.0))]
+            : chapters
+        let ffMetaContent = M4BAudiobookExporter.buildFFMetadataContent(
+            title: title,
+            author: "Codecaine MLX Audio Studio",
+            voiceName: voiceName,
+            genre: "Read-Along Audiobook",
+            mediaType: 9,
+            chapters: normalizedChapters,
+            totalDurationSec: Double(totalDurationMs) / 1000.0
+        )
+        try? ffMetaContent.write(to: tempMetaURL, atomically: true, encoding: .utf8)
 
         // Encode WAV -> AAC (.m4a) concurrently on a separate core using Apple Silicon AudioToolbox while video renders
         let audioGroup = DispatchGroup()
@@ -7355,33 +7422,16 @@ enum ReadAlongVideoExporter {
         let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let displayTitle = cleanTitle.isEmpty ? "Codecaine MLX Read-Along" : String(cleanTitle.prefix(56))
         let displayVoice = voiceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Russell" : voiceName
-        let headerText = "\(displayTitle)  •  Voice: \(displayVoice)  •  Follow Along"
-        let headerFontPx = max(14.0, round(CGFloat(aspect.headerFontSize) * 0.76))
-        let headerLineInfo = makeCTLine(headerText, fontSize: headerFontPx, weight: .bold, color: pal.accent, alpha: 1.0)
-        let headerPillW = min(CGFloat(width - 120), max(480.0, round(headerLineInfo.width + 64.0)))
+        let baseHeaderFontPx = max(14.0, round(CGFloat(aspect.headerFontSize) * 0.76))
         let headerPillH = round(CGFloat(aspect.headerFontSize) * 1.95)
         let headerTopY = round(CGFloat(height) * 0.058)
-        fillAndStrokeRoundedRect(
-            x: round(cx - headerPillW * 0.5),
-            topY: round(headerTopY - headerPillH * 0.5),
-            w: headerPillW,
-            h: headerPillH,
-            radius: round(headerPillH * 0.5),
-            fill: pal.cardBg,
-            fillAlpha: 0.88,
-            stroke: pal.accent,
-            strokeAlpha: 0.38,
-            lineWidth: 1.5
-        )
-        drawCenteredText(
-            headerText,
-            centerX: cx,
-            centerTopY: headerTopY,
-            fontSize: headerFontPx,
-            weight: .bold,
-            color: pal.accent,
-            alpha: 1.0
-        )
+        let headerBandY0 = max(0, Int(floor(headerTopY - headerPillH * 0.5)) - 6)
+        let headerBandY1 = min(height, Int(ceil(headerTopY + headerPillH * 0.5)) + 6)
+        let headerBandBytes = max(stride, (headerBandY1 - headerBandY0) * stride)
+        let headerCleanBand = UnsafeMutableRawPointer.allocate(byteCount: headerBandBytes, alignment: 64)
+        defer {
+            headerCleanBand.deallocate()
+        }
 
         // Center Cinema Read-Along Card
         fillAndStrokeRoundedRect(
@@ -7409,6 +7459,9 @@ enum ReadAlongVideoExporter {
         )
 
         ctx.flush()
+        if headerBandY1 > headerBandY0 {
+            memcpy(headerCleanBand, rawBuf + headerBandY0 * stride, (headerBandY1 - headerBandY0) * stride)
+        }
         memcpy(bgCopy, rawBuf, pixelBytes)
         memcpy(cueCardCopy, rawBuf, pixelBytes)
 
@@ -7425,6 +7478,55 @@ enum ReadAlongVideoExporter {
             let byteCount = (y1 - y0) * stride
             memcpy(dst + startByte, src + startByte, byteCount)
         }
+
+        func renderHeaderPill(chapterIdx: Int) {
+            if headerBandY1 > headerBandY0 {
+                memcpy(rawBuf + headerBandY0 * stride, headerCleanBand, (headerBandY1 - headerBandY0) * stride)
+            }
+            let headerText: String
+            if normalizedChapters.count > 1 && chapterIdx >= 0 && chapterIdx < normalizedChapters.count {
+                let chTitle = String(normalizedChapters[chapterIdx].title.prefix(42))
+                let shortBook = String(displayTitle.prefix(28))
+                headerText = "\(shortBook)  •  \(chTitle) (\(chapterIdx + 1)/\(normalizedChapters.count))  •  \(displayVoice)"
+            } else {
+                headerText = "\(displayTitle)  •  Voice: \(displayVoice)  •  Follow Along"
+            }
+            let maxPillW = CGFloat(width - 72)
+            var fontPx = baseHeaderFontPx
+            var lineInfo = makeCTLine(headerText, fontSize: fontPx, weight: .bold, color: pal.accent, alpha: 1.0)
+            if lineInfo.width + 60.0 > maxPillW {
+                let scale = max(0.62, (maxPillW - 60.0) / max(1.0, lineInfo.width))
+                fontPx = max(12.0, floor(baseHeaderFontPx * scale))
+                lineInfo = makeCTLine(headerText, fontSize: fontPx, weight: .bold, color: pal.accent, alpha: 1.0)
+            }
+            let pillW = min(maxPillW, max(360.0, round(lineInfo.width + 58.0)))
+            fillAndStrokeRoundedRect(
+                x: round(cx - pillW * 0.5),
+                topY: round(headerTopY - headerPillH * 0.5),
+                w: pillW,
+                h: headerPillH,
+                radius: round(headerPillH * 0.5),
+                fill: pal.cardBg,
+                fillAlpha: 0.88,
+                stroke: pal.accent,
+                strokeAlpha: 0.38,
+                lineWidth: 1.5
+            )
+            drawCenteredText(
+                headerText,
+                centerX: cx,
+                centerTopY: headerTopY,
+                fontSize: fontPx,
+                weight: .bold,
+                color: pal.accent,
+                alpha: 1.0
+            )
+            ctx.flush()
+            copyRows(from: rawBuf, to: bgCopy, y0: headerBandY0, y1: headerBandY1)
+            copyRows(from: rawBuf, to: cueCardCopy, y0: headerBandY0, y1: headerBandY1)
+        }
+
+        renderHeaderPill(chapterIdx: 0)
 
         // Prepare Hardware VideoToolbox H.264 AVAssetWriter (B-frame reordering disabled -> `has_b_frames=0` for QuickTime VFR & 2.5x speed)
         let videoFPS = 25
@@ -7547,17 +7649,29 @@ enum ReadAlongVideoExporter {
         }
 
         var lastAppendedFrame = -1
+        var renderedChapterIdx = 0
+        var slideAppendFailed = false
         let totalSlidesCount = max(1, slides.count)
 
         for idx in 0..<slides.count {
-            let slide = slides[idx]
-            let cueIdx = max(0, min(totalCues - 1, slide.cueIndex))
-            let cue: ReadAlongCue? = cues.isEmpty ? nil : cues[cueIdx]
+            autoreleasepool {
+                let slide = slides[idx]
+                let cueIdx = max(0, min(totalCues - 1, slide.cueIndex))
+                let cue: ReadAlongCue? = cues.isEmpty ? nil : cues[cueIdx]
 
-            // Level 1: Re-render context lines (`prevCue` & `nextCue`) and pre-build all 3 colored CTLines per word ONLY when `cueIdx` changes
-            if cueIdx != renderedCueIdx {
-                renderedCueIdx = cueIdx
-                copyRows(from: bgCopy, to: rawBuf, y0: cardBandY0, y1: cardBandY1)
+                if normalizedChapters.count > 1 {
+                    let cueSec = Double(cue?.startMs ?? slide.startMs) / 1000.0
+                    let activeCh = normalizedChapters.lastIndex(where: { cueSec + 0.04 >= $0.startSec }) ?? 0
+                    if activeCh != renderedChapterIdx {
+                        renderedChapterIdx = activeCh
+                        renderHeaderPill(chapterIdx: activeCh)
+                    }
+                }
+
+                // Level 1: Re-render context lines (`prevCue` & `nextCue`) and pre-build all 3 colored CTLines per word ONLY when `cueIdx` changes
+                if cueIdx != renderedCueIdx {
+                    renderedCueIdx = cueIdx
+                    copyRows(from: bgCopy, to: rawBuf, y0: cardBandY0, y1: cardBandY1)
 
                 let prevCue: ReadAlongCue? = (cueIdx > 0 && cueIdx - 1 < cues.count) ? cues[cueIdx - 1] : nil
                 let nextCue: ReadAlongCue? = (cueIdx + 1 < cues.count) ? cues[cueIdx + 1] : nil
@@ -7765,7 +7879,9 @@ enum ReadAlongVideoExporter {
             )
 
             let curClock = formatSecClock(Double(slide.endMs) / 1000.0)
-            let hudLabel = "\(pct)%   •   Line \(cueIdx + 1) of \(totalCues)   •   \(curClock) / \(totClock)"
+            let hudLabel = normalizedChapters.count > 1
+                ? "Ch \(renderedChapterIdx + 1)/\(normalizedChapters.count)   •   \(pct)%   •   Line \(cueIdx + 1)/\(totalCues)   •   \(curClock) / \(totClock)"
+                : "\(pct)%   •   Line \(cueIdx + 1) of \(totalCues)   •   \(curClock) / \(totClock)"
             let hudLine = CTLineCreateWithAttributedString(NSAttributedString(string: hudLabel, attributes: hudAttrs))
             var hudAsc: CGFloat = 0
             var hudDesc: CGFloat = 0
@@ -7784,14 +7900,19 @@ enum ReadAlongVideoExporter {
             let idealStartFrame = Int(round((Double(slide.startMs) / 1000.0) * Double(videoFPS)))
             let frameIdx = (idx == 0) ? 0 : max(lastAppendedFrame + 1, idealStartFrame)
             if !appendCurrentFrame(atFrameIdx: frameIdx) {
-                writer.cancelWriting()
-                audioGroup.wait()
-                return false
+                slideAppendFailed = true
+                return
             }
             lastAppendedFrame = frameIdx
 
             if let onProgress, (idx % 32 == 0 || idx + 1 == totalSlidesCount) {
                 onProgress(idx + 1, totalSlidesCount)
+            }
+            } // end autoreleasepool
+            if slideAppendFailed {
+                writer.cancelWriting()
+                audioGroup.wait()
+                return false
             }
         }
 
@@ -7813,7 +7934,7 @@ enum ReadAlongVideoExporter {
             return false
         }
 
-        // Losslessly mux H.264 video (`video_only.mp4`) + AudioToolbox AAC audio (`audio_track.m4a`) + `+faststart` (`moov` at byte 0)
+        // Losslessly mux H.264 video (`video_only.mp4`) + AudioToolbox AAC audio (`audio_track.m4a`) + QuickTime `[CHAPTER]` markers + `+faststart` (`moov` at byte 0)
         var muxSucceeded = false
         if audioEncodeSucceeded,
            let ffmpeg = StudioPackageManager.findExecutable(
@@ -7821,34 +7942,62 @@ enum ReadAlongVideoExporter {
                extraDirs: ["/opt/homebrew/opt/ffmpeg-full/bin", "/usr/local/opt/ffmpeg-full/bin"]
            ) {
             let hasSRT = FileManager.default.fileExists(atPath: tempSRTURL.path)
-            let muxProc = Process()
-            muxProc.executableURL = URL(fileURLWithPath: ffmpeg)
-            var muxArgs = [
-                "-hide_banner", "-nostdin", "-y",
-                "-i", tempVideoURL.path,
-                "-i", tempAudioURL.path
-            ]
-            if hasSRT {
-                muxArgs += ["-i", tempSRTURL.path, "-map", "0:v:0", "-map", "1:a:0", "-map", "2:s:0"]
-            } else {
+            let hasMeta = FileManager.default.fileExists(atPath: tempMetaURL.path)
+
+            func runFFmpegMux(includeChapters: Bool) -> Bool {
+                try? FileManager.default.removeItem(at: stagedMP4URL)
+                let muxProc = Process()
+                muxProc.executableURL = URL(fileURLWithPath: ffmpeg)
+                var muxArgs = [
+                    "-hide_banner", "-nostdin", "-y",
+                    "-i", tempVideoURL.path,
+                    "-i", tempAudioURL.path
+                ]
+                var nextInputIdx = 2
+                var srtInputIdx: Int? = nil
+                var metaInputIdx: Int? = nil
+                if hasSRT {
+                    muxArgs += ["-i", tempSRTURL.path]
+                    srtInputIdx = nextInputIdx
+                    nextInputIdx += 1
+                }
+                if includeChapters && hasMeta {
+                    muxArgs += ["-i", tempMetaURL.path]
+                    metaInputIdx = nextInputIdx
+                    nextInputIdx += 1
+                }
                 muxArgs += ["-map", "0:v:0", "-map", "1:a:0"]
+                if let sIdx = srtInputIdx {
+                    muxArgs += ["-map", "\(sIdx):s:0"]
+                }
+                if let mIdx = metaInputIdx {
+                    muxArgs += ["-map_metadata", "\(mIdx)", "-map_chapters", "\(mIdx)"]
+                }
+                muxArgs += ["-c:v", "copy", "-c:a", "copy"]
+                if srtInputIdx != nil {
+                    muxArgs += ["-c:s", "mov_text", "-metadata:s:s:0", "language=eng", "-disposition:s:0", "0"]
+                }
+                muxArgs += ["-max_interleave_delta", "0"]
+                if metaInputIdx != nil {
+                    muxArgs += ["-brand", "mp42", "-movflags", "+faststart+disable_chpl", stagedMP4URL.path]
+                } else {
+                    muxArgs += ["-brand", "mp42", "-movflags", "+faststart", stagedMP4URL.path]
+                }
+                muxProc.arguments = muxArgs
+                muxProc.standardInput = FileHandle.nullDevice
+                muxProc.standardOutput = FileHandle.nullDevice
+                muxProc.standardError = FileHandle.nullDevice
+                try? muxProc.run()
+                muxProc.waitUntilExit()
+                if muxProc.terminationStatus == 0,
+                   let sz = (try? stagedMP4URL.resourceValues(forKeys: [.fileSizeKey]).fileSize),
+                   sz > 1024 {
+                    return true
+                }
+                return false
             }
-            muxArgs += ["-c:v", "copy", "-c:a", "copy"]
-            if hasSRT {
-                muxArgs += ["-c:s", "mov_text", "-metadata:s:s:0", "language=eng", "-disposition:s:0", "0"]
-            }
-            muxArgs += ["-movflags", "+faststart", stagedMP4URL.path]
-            muxProc.arguments = muxArgs
-            muxProc.standardInput = FileHandle.nullDevice
-            muxProc.standardOutput = FileHandle.nullDevice
-            muxProc.standardError = FileHandle.nullDevice
-            try? muxProc.run()
-            muxProc.waitUntilExit()
-            if muxProc.terminationStatus == 0,
-               let sz = (try? stagedMP4URL.resourceValues(forKeys: [.fileSizeKey]).fileSize),
-               sz > 1024 {
-                muxSucceeded = true
-            }
+
+            muxSucceeded = runFFmpegMux(includeChapters: true) || runFFmpegMux(includeChapters: false)
         }
 
         // Zero-dependency pure macOS `AVMutableComposition` + `AVAssetExportPresetPassthrough` fallback when `ffmpeg` is not installed
@@ -7906,6 +8055,7 @@ enum ReadAlongVideoExporter {
         title: String = "Codecaine MLX Read-Along",
         voiceName: String = "Russell",
         fallbackText: String = "",
+        chapters: [M4BChapterMarker] = [],
         onProgress: (@Sendable (Int, Int) -> Void)? = nil,
         to destinationURL: URL
     ) throws {
@@ -7951,15 +8101,35 @@ enum ReadAlongVideoExporter {
             Int(round(wavDurationSec * 1000.0)),
             Int(round((effectiveTimings.last?.end ?? 1.0) * 1000.0))
         )
+        let totalDurationSec = Double(totalDurationMs) / 1000.0
+        let effectiveChapters: [M4BChapterMarker] = {
+            if !chapters.isEmpty {
+                return chapters
+            }
+            let trimmedFallback = fallbackText.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedFallback.isEmpty {
+                let autoChunks = HierarchicalChunker.splitText(trimmedFallback, maxChars: 520, mergeShortParagraphs: true)
+                if !autoChunks.isEmpty {
+                    return M4BAudiobookExporter.buildChapters(
+                        chunks: autoChunks,
+                        timings: effectiveTimings,
+                        totalDurationSec: totalDurationSec
+                    )
+                }
+            }
+            return [M4BChapterMarker(id: 0, title: title, startSec: 0, endSec: max(1.0, totalDurationSec))]
+        }()
+
         let cues = SubtitleExporter.buildReadAlongCues(timings: effectiveTimings, aspect: aspect)
         let slides = buildReadAlongVisualSlides(cues: cues, totalDurationMs: totalDurationMs, minSlideMs: 40)
 
         #if os(macOS)
-        // 1. Primary Ultra-Fast Path: In-process Native 3-Level Delta-Band CoreGraphics + CoreText + Hardware VideoToolbox H.264 + AudioToolbox AAC + `+faststart`
+        // 1. Primary Ultra-Fast Path: In-process Native 3-Level Delta-Band CoreGraphics + CoreText + Hardware VideoToolbox H.264 + AudioToolbox AAC + QuickTime `[CHAPTER]` markers + `+faststart`
         if (try? renderNative3LevelDeltaBandMP4(
             sourceWAV: sourceWAV,
             cues: cues,
             slides: slides,
+            chapters: effectiveChapters,
             theme: theme,
             aspect: aspect,
             title: title,

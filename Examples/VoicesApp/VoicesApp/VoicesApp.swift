@@ -408,9 +408,26 @@ struct VoicesApp: App {
 
             let extracted = (try? SpeechTextCleaner.extractDocumentText(from: bookURL)) ?? ""
             let allBookChunks = HierarchicalChunker.splitText(extracted, maxChars: 520, mergeShortParagraphs: true)
-            // Take 8 full chunks (~65-80 seconds, well past both the old 4-chunk cap and the old 5.2s AVAssetWriter interleave threshold)
-            let testChunks = Array(allBookChunks.prefix(8))
-            let multiChapterScript = testChunks.map(\.text).joined(separator: "\n\n")
+            // Select chunks spanning ALL detected chapters of the book (every chapter heading + opening narrative chunk) into 1 single MP4!
+            var selectedIndices: [Int] = []
+            for (cIdx, ch) in allBookChunks.enumerated() {
+                let firstLines = ch.text.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+                let hasHeading = firstLines.prefix(3).contains { HierarchicalChunker.isStandaloneBookHeading($0) }
+                if cIdx == 0 || hasHeading {
+                    selectedIndices.append(cIdx)
+                    if cIdx + 1 < allBookChunks.count && allBookChunks[cIdx + 1].text.count > 40 {
+                        let nextLines = allBookChunks[cIdx + 1].text.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+                        let nextIsHeading = nextLines.prefix(3).contains { HierarchicalChunker.isStandaloneBookHeading($0) }
+                        if !nextIsHeading {
+                            selectedIndices.append(cIdx + 1)
+                        }
+                    }
+                }
+            }
+            let uniqueSelected = Array(NSOrderedSet(array: selectedIndices)) as? [Int] ?? Array(0..<min(12, allBookChunks.count))
+            let testChunksRaw = uniqueSelected.isEmpty ? Array(allBookChunks.prefix(12)) : uniqueSelected.map { allBookChunks[$0] }
+            let multiChapterScript = testChunksRaw.map(\.text).joined(separator: "\n\n")
+            let testChunks = HierarchicalChunker.splitText(multiChapterScript, maxChars: 520, mergeShortParagraphs: true)
 
             let sr = 24000.0
             let wavURL = outDir.appendingPathComponent("deadlocked_8chunks.wav")
@@ -482,7 +499,9 @@ struct VoicesApp: App {
                 let aCount = asset.tracks(withMediaType: .audio).count
                 let playable = asset.isPlayable
                 let dur = CMTimeGetSeconds(asset.duration)
-                return "playable=\(playable),v=\(vCount),a=\(aCount),dur=\(String(format: "%.2f", dur))s"
+                let locales = asset.availableChapterLocales
+                let qtChapters = locales.first.map { asset.chapterMetadataGroups(withTitleLocale: $0, containingItemsWithCommonKeys: nil).count } ?? 0
+                return "playable=\(playable),v=\(vCount),a=\(aCount),chapters=\(qtChapters),dur=\(String(format: "%.2f", dur))s"
             }
 
             // 3. Export Chapterized M4B Audiobook & AAC Audio
@@ -4393,6 +4412,75 @@ enum QAEverythingRunner {
                     "QuickTime / AVPlayer Live Playback Advance",
                     playOK,
                     "status=\(item.status.rawValue), advancedTo=\(String(format: "%.3f", curSec))s, err=\(item.error?.localizedDescription ?? "none")"
+                )
+            }
+
+            // =========================================================================
+            // 4C. ALL-CHAPTERS-IN-1-MP4 MULTI-CHAPTER BOOK EXPORT & CHAPTER MARKER CHECK
+            // =========================================================================
+            var multiChapterBookScript = ""
+            for (cIdx, ch) in deadlockedChunks.enumerated() {
+                let firstLines = ch.text.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+                let hasHeading = firstLines.prefix(3).contains { HierarchicalChunker.isStandaloneBookHeading($0) }
+                if cIdx == 0 || hasHeading {
+                    multiChapterBookScript += ch.text + "\n\n"
+                }
+            }
+            if multiChapterBookScript.isEmpty {
+                multiChapterBookScript = """
+                CHAPTER ONE - SACRIFICE
+                The storm broke across the dark harbor as the siren echoed over the hull.
+
+                CHAPTER TWO - OVERBOARD
+                Cold spray swept the deck while the crew secured the last lifeline in silence.
+
+                CHAPTER THREE - HORIZON
+                At dawn the lighthouse beam cut cleanly through the lifting Atlantic fog.
+                """
+            }
+            let multiChChunks = HierarchicalChunker.splitText(multiChapterBookScript, maxChars: 520, mergeShortParagraphs: true)
+            let multiChTimings = WordTimingEngine.computeWordTimings(
+                text: multiChapterBookScript,
+                audioURL: baseWAV,
+                duration: max(12.0, baseAudioDur),
+                maxChunkChars: 520,
+                enableChunking: true
+            )
+            let expectedBookChapters = M4BAudiobookExporter.buildChapters(
+                chunks: multiChChunks,
+                timings: multiChTimings,
+                totalDurationSec: max(12.0, baseAudioDur)
+            )
+            let allChaptersMP4 = mp4Dir.appendingPathComponent("read_along_midnight_16x9_all_chapters.mp4")
+            do {
+                try ReadAlongVideoExporter.exportKaraokeVideo(
+                    sourceWAV: baseWAV,
+                    timings: multiChTimings,
+                    theme: .midnight,
+                    aspect: .landscape16x9,
+                    title: "Deadlocked 2",
+                    voiceName: "Freya",
+                    fallbackText: multiChapterBookScript,
+                    chapters: expectedBookChapters,
+                    to: allChaptersMP4
+                )
+                let asset = AVURLAsset(url: allChaptersMP4)
+                let locales = asset.availableChapterLocales
+                let qtChapters = locales.first.map { asset.chapterMetadataGroups(withTitleLocale: $0, containingItemsWithCommonKeys: nil).count } ?? 0
+                let deep = verifyMP4Deep(allChaptersMP4, expectedWidth: 1920, expectedHeight: 1080)
+                let allChPassed = deep.passed && expectedBookChapters.count >= 3 && qtChapters == expectedBookChapters.count
+                addRecord(
+                    "4. Read-Along MP4 Matrix",
+                    "All Chapters in 1 MP4 (Embedded QuickTime Chapters)",
+                    allChPassed,
+                    "embeddedChapters=\(qtChapters)/\(expectedBookChapters.count), \(deep.detail)"
+                )
+            } catch {
+                addRecord(
+                    "4. Read-Along MP4 Matrix",
+                    "All Chapters in 1 MP4 (Embedded QuickTime Chapters)",
+                    false,
+                    error.localizedDescription
                 )
             }
 

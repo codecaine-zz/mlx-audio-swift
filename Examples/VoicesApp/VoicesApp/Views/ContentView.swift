@@ -601,6 +601,8 @@ struct ContentView: View {
                         self.viewModel.synthesizingChunkIndex = 0
                         self.viewModel.synthesizedStartChunkIndex = 0
                         self.viewModel.synthesizedEndChunkIndex = nil
+                        self.viewModel.completedChunkIndex = -1
+                        self.viewModel.synthesisScope = .fullDocument
                         self.previewWordId = nil
                         self.textInput = extracted
                         self.viewModel.errorMessage = nil
@@ -1207,43 +1209,44 @@ struct ContentView: View {
                             }
                         }
                         Divider()
-                        Section("Synchronized Read-Along Karaoke Video (.MP4)") {
-                            if viewModel.audioURL != nil {
-                                ForEach(ReadAlongVideoAspect.allCases) { aspect in
-                                    Button {
-                                        viewModel.exportCurrentSyncedAudioAsMP4(
-                                            text: textInput,
-                                            theme: viewModel.readAlongTheme,
-                                            aspect: aspect
-                                        )
-                                    } label: {
-                                        Label("⚡ Instant Export Synced Audio as MP4 — \(aspect.label) (<1s)", systemImage: "bolt.badge.film.fill")
-                                    }
-                                }
-                            }
+                        Section("Synchronized Read-Along Karaoke Video (All Chapters in 1 .MP4)") {
                             ForEach(ReadAlongVideoAspect.allCases) { aspect in
                                 Button {
                                     viewModel.exportReadAlongVideo(
                                         text: textInput,
                                         theme: viewModel.readAlongTheme,
                                         aspect: aspect,
-                                        scope: .fastSection
+                                        scope: .fullDocument
                                     )
                                 } label: {
-                                    Label("⚡ Quick Section MP4 — \(aspect.label) (§\(activeChunkIdx + 1) · 4 Chunks)", systemImage: "bolt.fill")
+                                    Label("🎬 Export Read-Along MP4 — \(aspect.label) (All Chapters · \(max(1, chunks.count)) Sections in 1 MP4)", systemImage: "film.stack")
                                 }
                             }
-                            Menu("Full Document Read-Along Video (All \(max(1, chunks.count)) Chapters)") {
+                            Menu("Partial / Section Clip Preview Only (Not All Chapters)…") {
+                                if viewModel.audioURL != nil {
+                                    ForEach(ReadAlongVideoAspect.allCases) { aspect in
+                                        Button {
+                                            viewModel.exportCurrentSyncedAudioAsMP4(
+                                                text: textInput,
+                                                theme: viewModel.readAlongTheme,
+                                                aspect: aspect
+                                            )
+                                        } label: {
+                                            Label("⚡ Export Already-Played Clip Only — \(aspect.label)", systemImage: "bolt.badge.film.fill")
+                                        }
+                                    }
+                                    Divider()
+                                }
                                 ForEach(ReadAlongVideoAspect.allCases) { aspect in
                                     Button {
                                         viewModel.exportReadAlongVideo(
                                             text: textInput,
                                             theme: viewModel.readAlongTheme,
                                             aspect: aspect,
-                                            scope: .fullDocument
+                                            scope: .fastSection
                                         )
                                     } label: {
-                                        Label("🎬 Full Book MP4 — \(aspect.label) (All \(max(1, chunks.count)) Chapters)", systemImage: "film.stack")
+                                        Label("⚡ Preview Section Clip Only — \(aspect.label) (§\(activeChunkIdx + 1) · 4 Chunks)", systemImage: "bolt.fill")
                                     }
                                 }
                             }
@@ -2430,24 +2433,24 @@ struct ContentView: View {
                                 }
                             }
                             Divider()
-                            Section("Save Read-Along Karaoke Video (.MP4)") {
+                            Section("Save Read-Along Karaoke Video (All Chapters in 1 .MP4)") {
                                 ForEach(ReadAlongVideoAspect.allCases) { aspect in
-                                    Button("⚡ Instant Save Synced Audio as MP4 — \(aspect.label) (<1s)") {
-                                        viewModel.exportCurrentSyncedAudioAsMP4(
+                                    Button("🎬 Save Read-Along MP4 — \(aspect.label) (All Chapters · \(max(1, chunks.count)) Sections in 1 MP4)") {
+                                        viewModel.exportReadAlongVideo(
                                             text: textInput,
                                             theme: viewModel.readAlongTheme,
-                                            aspect: aspect
+                                            aspect: aspect,
+                                            scope: .fullDocument
                                         )
                                     }
                                 }
-                                Menu("Full Document Read-Along MP4 (All \(max(1, chunks.count)) Chapters)") {
+                                Menu("Partial / Played Clip Preview Only (Not All Chapters)…") {
                                     ForEach(ReadAlongVideoAspect.allCases) { aspect in
-                                        Button("🎬 Save Full Book MP4 — \(aspect.label) (All \(max(1, chunks.count)) Chapters)") {
-                                            viewModel.exportReadAlongVideo(
+                                        Button("⚡ Save Current Played Audio Clip Only — \(aspect.label)") {
+                                            viewModel.exportCurrentSyncedAudioAsMP4(
                                                 text: textInput,
                                                 theme: viewModel.readAlongTheme,
-                                                aspect: aspect,
-                                                scope: .fullDocument
+                                                aspect: aspect
                                             )
                                         }
                                     }
@@ -2893,20 +2896,7 @@ struct ContentView: View {
                             }
                         }
                         Divider()
-                        Section("Synchronized Read-Along Karaoke Video (.MP4)") {
-                            if viewModel.audioURL != nil {
-                                ForEach(ReadAlongVideoAspect.allCases) { aspect in
-                                    Button {
-                                        viewModel.exportCurrentSyncedAudioAsMP4(
-                                            text: textInput,
-                                            theme: viewModel.readAlongTheme,
-                                            aspect: aspect
-                                        )
-                                    } label: {
-                                        Label("⚡ Instant Export Synced Audio as MP4 — \(aspect.label) (<1s)", systemImage: "bolt.badge.film.fill")
-                                    }
-                                }
-                            }
+                        Section("Synchronized Read-Along Karaoke Video (All Chapters in 1 .MP4)") {
                             ForEach(ReadAlongVideoAspect.allCases) { aspect in
                                 Button {
                                     viewModel.exportReadAlongVideo(
@@ -2916,12 +2906,12 @@ struct ContentView: View {
                                         scope: .fullDocument
                                     )
                                 } label: {
-                                    Label("🎬 Export Full Book MP4 — \(aspect.label) (All \(max(1, chunks.count)) Chapters)", systemImage: "film.stack")
+                                    Label("🎬 Export Read-Along MP4 — \(aspect.label) (All Chapters · \(max(1, chunks.count)) Sections in 1 MP4)", systemImage: "film.stack")
                                 }
                             }
                         }
                         Divider()
-                        Section("Quick Active Section (§\(activeChunkIdx + 1)) Silent Export") {
+                        Section("Quick Single-Section Preview (§\(activeChunkIdx + 1) Only — Not All Chapters)") {
                             ForEach([AudioExportFormat.wav, .mp3, .m4a]) { fmt in
                                 Button {
                                     viewModel.quickExportActiveChunk(
@@ -2935,16 +2925,32 @@ struct ContentView: View {
                                     Label("⚡ 1.5s Export Active Chunk §\(activeChunkIdx + 1) as \(fmt.rawValue.uppercased())", systemImage: "bolt.fill")
                                 }
                             }
-                            ForEach(ReadAlongVideoAspect.allCases) { aspect in
-                                Button {
-                                    viewModel.exportReadAlongVideo(
-                                        text: textInput,
-                                        theme: viewModel.readAlongTheme,
-                                        aspect: aspect,
-                                        scope: .fastSection
-                                    )
-                                } label: {
-                                    Label("⚡ Quick Section MP4 — \(aspect.label) (§\(activeChunkIdx + 1))", systemImage: "bolt.fill")
+                            Menu("Partial Clip MP4 Preview (§\(activeChunkIdx + 1) Only)…") {
+                                if viewModel.audioURL != nil {
+                                    ForEach(ReadAlongVideoAspect.allCases) { aspect in
+                                        Button {
+                                            viewModel.exportCurrentSyncedAudioAsMP4(
+                                                text: textInput,
+                                                theme: viewModel.readAlongTheme,
+                                                aspect: aspect
+                                            )
+                                        } label: {
+                                            Label("⚡ Export Already-Played Clip Only — \(aspect.label)", systemImage: "bolt.badge.film.fill")
+                                        }
+                                    }
+                                    Divider()
+                                }
+                                ForEach(ReadAlongVideoAspect.allCases) { aspect in
+                                    Button {
+                                        viewModel.exportReadAlongVideo(
+                                            text: textInput,
+                                            theme: viewModel.readAlongTheme,
+                                            aspect: aspect,
+                                            scope: .fastSection
+                                        )
+                                    } label: {
+                                        Label("⚡ Preview Section §\(activeChunkIdx + 1) MP4 Only — \(aspect.label)", systemImage: "bolt.fill")
+                                    }
                                 }
                             }
                         }

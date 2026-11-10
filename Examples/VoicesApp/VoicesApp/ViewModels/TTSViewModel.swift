@@ -539,6 +539,7 @@ class TTSViewModel {
     // Auto-populated built-in voices and currently selected voice for the active model
     var builtInVoices: [Voice] = []
     private var isRestoringVoiceSelection: Bool = false
+    private var activeSynthesisRunID = UUID()
     var selectedVoice: Voice? {
         didSet {
             guard !isRestoringVoiceSelection, let v = selectedVoice else { return }
@@ -645,6 +646,10 @@ class TTSViewModel {
             }
             synthesisScope = .fullDocument
             paragraphPauseMs = 0
+        }
+        if !UserDefaults.standard.bool(forKey: "VoicesApp.TTSViewModel.migratedFullBookDefaultScopeV6") {
+            UserDefaults.standard.set(true, forKey: "VoicesApp.TTSViewModel.migratedFullBookDefaultScopeV6")
+            synthesisScope = .fullDocument
         }
         setupAudioPlayerObservers()
         audioPlayer.playbackRate = playbackRate
@@ -932,9 +937,12 @@ class TTSViewModel {
         startChunkIndex: Int = 0,
         scopeOverride: SynthesisScope? = nil
     ) {
-        generationTask?.cancel()
+        let previousTask = generationTask
+        previousTask?.cancel()
         audioPlayer.stop()
-        generationTask = Task {
+        generationTask = Task { @MainActor in
+            _ = await previousTask?.value
+            guard !Task.isCancelled else { return }
             await synthesize(
                 text: text,
                 voice: voice,
@@ -996,6 +1004,8 @@ class TTSViewModel {
             return
         }
 
+        let runID = UUID()
+        activeSynthesisRunID = runID
         isGenerating = true
         errorMessage = nil
         generationProgress = "Starting generation..."
@@ -1169,49 +1179,88 @@ class TTSViewModel {
                 }
 
                 var rawSamples: [Float] = []
-                if let cachedSamples = PhononChunkCache.get(key: cacheKey) {
+                let hasSpeakableChars = spokenChunk.unicodeScalars.contains { CharacterSet.alphanumerics.contains($0) }
+                if !hasSpeakableChars {
+                    // Scene-break divider (e.g. "* * *", "---"): emit clean 300ms narrative pause without invoking neural TTS
+                    rawSamples = Array(repeating: Float(0), count: max(1, Int(sampleRate * 0.30)))
+                } else if let cachedSamples = PhononChunkCache.get(key: cacheKey) {
                     rawSamples = cachedSamples
                 } else {
                     nonisolated(unsafe) let genModel = model
                     nonisolated(unsafe) let refAudioBox = referenceAudio
-                    let streamResult: (samples: [Float], tps: Double) = try await Task.detached(priority: .userInitiated) {
-                        var collected: [Float] = []
-                        var latestTPS: Double = 0
-                        for try await event in genModel.generateStream(
-                            text: effectiveChunk,
-                            voice: chunkVoiceParam,
-                            refAudio: refAudioBox,
-                            refText: refText,
-                            language: nil,
-                            generationParameters: generationParameters,
-                            streamingInterval: 60.0
-                        ) {
-                            try Task.checkCancellation()
-                            switch event {
-                            case .token, .progress:
-                                break
-                            case .info(let info):
-                                latestTPS = info.tokensPerSecond
-                            case .audio(let audioData):
-                                autoreleasepool {
-                                    let samples = audioData.asArray(Float.self)
-                                    collected.append(contentsOf: samples)
+                    let refTextSnapshot = refText
+                    let runNeuralChunk: @Sendable (String) async throws -> (samples: [Float], tps: Double) = { promptText in
+                        try await Task.detached(priority: .userInitiated) {
+                            var collected: [Float] = []
+                            var latestTPS: Double = 0
+                            for try await event in genModel.generateStream(
+                                text: promptText,
+                                voice: chunkVoiceParam,
+                                refAudio: refAudioBox,
+                                refText: refTextSnapshot,
+                                language: nil,
+                                generationParameters: generationParameters,
+                                streamingInterval: 60.0
+                            ) {
+                                try Task.checkCancellation()
+                                switch event {
+                                case .token, .progress:
+                                    break
+                                case .info(let info):
+                                    latestTPS = info.tokensPerSecond
+                                case .audio(let audioData):
+                                    autoreleasepool {
+                                        let samples = audioData.asArray(Float.self)
+                                        collected.append(contentsOf: samples)
+                                    }
                                 }
                             }
-                        }
-                        if !collected.isEmpty {
-                            if abs(chunkPitchShift) > 0.05 {
-                                collected = Voice.applyPitchShift(collected, semitones: chunkPitchShift, sampleRate: sampleRate)
+                            if !collected.isEmpty {
+                                if abs(chunkPitchShift) > 0.05 {
+                                    collected = Voice.applyPitchShift(collected, semitones: chunkPitchShift, sampleRate: sampleRate)
+                                }
+                                collected = SpeechAudioTrimmer.trimSilence(collected, sampleRate: sampleRate)
                             }
-                            collected = SpeechAudioTrimmer.trimSilence(collected, sampleRate: sampleRate)
-                            PhononChunkCache.put(key: cacheKey, samples: collected)
-                        }
-                        return (collected, latestTPS)
-                    }.value
-                    rawSamples = streamResult.samples
-                    if streamResult.tps > 0 {
-                        tokensPerSecond = streamResult.tps
+                            return (collected, latestTPS)
+                        }.value
                     }
+
+                    do {
+                        let streamResult = try await runNeuralChunk(effectiveChunk)
+                        rawSamples = streamResult.samples
+                        if !rawSamples.isEmpty {
+                            PhononChunkCache.put(key: cacheKey, samples: rawSamples)
+                        }
+                        if streamResult.tps > 0 {
+                            tokensPerSecond = streamResult.tps
+                        }
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch {
+                        if Task.isCancelled {
+                            throw CancellationError()
+                        }
+                        // Resilient full-book recovery: clear GPU cache and retry once with simplified ASCII punctuation so 1 odd chunk NEVER aborts a 339-chunk book!
+                        Memory.clearCache()
+                        let fallbackASCII = String(spokenChunk.unicodeScalars.filter {
+                            CharacterSet.alphanumerics.contains($0) || CharacterSet.whitespacesAndNewlines.contains($0) || ".,!?;:'\"-()".unicodeScalars.contains($0)
+                        }).trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !fallbackASCII.isEmpty, let retryResult = try? await runNeuralChunk(fallbackASCII), !retryResult.samples.isEmpty {
+                            rawSamples = retryResult.samples
+                            PhononChunkCache.put(key: cacheKey, samples: rawSamples)
+                            if retryResult.tps > 0 {
+                                tokensPerSecond = retryResult.tps
+                            }
+                        } else {
+                            if Task.isCancelled {
+                                throw CancellationError()
+                            }
+                            rawSamples = Array(repeating: Float(0), count: max(1, Int(sampleRate * 0.25)))
+                        }
+                    }
+                }
+                if rawSamples.isEmpty {
+                    rawSamples = Array(repeating: Float(0), count: max(1, Int(sampleRate * 0.20)))
                 }
 
                 // Offload waveform DP word alignment (with 0ms relative-timing cache hit), Master Bus DSP, and WAV file writing off @MainActor
@@ -1367,18 +1416,24 @@ class TTSViewModel {
             }
 
         } catch is CancellationError {
-            // User cancelled - clean up silently
+            // User cancelled - clean up silently without clobbering a newer task's progress
             audioPlayer.stop()
             Memory.clearCache()
-            generationProgress = ""
+            if activeSynthesisRunID == runID {
+                generationProgress = ""
+            }
         } catch {
-            if !Task.isCancelled && (error as NSError).code != NSURLErrorCancelled {
+            if !Task.isCancelled && (error as NSError).code != NSURLErrorCancelled && activeSynthesisRunID == runID {
                 errorMessage = "Generation failed: \(error.localizedDescription)"
             }
-            generationProgress = ""
+            if activeSynthesisRunID == runID {
+                generationProgress = ""
+            }
         }
 
-        isGenerating = false
+        if activeSynthesisRunID == runID {
+            isGenerating = false
+        }
     }
 
     /// Applies the active Studio Master Bus DSP chain (and optional ACX head/tail room-tone floor) to the current WAV file in place.
@@ -2048,8 +2103,11 @@ class TTSViewModel {
             }
 
             // Full synthesis path when complete audio for `effectiveExportScope` has not been generated yet:
-            self.generationTask?.cancel()
+            let previousTask = self.generationTask
+            previousTask?.cancel()
             self.generationTask = Task { @MainActor in
+                _ = await previousTask?.value
+                guard !Task.isCancelled else { return }
                 if !self.isModelLoaded {
                     await self.loadModel()
                 }
@@ -2063,7 +2121,14 @@ class TTSViewModel {
                     recordHistory: true,
                     scopeOverride: effectiveExportScope
                 )
-                guard !Task.isCancelled, let finalWAV = self.audioURL else { return }
+                guard !Task.isCancelled,
+                      self.hasCompleteAudio(
+                          for: cleanedFallback,
+                          voice: voice ?? self.selectedVoice,
+                          requiredScope: effectiveExportScope,
+                          targetChunkIndex: effectiveStartChunk
+                      ),
+                      let finalWAV = self.audioURL else { return }
                 let snapshotWAV = FileManager.default.temporaryDirectory
                     .appendingPathComponent("export_final_\(UUID().uuidString).wav")
                 try? FileManager.default.copyItem(at: finalWAV, to: snapshotWAV)
@@ -2128,15 +2193,20 @@ class TTSViewModel {
         savePanel.begin { [weak self] response in
             guard let self, response == .OK, let dest = savePanel.url else { return }
 
-            self.generationTask?.cancel()
+            let needsSynthesis = !cleaned.isEmpty && !self.hasCompleteAudio(
+                for: cleaned,
+                voice: voice ?? self.selectedVoice,
+                requiredScope: scope,
+                targetChunkIndex: 0
+            )
+            let previousTask = self.generationTask
+            if needsSynthesis {
+                previousTask?.cancel()
+            }
             self.generationTask = Task { @MainActor in
-                let needsSynthesis = !cleaned.isEmpty && !self.hasCompleteAudio(
-                    for: cleaned,
-                    voice: voice ?? self.selectedVoice,
-                    requiredScope: scope,
-                    targetChunkIndex: 0
-                )
                 if needsSynthesis {
+                    _ = await previousTask?.value
+                    guard !Task.isCancelled else { return }
                     if !self.isModelLoaded {
                         await self.loadModel()
                     }
@@ -2207,24 +2277,37 @@ class TTSViewModel {
         #endif
     }
 
-    /// Instantly exports whatever synchronized Read-Along audio (`audioURL` + `synthesizedWordTimings`) is already generated in `<1s`
-    /// without cancelling live background playback/prefetching or forcing synthesis of remaining chapters.
+    /// Exports only the already-synthesized audio clip (`audioURL`) in `<1s` without waiting for remaining chapters;
+    /// uses `preview_synced_clip_...mp4` whenever `audioURL` is only a partial clip so `read_along_...mp4` is exclusively reserved for All-Chapters exports.
     func exportCurrentSyncedAudioAsMP4(
         text: String,
         theme: ReadAlongTheme,
         aspect: ReadAlongVideoAspect
     ) {
+        let cleanedInput = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let currentURL = audioURL, FileManager.default.fileExists(atPath: currentURL.path) else {
-            exportReadAlongVideo(text: text, theme: theme, aspect: aspect, scope: .fastSection)
+            exportReadAlongVideo(text: text, theme: theme, aspect: aspect, scope: .fullDocument)
             return
         }
+
+        let isFullBookReady = hasCompleteAudio(
+            for: cleanedInput,
+            voice: selectedVoice,
+            requiredScope: .fullDocument,
+            targetChunkIndex: 0
+        )
 
         #if os(macOS)
         let savePanel = NSSavePanel()
         savePanel.canCreateDirectories = true
         savePanel.isExtensionHidden = false
-        savePanel.title = "Instant Export Synced Audio as Read-Along MP4 (\(aspect.label) · \(theme.label))"
-        savePanel.nameFieldStringValue = "read_along_\(theme.rawValue)_\(aspect.rawValue.replacingOccurrences(of: ":", with: "x")).mp4"
+        let aspectTag = aspect.rawValue.replacingOccurrences(of: ":", with: "x")
+        savePanel.title = isFullBookReady
+            ? "Instant Export Complete All-Chapters Read-Along MP4 (\(aspect.label) · \(theme.label))"
+            : "Export Partial Played Clip Only as MP4 (\(aspect.label) · \(theme.label))"
+        savePanel.nameFieldStringValue = isFullBookReady
+            ? "read_along_\(theme.rawValue)_\(aspectTag).mp4"
+            : "preview_synced_clip_\(theme.rawValue)_\(aspectTag).mp4"
         savePanel.begin { [weak self] response in
             guard let self, response == .OK, let dest = savePanel.url else { return }
             guard let urlToSave = self.audioURL, FileManager.default.fileExists(atPath: urlToSave.path) else { return }
@@ -2259,6 +2342,16 @@ class TTSViewModel {
                 ).filter { $0.end > $0.start }
             }
             let timings = WordTimingEngine.shiftedTimings(rawTimings, offsetMs: self.wordSyncOffsetMs)
+            let allDocChunks = self.chunkTextWithMetadata(effectiveText)
+            let coveredCount = max(1, self.completedChunkIndex - self.synthesizedStartChunkIndex + 1)
+            let coveredChunks = isFullBookReady
+                ? allDocChunks
+                : Array(allDocChunks.dropFirst(max(0, self.synthesizedStartChunkIndex)).prefix(coveredCount))
+            let clipChapters = M4BAudiobookExporter.buildChapters(
+                chunks: coveredChunks,
+                timings: timings,
+                totalDurationSec: estDuration
+            )
             let docTitle = StudioDocumentSessionManager.shared.currentDocumentTitle.isEmpty
                 ? "Codecaine Read-Along"
                 : StudioDocumentSessionManager.shared.currentDocumentTitle
@@ -2280,7 +2373,8 @@ class TTSViewModel {
                         aspect: aspect,
                         title: docTitle,
                         voiceName: voiceLabel,
-                        fallbackText: effectiveText,
+                        fallbackText: coveredChunks.map(\.text).joined(separator: "\n\n"),
+                        chapters: clipChapters,
                         onProgress: { done, total in
                             let pct = Int((Double(done) / Double(max(1, total))) * 100.0)
                             Task { @MainActor in
@@ -2295,8 +2389,8 @@ class TTSViewModel {
                     let elapsedStr = String(format: "%.2fs", elapsed)
                     await MainActor.run {
                         self.lastExportedFileURL = dest
-                        self.lastExportedSummary = "\(dest.lastPathComponent) • \(aspect.rawValue) Read-Along MP4 + SRT/VTT"
-                        self.generationProgress = "Exported Read-Along MP4 + SRT/VTT in \(elapsedStr) (\(rtFactor)× real-time): \(dest.lastPathComponent)"
+                        self.lastExportedSummary = "\(dest.lastPathComponent) • \(aspect.rawValue) Read-Along MP4 (\(clipChapters.count) ch) + SRT/VTT"
+                        self.generationProgress = "Exported Read-Along MP4 (\(clipChapters.count) ch) in \(elapsedStr) (\(rtFactor)× real-time): \(dest.lastPathComponent)"
                         Task { @MainActor in
                             try? await Task.sleep(for: .seconds(3.5))
                             if self.generationProgress.hasPrefix("Exported Read-Along MP4") {
@@ -2331,9 +2425,13 @@ class TTSViewModel {
         let savePanel = NSSavePanel()
         savePanel.canCreateDirectories = true
         savePanel.isExtensionHidden = false
-        let scopeTag = scope == .fullDocument ? "All Chapters" : scope.shortBadge
+        let detectedChCount = M4BAudiobookExporter.detectedBookChapterCount(in: cleaned, maxChunkChars: maxChunkLength)
+        let scopeTag = scope == .fullDocument ? "All \(detectedChCount) Chapters in 1 MP4" : scope.shortBadge
+        let aspectTag = aspect.rawValue.replacingOccurrences(of: ":", with: "x")
         savePanel.title = "Export Read-Along Karaoke Video (\(aspect.label) · \(theme.label) · \(scopeTag))"
-        savePanel.nameFieldStringValue = "read_along_\(theme.rawValue)_\(aspect.rawValue.replacingOccurrences(of: ":", with: "x")).mp4"
+        savePanel.nameFieldStringValue = scope == .fullDocument
+            ? "read_along_\(theme.rawValue)_\(aspectTag).mp4"
+            : "preview_section_\(activeChunkIndex + 1)_\(theme.rawValue)_\(aspectTag).mp4"
         savePanel.begin { [weak self] response in
             guard let self, response == .OK, let dest = savePanel.url else { return }
 
@@ -2344,16 +2442,19 @@ class TTSViewModel {
                 requiredScope: scope,
                 targetChunkIndex: startChunk
             )
+            let previousTask = self.generationTask
             if needsSynthesis {
-                self.generationTask?.cancel()
+                previousTask?.cancel()
             }
             self.generationTask = Task { @MainActor in
                 if needsSynthesis {
+                    _ = await previousTask?.value
+                    guard !Task.isCancelled else { return }
                     if !self.isModelLoaded {
                         await self.loadModel()
                     }
                     let totalSections = max(1, self.chunkTextWithMetadata(cleaned).count)
-                    self.generationProgress = "Synthesizing \(scope == .fullDocument ? "all \(totalSections) sections" : scopeTag) for Read-Along MP4 export..."
+                    self.generationProgress = "Synthesizing \(scope == .fullDocument ? "all \(detectedChCount) chapters (\(totalSections) sections)" : scopeTag) for 1-MP4 Read-Along export..."
                     await self.synthesize(
                         text: cleaned,
                         voice: self.selectedVoice,
@@ -2363,13 +2464,21 @@ class TTSViewModel {
                         scopeOverride: scope
                     )
                 }
-                guard !Task.isCancelled, let urlToSave = self.audioURL else { return }
+                guard !Task.isCancelled,
+                      (cleaned.isEmpty || self.hasCompleteAudio(
+                          for: cleaned,
+                          voice: self.selectedVoice,
+                          requiredScope: scope,
+                          targetChunkIndex: startChunk
+                      )),
+                      let urlToSave = self.audioURL else { return }
                 let snapshotWAV = FileManager.default.temporaryDirectory
                     .appendingPathComponent("video_snap_\(UUID().uuidString).wav")
                 try? FileManager.default.copyItem(at: urlToSave, to: snapshotWAV)
                 let wavForVideo = FileManager.default.fileExists(atPath: snapshotWAV.path) ? snapshotWAV : urlToSave
 
                 let effectiveText = cleaned.isEmpty ? self.lastSynthesizedText : cleaned
+                let allDocChunks = self.chunkTextWithMetadata(effectiveText)
                 let estDuration: Double = {
                     if let f = try? AVAudioFile(forReading: wavForVideo), f.processingFormat.sampleRate > 0 {
                         return Double(f.length) / f.processingFormat.sampleRate
@@ -2402,11 +2511,23 @@ class TTSViewModel {
                     ).filter { $0.end > $0.start }
                 }
                 let timings = WordTimingEngine.shiftedTimings(rawTimings, offsetMs: self.wordSyncOffsetMs)
+                let coveredChunks: [PhononTextChunk] = {
+                    if scope == .fullDocument {
+                        return allDocChunks
+                    }
+                    let count = max(1, self.completedChunkIndex - startChunk + 1)
+                    return Array(allDocChunks.dropFirst(max(0, startChunk)).prefix(count))
+                }()
+                let bookChapters = M4BAudiobookExporter.buildChapters(
+                    chunks: coveredChunks,
+                    timings: timings,
+                    totalDurationSec: estDuration
+                )
                 let docTitle = StudioDocumentSessionManager.shared.currentDocumentTitle.isEmpty
                     ? "Codecaine Read-Along"
                     : StudioDocumentSessionManager.shared.currentDocumentTitle
                 let voiceLabel = self.selectedVoice?.name ?? "Russell"
-                self.generationProgress = "Rendering 3-Level Delta-Band Read-Along MP4 (\(aspect.rawValue))..."
+                self.generationProgress = "Rendering 3-Level Delta-Band Read-Along MP4 (\(bookChapters.count) chapters · \(aspect.rawValue))..."
                 await Task.detached(priority: .userInitiated) {
                     defer {
                         if wavForVideo == snapshotWAV {
@@ -2422,11 +2543,12 @@ class TTSViewModel {
                             aspect: aspect,
                             title: docTitle,
                             voiceName: voiceLabel,
-                            fallbackText: effectiveText,
+                            fallbackText: coveredChunks.map(\.text).joined(separator: "\n\n"),
+                            chapters: bookChapters,
                             onProgress: { done, total in
                                 let pct = Int((Double(done) / Double(max(1, total))) * 100.0)
                                 Task { @MainActor in
-                                    self.generationProgress = "Rendering 1080p Read-Along MP4 (\(aspect.rawValue)): \(pct)%..."
+                                    self.generationProgress = "Rendering 1080p Read-Along MP4 (\(bookChapters.count) chapters · \(aspect.rawValue)): \(pct)%..."
                                 }
                             },
                             to: dest
@@ -2437,11 +2559,11 @@ class TTSViewModel {
                         let elapsedStr = String(format: "%.2fs", elapsed)
                         await MainActor.run {
                             self.lastExportedFileURL = dest
-                            self.lastExportedSummary = "\(dest.lastPathComponent) • \(aspect.rawValue) Read-Along MP4 + SRT/VTT"
-                            self.generationProgress = "Exported Read-Along MP4 + SRT/VTT in \(elapsedStr) (\(rtFactor)× real-time): \(dest.lastPathComponent)"
+                            self.lastExportedSummary = "\(dest.lastPathComponent) • \(bookChapters.count) chapters in 1 MP4 (\(aspect.rawValue)) + SRT/VTT"
+                            self.generationProgress = "Exported all \(bookChapters.count) chapters in 1 MP4 in \(elapsedStr) (\(rtFactor)× real-time): \(dest.lastPathComponent)"
                             Task { @MainActor in
                                 try? await Task.sleep(for: .seconds(3.5))
-                                if self.generationProgress.hasPrefix("Exported Read-Along MP4") {
+                                if self.generationProgress.hasPrefix("Exported all ") || self.generationProgress.hasPrefix("Exported Read-Along MP4") {
                                     self.generationProgress = ""
                                 }
                             }
