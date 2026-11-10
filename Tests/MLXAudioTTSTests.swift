@@ -1144,6 +1144,55 @@ struct Qwen3TTSTests {
         #expect(abs(unprimed - expected).max().item(Float.self) > 1e-3)
     }
 
+    @Test func decodeKeepsFramesWhoseFirstCodebookIdIsZero() async throws {
+        let fixture = try await makeTinyQwen3TTSModel(
+            ttsModelType: "voice_design", includeSpeechEncoder: false)
+        defer { cleanupTemporaryArtifactDirectory(fixture.tokenizerDirectory) }
+        let speechTokenizer = try #require(fixture.model.speechTokenizer)
+        for dtype in [DType.int32, .uint32] {
+            let codes = MLXArray([3, 1, 0, 5, 7, 2, 0, 0, 2, 4] as [Int32])
+                .asType(dtype).reshaped(1, 5, 2)
+
+            let (_, lengths) = speechTokenizer.decode(codes)
+
+            #expect(lengths.asArray(Int32.self) == [Int32(5 * speechTokenizer.decodeUpsampleRate)])
+        }
+    }
+
+    @Test func decodeExcludesNegativeRightPaddingAndDecodesItAsZero() async throws {
+        let fixture = try await makeTinyQwen3TTSModel(
+            ttsModelType: "voice_design", includeSpeechEncoder: false)
+        defer { cleanupTemporaryArtifactDirectory(fixture.tokenizerDirectory) }
+        let speechTokenizer = try #require(fixture.model.speechTokenizer)
+        let codebooks = speechTokenizer.decoder.parameters().flattened()
+            .filter { $0.0.hasSuffix("embedding_sum") }
+            .map { ($0.0, MLXRandom.normal($0.1.shape, key: MLXRandom.key(0))) }
+        speechTokenizer.decoder.update(parameters: ModuleParameters.unflattened(codebooks))
+        let padded = MLXArray([3, 1, 0, 2, -1, -1, -1, -1] as [Int32]).reshaped(1, 4, 2)
+        let zeroPadded = MLXArray([3, 1, 0, 2, 0, 0, 0, 0] as [Int32]).reshaped(1, 4, 2)
+
+        let (wav, lengths) = speechTokenizer.decode(padded)
+        let (zeroWav, _) = speechTokenizer.decode(zeroPadded)
+
+        #expect(lengths.asArray(Int32.self) == [Int32(2 * speechTokenizer.decodeUpsampleRate)])
+        #expect(wav.shape == zeroWav.shape)
+        #expect(abs(wav - zeroWav).max().item(Float.self) == 0)
+    }
+
+    @Test func decodeChunkKeepsFramesWhoseFirstCodebookIdIsZero() async throws {
+        let fixture = try await makeTinyQwen3TTSModel(
+            ttsModelType: "voice_design", includeSpeechEncoder: false)
+        defer { cleanupTemporaryArtifactDirectory(fixture.tokenizerDirectory) }
+        let speechTokenizer = try #require(fixture.model.speechTokenizer)
+        for dtype in [DType.int32, .uint32] {
+            let codes = MLXArray([3, 1, 0, 5, 7, 2, 0, 0] as [Int32])
+                .asType(dtype).reshaped(1, 4, 2)
+
+            let audio = fixture.model.decodeChunk(codes)
+
+            #expect(audio.dim(0) == 4 * speechTokenizer.decodeUpsampleRate)
+        }
+    }
     @Test func decoderTransformerAttendsWithinSlidingWindow() throws {
         MLXRandom.seed(0)
         let json = """
@@ -1427,6 +1476,14 @@ struct SopranoTextCleaningTests {
         #expect(cleanTextForSoprano("100th") == "one hundredth")
         #expect(cleanTextForSoprano("10K") == "ten thousand")
         #expect(cleanTextForSoprano("25M") == "twenty five million")
+    }
+
+    @Test func decimalNumbersReadWithPoint() {
+        #expect(cleanTextForSoprano("It is 3.14 approx.") == "it is three point fourteen approx.")
+        #expect(cleanTextForSoprano("I have 2.5 liters") == "i have two point five liters")
+        #expect(cleanTextForSoprano("version 2.0") == "version two point zero")
+        #expect(cleanTextForSoprano("It costs $3.50 today.") == "it costs three dollars, fifty cents today.")
+        #expect(cleanTextForSoprano("I have 5 cats") == "i have five cats")
     }
 }
 
@@ -2932,8 +2989,8 @@ struct IndexTTSTests {
             ),
             (
                 "What's this? It's $12,345.",
-                "What is this? It is twelve thousand three hundred forty five dollars",
-                "WHAT IS THIS? IT IS TWELVE THOUSAND THREE HUNDRED FORTY FIVE DOLLARS"
+                "What is this? It is twelve thousand three hundred forty five dollars.",
+                "WHAT IS THIS? IT IS TWELVE THOUSAND THREE HUNDRED FORTY FIVE DOLLARS."
             ),
             (
                 "call 1 2 3 now",
@@ -2971,6 +3028,28 @@ struct IndexTTSTests {
             let normalized = IndexTTSTextNormalizer.normalize(input)
             #expect(normalized == expectedNormalized)
             #expect(IndexTTSTextNormalizer.tokenizeByCJKChar(normalized) == expectedTokenized)
+        }
+    }
+
+    @Test func normalizerReadsDollarsAndCentsSeparately() {
+        let cases = [
+            ("It costs $2.50 today.", "It costs two dollars fifty cents today."),
+            ("Pay $1,299.99 now.", "Pay one thousand two hundred ninety nine dollars ninety nine cents now."),
+            ("It costs $0.99 each.", "It costs ninety nine cents each."),
+            ("It costs $3.5.", "It costs three dollars fifty cents."),
+            ("Only $1 left.", "Only one dollar left."),
+            ("It costs $5.", "It costs five dollars."),
+            ("I have $5 10 apples.", "I have five dollars ten apples."),
+            ("Prices: $5,$10,$20.", "Prices, five dollars,ten dollars,twenty dollars."),
+            ("Pay $5, or $10.", "Pay five dollars, or ten dollars."),
+            (
+                "Prices: $1,000,$2,500.25.",
+                "Prices, one thousand dollars,two thousand five hundred dollars twenty five cents."
+            ),
+        ]
+
+        for (input, expected) in cases {
+            #expect(IndexTTSTextNormalizer.normalize(input) == expected)
         }
     }
 

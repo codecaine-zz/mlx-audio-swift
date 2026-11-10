@@ -371,8 +371,9 @@ final class DownloadedModelsManager {
     @discardableResult
     func deleteModel(_ repoId: String, displayName: String? = nil) -> UInt64 {
         let label = displayName ?? items.first(where: { $0.repoId == repoId })?.displayName ?? repoId
+        LocalhostServerManager.shared.unloadModelIfMatching(repoId)
         let freed = ModelCacheHelper.deleteModel(repoId)
-        let freedStr = ByteCountFormatter.string(fromByteCount: Int64(max(freed, 1)), countStyle: .file)
+        let freedStr = ByteCountFormatter.string(fromByteCount: Int64(freed), countStyle: .file)
         refresh()
         flashBanner("Deleted \(label) — Freed \(freedStr)")
         return freed
@@ -399,7 +400,7 @@ final class DownloadedModelsManager {
             }
         }
         refresh()
-        let freedStr = ByteCountFormatter.string(fromByteCount: Int64(max(totalFreed, 1)), countStyle: .file)
+        let freedStr = ByteCountFormatter.string(fromByteCount: Int64(totalFreed), countStyle: .file)
         flashBanner("Cleaned \(incomplete.count) incomplete download\(incomplete.count == 1 ? "" : "s") (\(freedStr))")
     }
 
@@ -2420,6 +2421,14 @@ enum SpeechTextCleaner {
                 // Strip markdown table pipes while protecting <|speaker:N|> control tokens
                 s = replaceRegex(s, pattern: "(?<!<)\\|(?!>|speaker:)", with: " ")
             }
+            if s.contains("\\") {
+                s = s.replacingOccurrences(of: "\\'", with: "'")
+                    .replacingOccurrences(of: "\\\"", with: "\"")
+                    .replacingOccurrences(of: "\\-", with: "-")
+                    .replacingOccurrences(of: "\\.", with: ".")
+                    .replacingOccurrences(of: "\\!", with: "!")
+                    .replacingOccurrences(of: "\\?", with: "?")
+            }
         }
 
         if options.stripDividers {
@@ -4370,7 +4379,7 @@ enum ReadAlongTheme: String, CaseIterable, Identifiable {
 
     var activeWordForeground: Color {
         switch self {
-        case .contrast, .matrix, .nord: return Color.black
+        case .contrast, .matrix, .nord, .sepia: return Color.black
         default: return Color.white
         }
     }
@@ -6494,6 +6503,23 @@ final class LocalhostServerManager {
         Memory.clearCache()
     }
 
+    func unloadModelIfMatching(_ repoId: String) {
+        var didUnload = false
+        if cachedTTSModelId == repoId {
+            cachedTTSModel = nil
+            cachedTTSModelId = nil
+            didUnload = true
+        }
+        if cachedSTTModelId == repoId {
+            cachedSTTModel = nil
+            cachedSTTModelId = nil
+            didUnload = true
+        }
+        if didUnload {
+            Memory.clearCache()
+        }
+    }
+
     private func startListener(on port: UInt16) {
         guard let nwPort = NWEndpoint.Port(rawValue: port) else { return }
         let params = NWParameters.tcp
@@ -7553,6 +7579,19 @@ final class StudioPackageManager {
             isCore: false,
             icon: "doc.badge.gearshape",
             extraDirs: ["/Applications/LibreOffice.app/Contents/MacOS"]
+        ),
+        StudioToolSpec(
+            id: "sox",
+            name: "SoX (Sound eXchange Audio Mastering)",
+            what: "Swiss Army knife of command-line audio mastering, sample-rate conversion, silence trimming, and spectral analysis.",
+            executables: ["sox"],
+            versionArgs: ["--version"],
+            website: "https://sourceforge.net/projects/sox/",
+            brewFormula: "sox",
+            isCask: false,
+            isCore: false,
+            icon: "slider.horizontal.3",
+            extraDirs: []
         )
     ]
 

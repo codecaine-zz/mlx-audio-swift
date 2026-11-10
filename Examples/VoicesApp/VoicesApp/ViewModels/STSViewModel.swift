@@ -681,6 +681,13 @@ class STSViewModel {
         isGenerating = false
     }
 
+    func selectInputAudio(_ url: URL) {
+        originalInputURL = url
+        audioURL = url
+        isPlayingOriginal = true
+        audioPlayer.loadAudio(from: url)
+    }
+
     func switchPlaybackSource(original: Bool) {
         let savedTime = currentTime
         let wasPlaying = isPlaying
@@ -690,7 +697,7 @@ class STSViewModel {
             if savedTime > 0 {
                 audioPlayer.seek(to: min(savedTime, max(0, audioPlayer.duration - 0.05)))
             }
-            if wasPlaying || savedTime == 0 {
+            if wasPlaying {
                 audioPlayer.play()
             }
         } else if !original, let proc = audioURL {
@@ -698,7 +705,7 @@ class STSViewModel {
             if savedTime > 0 {
                 audioPlayer.seek(to: min(savedTime, max(0, audioPlayer.duration - 0.05)))
             }
-            if wasPlaying || savedTime == 0 {
+            if wasPlaying {
                 audioPlayer.play()
             }
         }

@@ -485,7 +485,10 @@ class TTSViewModel {
             UserDefaults.standard.set(synthesisScope.rawValue, forKey: "VoicesApp.TTSViewModel.synthesisScope")
         }
     }
-    var splitPattern: String = UserDefaults.standard.string(forKey: TTSViewModel.splitPatternStorageKey) ?? "\n" {
+    var splitPattern: String = {
+        let saved = UserDefaults.standard.string(forKey: TTSViewModel.splitPatternStorageKey) ?? "\\n"
+        return saved == "\n" ? "\\n" : saved
+    }() {
         didSet {
             UserDefaults.standard.set(splitPattern, forKey: TTSViewModel.splitPatternStorageKey)
         }
@@ -1593,6 +1596,9 @@ class TTSViewModel {
     }
 
     func togglePlayPause() {
+        if !isGenerating, let url = audioURL, audioPlayer.currentAudioURL != url {
+            audioPlayer.loadAudio(from: url)
+        }
         audioPlayer.togglePlayPause()
     }
 
@@ -1612,6 +1618,9 @@ class TTSViewModel {
     }
 
     func seek(to time: TimeInterval) {
+        if !isGenerating, let url = audioURL, audioPlayer.currentAudioURL != url {
+            audioPlayer.loadAudio(from: url)
+        }
         audioPlayer.seek(to: time)
     }
 

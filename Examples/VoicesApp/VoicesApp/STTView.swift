@@ -271,7 +271,7 @@ struct STTView: View {
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, 10)
                             .padding(.vertical, 5.5)
-                            .background(Color.white.opacity(0.04), in: Capsule())
+                            .background(activeTheme.pillFill, in: Capsule())
                         }
                     }
                 }
@@ -294,7 +294,7 @@ struct STTView: View {
                                 lineWidth: isDropTargeted ? 2 : 1
                             )
                     )
-                    .shadow(color: .black.opacity(0.25), radius: 14, y: 6)
+                    .shadow(color: .black.opacity(activeTheme.isLight ? 0.10 : 0.25), radius: 14, y: 6)
 
                 ScrollViewReader { proxy in
                     ScrollView {
@@ -313,12 +313,12 @@ struct STTView: View {
                                         .frame(width: 72, height: 72)
                                         .overlay(
                                             Circle()
-                                                .strokeBorder(Color.white.opacity(0.14), lineWidth: 1)
+                                                .strokeBorder(activeTheme.pillStroke, lineWidth: 1)
                                         )
 
                                     Image(systemName: "waveform.badge.mic")
                                         .font(.system(size: 30, weight: .semibold))
-                                        .foregroundStyle(.white)
+                                        .foregroundStyle(activeTheme.isLight ? .blue : .white)
                                 }
 
                                 VStack(spacing: 6) {
@@ -351,10 +351,10 @@ struct STTView: View {
                                         .padding(.vertical, 12)
                                         .background(
                                             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                                .fill(Color.white.opacity(0.05))
+                                                .fill(activeTheme.pillFill)
                                                 .overlay(
                                                     RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                                        .strokeBorder(Color.white.opacity(0.12), lineWidth: 0.8)
+                                                        .strokeBorder(activeTheme.pillStroke, lineWidth: 0.8)
                                                 )
                                         )
                                     }
@@ -599,10 +599,10 @@ struct STTView: View {
                     }
                     .background(
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(Color.white.opacity(0.04))
+                            .fill(activeTheme.recessedFill)
                             .overlay(
                                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                    .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.8)
+                                    .strokeBorder(activeTheme.recessedStroke, lineWidth: 0.8)
                             )
                     )
                     .onHover { isAudioHovering = $0 }
@@ -652,10 +652,10 @@ struct STTView: View {
                             .padding(.horizontal, 16)
                             .background(
                                 Capsule()
-                                    .fill(Color.white.opacity(0.06))
+                                    .fill(activeTheme.pillFill)
                                     .overlay(
                                         Capsule()
-                                            .strokeBorder(Color.white.opacity(0.12), lineWidth: 0.8)
+                                            .strokeBorder(activeTheme.pillStroke, lineWidth: 0.8)
                                     )
                             )
                         }
@@ -713,6 +713,7 @@ struct STTView: View {
                                     )
                             }
                             .buttonStyle(.plain)
+                            .disabled(viewModel.isLoading || viewModel.isGenerating)
                             .help("Switch to Phonon 2.5 English (FermionResearch/Phonon-2.5-English)")
 
                             Button {
@@ -731,16 +732,17 @@ struct STTView: View {
                                     )
                             }
                             .buttonStyle(.plain)
+                            .disabled(viewModel.isLoading || viewModel.isGenerating)
                             .help("Switch to Phonon 2.5 Multilingual (FermionResearch/Phonon-2.5)")
                         }
                         .padding(3)
                         .frame(height: 44)
                         .background(
                             Capsule()
-                                .fill(Color.white.opacity(0.06))
+                                .fill(activeTheme.pillFill)
                                 .overlay(
                                     Capsule()
-                                        .strokeBorder(Color.white.opacity(0.12), lineWidth: 0.8)
+                                        .strokeBorder(activeTheme.pillStroke, lineWidth: 0.8)
                                 )
                         )
 
@@ -867,15 +869,16 @@ struct STTView: View {
                                 .frame(height: 44)
                                 .background(
                                     Capsule()
-                                        .fill(Color.white.opacity(0.06))
+                                        .fill(activeTheme.pillFill)
                                         .overlay(
                                             Capsule()
-                                                .strokeBorder(Color.white.opacity(0.12), lineWidth: 0.8)
+                                                .strokeBorder(activeTheme.pillStroke, lineWidth: 0.8)
                                         )
                                 )
                             }
                             .menuStyle(.borderlessButton)
                             .fixedSize()
+                            .disabled(viewModel.isLoading || viewModel.isGenerating)
 
                             Button {
                                 prefs.toggleFavoriteSTTModel(viewModel.modelId)
@@ -883,14 +886,14 @@ struct STTView: View {
                                 let isFav = prefs.isFavoriteSTTModel(viewModel.modelId)
                                 Image(systemName: isFav ? "star.fill" : "star")
                                     .font(.system(size: 13.5, weight: .semibold))
-                                    .foregroundStyle(isFav ? .yellow : .secondary)
+                                    .foregroundStyle(isFav ? (activeTheme.isLight ? .orange : .yellow) : .secondary)
                                     .frame(width: 38, height: 44)
                                     .background(
                                         Circle()
-                                            .fill(isFav ? Color.yellow.opacity(0.14) : Color.white.opacity(0.06))
+                                            .fill(isFav ? Color.yellow.opacity(0.14) : activeTheme.pillFill)
                                             .overlay(
                                                 Circle()
-                                                    .strokeBorder(isFav ? Color.yellow.opacity(0.45) : Color.white.opacity(0.12), lineWidth: 0.8)
+                                                    .strokeBorder(isFav ? Color.yellow.opacity(0.45) : activeTheme.pillStroke, lineWidth: 0.8)
                                             )
                                     )
                             }
@@ -904,10 +907,10 @@ struct STTView: View {
                                 .frame(width: 44, height: 44)
                                 .background(
                                     Circle()
-                                        .fill(Color.white.opacity(0.06))
+                                        .fill(activeTheme.pillFill)
                                         .overlay(
                                             Circle()
-                                                .strokeBorder(Color.white.opacity(0.12), lineWidth: 0.8)
+                                                .strokeBorder(activeTheme.pillStroke, lineWidth: 0.8)
                                         )
                                 )
                         }
@@ -987,7 +990,7 @@ struct STTView: View {
                                     .font(.system(size: 13.5, weight: .semibold))
                                     .foregroundStyle(copiedRecently ? .green : .primary)
                                     .frame(width: 44, height: 44)
-                                    .background(Circle().fill(Color.white.opacity(0.06)))
+                                    .background(Circle().fill(activeTheme.pillFill))
                             }
                             .buttonStyle(.plain)
                             .help("Copy transcription to clipboard")
@@ -1036,7 +1039,7 @@ struct STTView: View {
                                 .foregroundStyle(.secondary)
                                 .frame(height: 44)
                                 .padding(.horizontal, 16)
-                                .background(Capsule().fill(Color.white.opacity(0.06)))
+                                .background(Capsule().fill(activeTheme.pillFill))
                         }
                         .buttonStyle(.plain)
                     }
@@ -1072,10 +1075,10 @@ struct STTView: View {
                                     .padding(.horizontal, 14)
                                     .background(
                                         Capsule()
-                                            .fill(Color.white.opacity(0.06))
+                                            .fill(activeTheme.pillFill)
                                             .overlay(
                                                 Capsule()
-                                                    .strokeBorder(Color.white.opacity(0.12), lineWidth: 0.8)
+                                                    .strokeBorder(activeTheme.pillStroke, lineWidth: 0.8)
                                             )
                                     )
                                 }
@@ -1100,7 +1103,7 @@ struct STTView: View {
                                     LinearGradient(
                                         colors: canTranscribe
                                             ? (viewModel.hasEmbeddedLyrics ? [Color.teal, Color.blue] : [Color.blue, Color.indigo])
-                                            : [Color.white.opacity(0.08), Color.white.opacity(0.05)],
+                                            : [activeTheme.pillFill, activeTheme.recessedFill],
                                         startPoint: .topLeading,
                                         endPoint: .bottomTrailing
                                     ),
@@ -1108,7 +1111,7 @@ struct STTView: View {
                                 )
                                 .overlay(
                                     Capsule()
-                                        .strokeBorder(Color.white.opacity(canTranscribe ? 0.24 : 0.08), lineWidth: 0.8)
+                                        .strokeBorder(canTranscribe ? Color.white.opacity(0.24) : activeTheme.pillStroke, lineWidth: 0.8)
                                 )
                             }
                             .buttonStyle(.plain)
@@ -1135,7 +1138,7 @@ struct STTView: View {
                                 lineWidth: 1
                             )
                     )
-                    .shadow(color: .black.opacity(0.32), radius: 16, y: 6)
+                    .shadow(color: .black.opacity(activeTheme.isLight ? 0.10 : 0.32), radius: 16, y: 6)
             )
             .padding(.horizontal, 20)
             .padding(.bottom, 16)
@@ -1250,9 +1253,9 @@ private struct TranscriptOutputView: View {
     var onSelectSegment: ((TimeInterval) -> Void)? = nil
 
     var body: some View {
+        let q = searchFilter.trimmingCharacters(in: .whitespacesAndNewlines)
         let effectiveSegments: [TaggedTranscriptSegment] = {
             if !segments.isEmpty { return segments }
-            let q = searchFilter.trimmingCharacters(in: .whitespacesAndNewlines)
             let baseText: String
             if q.isEmpty {
                 baseText = text
@@ -1260,23 +1263,39 @@ private struct TranscriptOutputView: View {
                 let matchingLines = text
                     .components(separatedBy: .newlines)
                     .filter { $0.localizedCaseInsensitiveContains(q) }
-                baseText = matchingLines.isEmpty ? text : matchingLines.joined(separator: "\n")
+                if matchingLines.isEmpty {
+                    return []
+                }
+                baseText = matchingLines.joined(separator: "\n")
             }
             return TaggedTranscriptParser.synthesizeVirtualSegments(from: baseText, totalDuration: max(3.0, totalDuration))
         }()
 
-        LazyVStack(alignment: .leading, spacing: 8) {
-            ForEach(effectiveSegments) { segment in
-                TaggedTranscriptSegmentRow(
-                    segment: segment,
-                    font: font,
-                    isActive: segment.id == activeSegmentID || (currentTime >= segment.startSeconds && currentTime < (segment.endSeconds ?? segment.startSeconds + 4.0) && currentTime > 0.01),
-                    currentTime: currentTime,
-                    onSelectTime: { sec in
-                        onSelectSegment?(sec)
-                    }
-                )
-                .id(segment.id)
+        if effectiveSegments.isEmpty && !q.isEmpty {
+            VStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 24, weight: .medium))
+                    .foregroundStyle(.secondary)
+                Text("No transcript segments match \"\(q)\"")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 48)
+        } else {
+            LazyVStack(alignment: .leading, spacing: 8) {
+                ForEach(effectiveSegments) { segment in
+                    TaggedTranscriptSegmentRow(
+                        segment: segment,
+                        font: font,
+                        isActive: segment.id == activeSegmentID || (currentTime >= segment.startSeconds && currentTime < (segment.endSeconds ?? segment.startSeconds + 4.0) && currentTime > 0.01),
+                        currentTime: currentTime,
+                        onSelectTime: { sec in
+                            onSelectSegment?(sec)
+                        }
+                    )
+                    .id(segment.id)
+                }
             }
         }
     }
@@ -1400,8 +1419,11 @@ private struct TaggedTranscriptSegmentRow: View {
             .pink,
             .teal,
         ]
-        let number = Int(segment.speaker.drop { !$0.isNumber }) ?? 1
-        return palette[(max(number, 1) - 1) % palette.count]
+        if let number = Int(segment.speaker.drop { !$0.isNumber }), number > 0 {
+            return palette[(number - 1) % palette.count]
+        }
+        let hash = abs(segment.speaker.unicodeScalars.reduce(0) { $0 &+ Int($1.value) })
+        return palette[hash % palette.count]
     }
 }
 
@@ -1487,7 +1509,7 @@ private struct TaggedTranscriptSegment: Identifiable {
 
 private enum TaggedTranscriptParser {
     private static let startTagRegex = try! NSRegularExpression(
-        pattern: #"\[(\d+(?:[\.,]\d+)?)\]\[(S\d{1,3})\]"#,
+        pattern: #"\[(\d+(?:[\.,]\d+)?)\]\[([A-Za-z0-9_ -]{1,24})\]"#,
         options: [.caseInsensitive]
     )
     private static let trailingTimestampRegex = try! NSRegularExpression(
@@ -1632,7 +1654,7 @@ private struct RecordingTranscriptPlaceholder: View {
                 .font(.headline)
                 .foregroundStyle(.secondary)
 
-            Text(supportsRealtime ? "Realtime prediction will appear here" : "Starting realtime preview")
+            Text(supportsRealtime ? "Realtime prediction will appear here" : "Audio will be transcribed when you stop recording")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
 
@@ -1670,7 +1692,7 @@ private struct RecordingIndicator: View {
                     .foregroundStyle(.primary)
                     .lineLimit(1)
 
-                Text(supportsRealtime ? "Realtime preview" : "Starting...")
+                Text(supportsRealtime ? "Realtime preview" : "Batch ASR on stop")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)

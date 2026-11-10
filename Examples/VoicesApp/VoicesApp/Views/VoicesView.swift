@@ -3,6 +3,7 @@ import AVFoundation
 
 struct VoicesView: View {
     @Environment(\.dismiss) private var dismiss
+    @AppStorage("VoicesApp.TTSViewModel.readAlongTheme") private var rawStudioTheme: String = ReadAlongTheme.midnight.rawValue
     @State private var searchText = ""
     @State private var selectedCategory: String = "All"
     @State private var showAddVoice = false
@@ -10,6 +11,10 @@ struct VoicesView: View {
     @State private var previewingVoiceId: UUID? = nil
     @State private var previewPlayer: AVAudioPlayer? = nil
     @State private var prefs = StudioUserPreferencesManager.shared
+
+    private var activeTheme: ReadAlongTheme {
+        ReadAlongTheme(rawValue: rawStudioTheme) ?? .midnight
+    }
 
     var modelId: String = ""
     var builtInVoices: [Voice] = []
@@ -201,10 +206,10 @@ struct VoicesView: View {
                                 .padding(.vertical, 6)
                                 .background(
                                     Capsule()
-                                        .fill(isSelected ? Color.blue.opacity(0.38) : Color.white.opacity(0.05))
+                                        .fill(isSelected ? Color.blue : activeTheme.pillFill)
                                         .overlay(
                                             Capsule()
-                                                .strokeBorder(isSelected ? Color.blue.opacity(0.85) : Color.white.opacity(0.10), lineWidth: 0.9)
+                                                .strokeBorder(isSelected ? Color.blue : activeTheme.pillStroke, lineWidth: 0.9)
                                         )
                                 )
                             }
@@ -303,8 +308,8 @@ struct VoicesView: View {
         #if os(macOS)
         .frame(minWidth: 780, minHeight: 580)
         #endif
-        .background(Color(red: 0.08, green: 0.09, blue: 0.13))
-        .preferredColorScheme(.dark)
+        .background(activeTheme.canvasBackground)
+        .preferredColorScheme(activeTheme.colorScheme)
         .onDisappear {
             previewPlayer?.stop()
             previewingVoiceId = nil
@@ -343,6 +348,7 @@ struct VoicesView: View {
 }
 
 struct StudioVoiceBentoCard: View {
+    @AppStorage("VoicesApp.TTSViewModel.readAlongTheme") private var rawStudioTheme: String = ReadAlongTheme.midnight.rawValue
     let voice: Voice
     var isSelected: Bool = false
     var isFavorite: Bool = false
@@ -352,6 +358,10 @@ struct StudioVoiceBentoCard: View {
     var onPreview: (() -> Void)? = nil
     var onDelete: (() -> Void)? = nil
     var onTap: () -> Void
+
+    private var activeTheme: ReadAlongTheme {
+        ReadAlongTheme(rawValue: rawStudioTheme) ?? .midnight
+    }
 
     private var categoryColor: Color {
         switch voice.category {
@@ -408,7 +418,7 @@ struct StudioVoiceBentoCard: View {
                 Button(action: onToggleFavorite) {
                     Image(systemName: isFavorite ? "star.fill" : "star")
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(isFavorite ? .yellow : .secondary.opacity(0.65))
+                        .foregroundStyle(isFavorite ? (activeTheme.isLight ? .orange : .yellow) : .secondary.opacity(0.65))
                 }
                 .buttonStyle(.plain)
                 .help(isFavorite ? "Remove from favorite voices" : "Add to favorite voices")
@@ -441,10 +451,10 @@ struct StudioVoiceBentoCard: View {
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 13, style: .continuous)
-                .fill(isSelected ? Color.blue.opacity(0.14) : (isFavorite ? Color.yellow.opacity(0.05) : Color.white.opacity(0.04)))
+                .fill(isSelected ? Color.blue.opacity(0.14) : (isFavorite ? Color.yellow.opacity(0.05) : activeTheme.elevatedRowFill))
                 .overlay(
                     RoundedRectangle(cornerRadius: 13, style: .continuous)
-                        .strokeBorder(isSelected ? Color.blue.opacity(0.75) : (isFavorite ? Color.yellow.opacity(0.35) : Color.white.opacity(0.09)), lineWidth: isSelected ? 1.2 : 0.8)
+                        .strokeBorder(isSelected ? Color.blue.opacity(0.75) : (isFavorite ? Color.yellow.opacity(0.35) : activeTheme.pillStroke), lineWidth: isSelected ? 1.2 : 0.8)
                 )
         )
     }
@@ -453,8 +463,13 @@ struct StudioVoiceBentoCard: View {
 // MARK: - Search Bar
 
 struct SearchBar: View {
+    @AppStorage("VoicesApp.TTSViewModel.readAlongTheme") private var rawStudioTheme: String = ReadAlongTheme.midnight.rawValue
     @Binding var text: String
     var totalCount: Int = 41
+
+    private var activeTheme: ReadAlongTheme {
+        ReadAlongTheme(rawValue: rawStudioTheme) ?? .midnight
+    }
 
     var body: some View {
         HStack(spacing: 8) {
@@ -479,10 +494,10 @@ struct SearchBar: View {
         .padding(.vertical, 9)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.white.opacity(0.05))
+                .fill(activeTheme.recessedFill)
                 .overlay(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.09), lineWidth: 0.8)
+                        .strokeBorder(activeTheme.recessedStroke, lineWidth: 0.8)
                 )
         )
     }

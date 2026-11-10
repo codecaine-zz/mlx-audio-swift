@@ -42,7 +42,7 @@ struct STSView: View {
                                     .frame(width: 46, height: 46)
                                     .overlay(
                                         RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                            .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
+                                            .strokeBorder(activeTheme.pillStroke, lineWidth: 1)
                                     )
 
                                 Image(systemName: "tuningfork")
@@ -110,15 +110,16 @@ struct STSView: View {
                                             .fill(
                                                 isSelected
                                                 ? LinearGradient(colors: [Color.blue, Color.indigo], startPoint: .topLeading, endPoint: .bottomTrailing)
-                                                : LinearGradient(colors: [Color.white.opacity(0.05), Color.white.opacity(0.03)], startPoint: .top, endPoint: .bottom)
+                                                : LinearGradient(colors: [activeTheme.pillFill, activeTheme.recessedFill], startPoint: .top, endPoint: .bottom)
                                             )
                                             .overlay(
                                                 RoundedRectangle(cornerRadius: 11, style: .continuous)
-                                                    .strokeBorder(Color.white.opacity(isSelected ? 0.24 : 0.08), lineWidth: 0.8)
+                                                    .strokeBorder(isSelected ? Color.white.opacity(0.24) : activeTheme.pillStroke, lineWidth: 0.8)
                                             )
                                     )
                                 }
                                 .buttonStyle(.plain)
+                                .disabled(viewModel.isGenerating || viewModel.isLoading)
                             }
                         }
                     }
@@ -144,11 +145,11 @@ struct STSView: View {
                     errorBanner(error)
                 }
 
-                if !viewModel.diarizationSegments.isEmpty {
+                if viewModel.studioMode == .diarization && !viewModel.diarizationSegments.isEmpty {
                     diarizationResultsSection
                 }
 
-                if !viewModel.lidPredictions.isEmpty {
+                if viewModel.studioMode == .languageId && !viewModel.lidPredictions.isEmpty {
                     lidResultsSection
                 }
 
@@ -280,7 +281,7 @@ struct STSView: View {
                                 } label: {
                                     Image(systemName: isFav ? "star.fill" : "star")
                                         .font(.system(size: 10, weight: .bold))
-                                        .foregroundStyle(isFav ? .yellow : .secondary.opacity(0.6))
+                                        .foregroundStyle(isFav ? (activeTheme.isLight ? .orange : .yellow) : .secondary.opacity(0.6))
                                 }
                                 .buttonStyle(.plain)
                                 .help(isFav ? "Remove from favorite Audio Lab models" : "Add to favorite Audio Lab models")
@@ -311,10 +312,10 @@ struct STSView: View {
                             .padding(.vertical, 6)
                             .background(
                                 Capsule()
-                                    .fill(isSelected ? Color.blue.opacity(0.28) : (isFav ? Color.yellow.opacity(0.08) : Color.white.opacity(0.05)))
+                                    .fill(isSelected ? Color.blue.opacity(0.18) : (isFav ? Color.yellow.opacity(0.08) : activeTheme.pillFill))
                                     .overlay(
                                         Capsule()
-                                            .strokeBorder(isSelected ? Color.blue.opacity(0.8) : (isFav ? Color.yellow.opacity(0.4) : Color.white.opacity(0.08)), lineWidth: 1)
+                                            .strokeBorder(isSelected ? Color.blue.opacity(0.8) : (isFav ? Color.yellow.opacity(0.4) : activeTheme.pillStroke), lineWidth: 1)
                                     )
                             )
                             .contextMenu {
@@ -379,7 +380,8 @@ struct STSView: View {
                                 .font(.system(size: 12, weight: .semibold))
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 7)
-                                .background(Color.white.opacity(0.09), in: Capsule())
+                                .background(activeTheme.pillFill, in: Capsule())
+                                .overlay(Capsule().strokeBorder(activeTheme.pillStroke, lineWidth: 0.8))
                         }
                         .buttonStyle(.plain)
                         .disabled(viewModel.isLoading)
@@ -445,10 +447,7 @@ struct STSView: View {
                             Section("Bundled Studio Voice Samples") {
                                 ForEach(studioSamples, id: \.url) { sample in
                                     Button {
-                                        selectedInputURL = sample.url
-                                        viewModel.originalInputURL = sample.url
-                                        viewModel.audioURL = sample.url
-                                        viewModel.isPlayingOriginal = true
+                                        selectInputAudio(sample.url)
                                     } label: {
                                         Label("\(sample.name) — \(sample.subtitle)", systemImage: "waveform")
                                     }
@@ -548,9 +547,9 @@ struct STSView: View {
                         let dest = FileManager.default.temporaryDirectory
                             .appendingPathComponent("sts_pick_\(UUID().uuidString)_\(url.lastPathComponent)")
                         if (try? FileManager.default.copyItem(at: url, to: dest)) != nil {
-                            selectedInputURL = dest
+                            selectInputAudio(dest)
                         } else {
-                            selectedInputURL = url
+                            selectInputAudio(url)
                         }
                     }
                 }
@@ -572,6 +571,7 @@ struct STSView: View {
                         Text("Keep Background (Residual)").tag(true)
                     }
                     .pickerStyle(.segmented)
+                    .labelsHidden()
                     .frame(width: 320)
                     .disabled(viewModel.isGenerating)
                 }
@@ -591,10 +591,10 @@ struct STSView: View {
                                     .padding(.vertical, 6)
                                     .background(
                                         Capsule()
-                                            .fill(isSelected ? Color.blue.opacity(0.35) : Color.white.opacity(0.05))
+                                            .fill(isSelected ? Color.blue : activeTheme.pillFill)
                                             .overlay(
                                                 Capsule()
-                                                    .strokeBorder(isSelected ? Color.blue : Color.white.opacity(0.08), lineWidth: 1)
+                                                    .strokeBorder(isSelected ? Color.blue : activeTheme.pillStroke, lineWidth: 1)
                                             )
                                     )
                             }
@@ -665,11 +665,11 @@ struct STSView: View {
                     .fill(
                         enabled
                         ? LinearGradient(colors: [Color.blue, Color.indigo], startPoint: .topLeading, endPoint: .bottomTrailing)
-                        : LinearGradient(colors: [Color.white.opacity(0.06), Color.white.opacity(0.04)], startPoint: .top, endPoint: .bottom)
+                        : LinearGradient(colors: [activeTheme.pillFill, activeTheme.recessedFill], startPoint: .top, endPoint: .bottom)
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .strokeBorder(Color.white.opacity(enabled ? 0.24 : 0.08), lineWidth: 0.8)
+                            .strokeBorder(enabled ? Color.white.opacity(0.24) : activeTheme.pillStroke, lineWidth: 0.8)
                     )
                     .shadow(color: enabled ? Color.blue.opacity(0.32) : .clear, radius: 10, y: 4)
             )
@@ -699,7 +699,8 @@ struct STSView: View {
                             .font(.system(size: 11, weight: .semibold))
                             .padding(.horizontal, 8)
                             .padding(.vertical, 3.5)
-                            .background(Color.white.opacity(0.08), in: Capsule())
+                            .background(activeTheme.pillFill, in: Capsule())
+                            .overlay(Capsule().strokeBorder(activeTheme.pillStroke, lineWidth: 0.8))
                     }
                     .buttonStyle(.plain)
                     .help("Copy NIST RTTM speaker diarization timeline to clipboard")
@@ -722,6 +723,7 @@ struct STSView: View {
 
                     if let url = selectedInputURL ?? viewModel.audioURL {
                         Button {
+                            UserDefaults.standard.set(url.path, forKey: "VoicesApp.Transcribe.pendingAudioPath")
                             NotificationCenter.default.post(name: .sendAudioToTranscribe, object: url)
                         } label: {
                             Label("Transcribe →", systemImage: "mic.fill")
@@ -758,10 +760,10 @@ struct STSView: View {
                                         .foregroundStyle(.blue)
                                     Text("Speaker \(seg.speaker)")
                                         .font(.system(size: 11.5, weight: .semibold))
-                                        .foregroundStyle(.white)
+                                        .foregroundStyle(.blue)
                                         .padding(.horizontal, 8)
                                         .padding(.vertical, 3)
-                                        .background(Color.blue.opacity(0.32), in: Capsule())
+                                        .background(Color.blue.opacity(0.16), in: Capsule())
 
                                     Text(String(format: "%.2fs → %.2fs", seg.start, seg.end))
                                         .font(.system(size: 12, design: .monospaced))
@@ -775,7 +777,7 @@ struct STSView: View {
                                 }
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 6)
-                                .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                .background(activeTheme.elevatedRowFill, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
@@ -834,7 +836,7 @@ struct STSView: View {
             Spacer()
         }
         .padding(14)
-        .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(activeTheme.elevatedRowFill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     // MARK: - Audio Player Section
@@ -865,6 +867,7 @@ struct STSView: View {
                         Text("Original Input").tag(true)
                     }
                     .pickerStyle(.segmented)
+                    .labelsHidden()
                     .frame(width: 220)
 
                     Menu {
@@ -956,6 +959,11 @@ struct STSView: View {
 
     // MARK: - Helpers
 
+    private func selectInputAudio(_ url: URL) {
+        selectedInputURL = url
+        viewModel.selectInputAudio(url)
+    }
+
     private func handleDrop(providers: [NSItemProvider]) -> Bool {
         guard let provider = providers.first else { return false }
         if provider.canLoadObject(ofClass: URL.self) {
@@ -967,11 +975,11 @@ struct STSView: View {
                     .appendingPathComponent("sts_drop_\(UUID().uuidString)_\(url.lastPathComponent)")
                 if (try? FileManager.default.copyItem(at: url, to: dest)) != nil {
                     DispatchQueue.main.async {
-                        selectedInputURL = dest
+                        selectInputAudio(dest)
                     }
                 } else {
                     DispatchQueue.main.async {
-                        selectedInputURL = url
+                        selectInputAudio(url)
                     }
                 }
             }
@@ -984,7 +992,7 @@ struct STSView: View {
                 .appendingPathComponent("sts_drop_\(UUID().uuidString)_\(url.lastPathComponent)")
             try? FileManager.default.copyItem(at: url, to: dest)
             DispatchQueue.main.async {
-                selectedInputURL = dest
+                selectInputAudio(dest)
             }
         }
         return true

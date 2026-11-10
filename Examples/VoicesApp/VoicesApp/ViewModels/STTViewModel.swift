@@ -22,6 +22,8 @@ class STTViewModel {
         ("Parakeet TDT 0.6B v3", "mlx-community/parakeet-tdt-0.6b-v3"),
         ("Parakeet TDT 1.1B", "mlx-community/parakeet-tdt-1.1b"),
         ("Parakeet Redux", "moondream/parakeet-redux"),
+        ("Parakeet Ultra", "moondream/parakeet-ultra"),
+        ("Orukeet", "oruk/orukeet"),
         ("Whisper Large v3 Turbo", "mlx-community/whisper-large-v3-turbo"),
         ("SenseVoice Small", "mlx-community/SenseVoiceSmall"),
         ("FireRedASR2 AED (MLX)", "mlx-community/FireRedASR2-AED-mlx"),
@@ -41,6 +43,7 @@ class STTViewModel {
         ("MOSS-Music 8B Thinking (4-bit)", "mlx-community/MOSS-Music-8B-Thinking-4bit"),
         ("Ming-3.0 ASR Tiny (4-bit)", "mlx-community/Ming-3.0-asr-tiny-4bit"),
         ("MiMo-V2.5-ASR", "mlx-community/MiMo-V2.5-ASR-MLX"),
+        ("Nemotron Unified ASR 0.6B (8-bit)", "mlx-community/nemotron-labs-unified-asr-0.6b-8bit"),
         ("Nemotron 3.5 ASR Streaming 0.6B (8-bit)", "mlx-community/nemotron-3.5-asr-streaming-0.6b-8bit"),
         ("Nemotron Speech Streaming EN 0.6B (8-bit)", "animaslabs/nemotron-speech-streaming-en-0.6b-mlx-8bit"),
         ("Nemotron 3.5 Transcribe 30B-A4B (4-bit)", "nativ-community/Nemotron-3.5-Transcribe-30B-A4B-EA-4bit"),
@@ -64,7 +67,7 @@ class STTViewModel {
 
         for item in presetModels {
             let l = item.id.lowercased()
-            if l.contains("phonon") || l.contains("qwen3-asr") || l.contains("parakeet") {
+            if l.contains("phonon") || l.contains("qwen3-asr") || l.contains("parakeet") || l.contains("orukeet") {
                 featured.append(item)
             } else if l.contains("realtime") || l.contains("streaming") || l.contains("diarize") || l.contains("vibevoice") || l.contains("cohere") || l.contains("nemotron") {
                 streamingDiarize.append(item)
@@ -589,11 +592,11 @@ class STTViewModel {
         let totalSamples = monoAudio.dim(0)
         let totalAudioSec = Float(totalSamples) / Float(sampleRate)
 
-        // Split multi-minute songs and recordings at low-energy boundaries into ~22s acoustic windows
+        // Split multi-minute songs and recordings at low-energy boundaries into acoustic windows
         // so every verse, chorus, and bridge from 0:00 to the end of the file is transcribed without truncation.
-        let windowSec = min(max(chunkDuration, 15.0), 22.0)
+        let windowSec = min(max(chunkDuration, 15.0), 120.0)
         let windows: [(MLXArray, Float)]
-        if totalAudioSec > 24.0 {
+        if totalAudioSec > max(24.0, windowSec + 2.0) {
             windows = splitAudioIntoChunks(
                 monoAudio,
                 sampleRate: sampleRate,
@@ -757,6 +760,10 @@ class STTViewModel {
         activeRecordingID = recordingID
         errorMessage = nil
         transcriptionText = ""
+        rawEmbeddedLyrics = nil
+        embeddedLyricsSource = nil
+        usingEmbeddedLyrics = false
+        audioPlayer.pause()
         resetGenerationStats()
         lastReadPos = 0
 
@@ -867,6 +874,10 @@ class STTViewModel {
             try? writer.writeChunk(samples)
             let finalURL = writer.finalize()
             selectedAudioURL = finalURL
+            originalAudioURL = finalURL
+            rawEmbeddedLyrics = nil
+            embeddedLyricsSource = nil
+            usingEmbeddedLyrics = false
             audioFileName = "Microphone Recording (\(String(format: "%.1fs", Double(samples.count) / 16_000.0))).wav"
             audioPlayer.loadAudio(from: finalURL)
         }
@@ -882,6 +893,7 @@ class STTViewModel {
         recorder.cancelRecording()
         activeRecordingID = nil
         lastReadPos = 0
+        generationProgress = ""
     }
 
     func stop() {

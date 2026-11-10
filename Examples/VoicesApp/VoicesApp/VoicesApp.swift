@@ -398,6 +398,14 @@ struct VoicesApp: App {
                 }
                 .keyboardShortcut("v", modifiers: [.command, .shift])
 
+                Button("Clear All Text in Voice Studio") {
+                    selectedTab = 0
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                        NotificationCenter.default.post(name: .miniReaderTransportAction, object: "clearAllText")
+                    }
+                }
+                .keyboardShortcut(.delete, modifiers: [.command, .shift])
+
                 Button("Multi-Voice Character Casting Table…") {
                     selectedTab = 0
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
@@ -564,15 +572,17 @@ struct AppleStudioShellView: View {
                                         .font(.system(size: 11.5, weight: isSelected ? .semibold : .medium))
                                         .foregroundStyle(isSelected ? theme.activeWordForeground : .primary.opacity(0.82))
 
-                                    Text("⌘\(tab.id + 1)")
-                                        .font(.system(size: 9, weight: .bold, design: .rounded))
-                                        .foregroundStyle(isSelected ? theme.activeWordForeground.opacity(0.82) : .secondary.opacity(0.65))
-                                        .padding(.horizontal, 4)
-                                        .padding(.vertical, 1)
-                                        .background(
-                                            Capsule()
-                                                .fill(isSelected ? theme.activeWordForeground.opacity(0.15) : Color.primary.opacity(0.06))
-                                        )
+                                    if isSelected {
+                                        Text("⌘\(tab.id + 1)")
+                                            .font(.system(size: 9, weight: .bold, design: .rounded))
+                                            .foregroundStyle(theme.activeWordForeground.opacity(0.85))
+                                            .padding(.horizontal, 4)
+                                            .padding(.vertical, 1)
+                                            .background(
+                                                Capsule()
+                                                    .fill(theme.activeWordForeground.opacity(0.18))
+                                            )
+                                    }
                                 }
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 6)
@@ -591,7 +601,7 @@ struct AppleStudioShellView: View {
                                             )
                                             .overlay(
                                                 Capsule()
-                                                    .strokeBorder(Color.white.opacity(0.26), lineWidth: 0.8)
+                                                    .strokeBorder(theme.activeWordForeground.opacity(0.24), lineWidth: 0.8)
                                             )
                                             .shadow(color: theme.activeWordBackground.opacity(0.32), radius: 5, y: 2)
                                             .matchedGeometryEffect(id: "ActiveStudioTab", in: tabNamespace)
@@ -669,7 +679,7 @@ struct AppleStudioShellView: View {
                                 .font(.system(size: 10, weight: .bold))
                                 .foregroundStyle(watchFolder.isWatching ? .green : .orange)
                             Text("Watch")
-                                .font(.system(size: 10.5, weight: .semibold))
+                                .font(.system(size: 10, weight: .semibold))
                                 .foregroundStyle(.primary)
                             if !watchFolder.jobs.isEmpty {
                                 Text("\(watchFolder.jobs.count)")
@@ -680,7 +690,7 @@ struct AppleStudioShellView: View {
                                     .background(Color.green, in: Capsule())
                             }
                         }
-                        .padding(.horizontal, 8)
+                        .padding(.horizontal, 7)
                         .padding(.vertical, 5.5)
                         .background(
                             Capsule()
@@ -703,11 +713,11 @@ struct AppleStudioShellView: View {
                             Image(systemName: "menubar.rectangle")
                                 .font(.system(size: 10, weight: .bold))
                                 .foregroundStyle(.cyan)
-                            Text("Mini-Reader")
-                                .font(.system(size: 10.5, weight: .semibold))
+                            Text("Reader")
+                                .font(.system(size: 10, weight: .semibold))
                                 .foregroundStyle(.primary)
                         }
-                        .padding(.horizontal, 8)
+                        .padding(.horizontal, 7)
                         .padding(.vertical, 5.5)
                         .background(
                             Capsule()
@@ -729,15 +739,15 @@ struct AppleStudioShellView: View {
                     Button {
                         showCommandPalette = true
                     } label: {
-                        HStack(spacing: 4) {
+                        HStack(spacing: 3.5) {
                             Image(systemName: "sparkles")
                                 .font(.system(size: 10, weight: .bold))
                                 .foregroundStyle(.orange)
-                            Text("⌘K Master")
+                            Text("⌘K")
                                 .font(.system(size: 10.5, weight: .bold, design: .rounded))
                                 .foregroundStyle(.primary)
                         }
-                        .padding(.horizontal, 8)
+                        .padding(.horizontal, 7.5)
                         .padding(.vertical, 5.5)
                         .background(
                             Capsule()
@@ -763,15 +773,15 @@ struct AppleStudioShellView: View {
                     Button {
                         showShortcutsSheet = true
                     } label: {
-                        HStack(spacing: 3.5) {
+                        HStack(spacing: 3) {
                             Image(systemName: "command")
                                 .font(.system(size: 10, weight: .bold))
                                 .foregroundStyle(theme.activeWordBackground)
                             Text("⌘/")
-                                .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+                                .font(.system(size: 10, weight: .semibold, design: .monospaced))
                                 .foregroundStyle(.primary)
                         }
-                        .padding(.horizontal, 7.5)
+                        .padding(.horizontal, 6.5)
                         .padding(.vertical, 5.5)
                         .background(
                             Capsule()
@@ -792,7 +802,7 @@ struct AppleStudioShellView: View {
                             selectedTab = 3
                         }
                     } label: {
-                        HStack(spacing: 6) {
+                        HStack(spacing: 5) {
                             Circle()
                                 .fill(server.isRunning ? Color.green : Color.orange)
                                 .frame(width: 6.5, height: 6.5)
@@ -803,26 +813,26 @@ struct AppleStudioShellView: View {
                                     ? ":\(server.primaryPort)"
                                     : "Idle"
                             )
-                                .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+                                .font(.system(size: 10, weight: .semibold, design: .monospaced))
                                 .foregroundStyle(.primary.opacity(0.9))
 
                             Divider()
                                 .frame(height: 11)
 
-                            HStack(spacing: 3.5) {
+                            HStack(spacing: 3) {
                                 Image(systemName: "memorychip")
                                     .font(.system(size: 9, weight: .semibold))
                                     .foregroundStyle(theme.activeWordBackground)
                                 Text(
                                     hardware.activeMetalMB >= 10
-                                        ? String(format: "%.0fMB/%.0fG", hardware.activeMetalMB, hardware.safeBudgetGB)
+                                        ? String(format: "%.0fM/%.0fG", hardware.activeMetalMB, hardware.safeBudgetGB)
                                         : String(format: "%.0fGB", hardware.safeBudgetGB)
                                 )
                                 .font(.system(size: 10, weight: .medium, design: .monospaced))
                                 .foregroundStyle(.secondary)
                             }
                         }
-                        .padding(.horizontal, 9)
+                        .padding(.horizontal, 8)
                         .padding(.vertical, 5.5)
                         .background(
                             Capsule()
@@ -890,10 +900,20 @@ struct AppleStudioShellView: View {
         }
         .navigationTitle("Codecaine MLX RAD AI Audio Studio")
         .preferredColorScheme(theme.colorScheme)
+        .onChange(of: rawStudioTheme) { _, newRaw in
+            #if os(macOS)
+            let isLight = (ReadAlongTheme(rawValue: newRaw)?.colorScheme == .light)
+            NSApplication.shared.appearance = NSAppearance(named: isLight ? .aqua : .darkAqua)
+            #endif
+        }
         .onChange(of: selectedTab) { _, newTab in
             visitedTabs.insert(newTab)
             UserDefaults.standard.set(newTab, forKey: "VoicesApp.Shell.selectedTab")
             hardware = HardwareGuardInspector.inspect()
+            if newTab == 4 {
+                DownloadedModelsManager.shared.refresh()
+                StudioPackageManager.shared.refreshStatus()
+            }
         }
         .onReceive(telemetryTimer) { _ in
             hardware = HardwareGuardInspector.inspect()
@@ -1355,6 +1375,11 @@ struct MasterCommandPaletteSheet: View {
     @State private var query: String = ""
     @State private var coordinator = StudioMiniReaderCoordinator.shared
     @State private var prefs = StudioUserPreferencesManager.shared
+    @AppStorage("VoicesApp.TTSViewModel.readAlongTheme") private var rawStudioTheme: String = ReadAlongTheme.midnight.rawValue
+
+    private var activeTheme: ReadAlongTheme {
+        ReadAlongTheme(rawValue: rawStudioTheme) ?? .midnight
+    }
 
     private var commands: [MasterCommandItem] {
         var list: [MasterCommandItem] = prefs.userProfiles.map { profile in
@@ -1465,6 +1490,21 @@ struct MasterCommandPaletteSheet: View {
                 dismiss()
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
                     coordinator.triggerTransport("retakeActiveChunk")
+                }
+            },
+            MasterCommandItem(
+                id: "clear_all_text",
+                category: "Surgical Production & Multi-Voice",
+                title: "Clear All Text in Voice Studio",
+                subtitle: "Clears all editor & book section text and resets Voice Studio to a clean blank canvas",
+                icon: "trash.fill",
+                badge: "⇧⌘⌫",
+                tint: .red
+            ) {
+                selectedTab = 0
+                dismiss()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                    coordinator.triggerTransport("clearAllText")
                 }
             },
             MasterCommandItem(
@@ -1723,8 +1763,8 @@ struct MasterCommandPaletteSheet: View {
         #if os(macOS)
         .frame(width: 720, height: 490)
         #endif
-        .background(Color(red: 0.08, green: 0.09, blue: 0.13))
-        .preferredColorScheme(.dark)
+        .background(activeTheme.canvasBackground)
+        .preferredColorScheme(activeTheme.colorScheme)
     }
 }
 
@@ -1823,12 +1863,17 @@ struct AppleBentoCard<Content: View>: View {
 // MARK: - Standalone Localhost API & Hardware Guard View
 
 struct LocalhostServerView: View {
+    @AppStorage("VoicesApp.TTSViewModel.readAlongTheme") private var rawStudioTheme: String = ReadAlongTheme.midnight.rawValue
     @State private var server = LocalhostServerManager.shared
     @State private var hardware = HardwareGuardInspector.inspect()
     @State private var copiedBanner: String?
     @State private var portString: String = "8080"
     @State private var selectedSDKTask: String = "tts"
     @State private var selectedSDKLang: String = "curl"
+
+    private var theme: ReadAlongTheme {
+        ReadAlongTheme(rawValue: rawStudioTheme) ?? .midnight
+    }
 
     var body: some View {
         ScrollView {
@@ -1848,7 +1893,7 @@ struct LocalhostServerView: View {
                                 .frame(width: 48, height: 48)
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                        .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
+                                        .strokeBorder(theme.pillStroke, lineWidth: 1)
                                 )
 
                             Image(systemName: "server.rack")
@@ -1887,7 +1932,7 @@ struct LocalhostServerView: View {
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 7)
                                     .background(Color.cyan.opacity(0.18), in: Capsule())
-                                    .foregroundStyle(.cyan)
+                                    .foregroundStyle(theme.isLight ? .blue : .cyan)
                             }
                             .buttonStyle(.plain)
                             .help("Open http://127.0.0.1:\(server.primaryPort)/playground in your browser")
@@ -1909,17 +1954,17 @@ struct LocalhostServerView: View {
                             .buttonStyle(.plain)
 
                             Button {
-                                if let p = UInt16(portString), p > 0 {
-                                    server.primaryPort = p
-                                }
-                                server.startServer()
-                                showBanner("Restarted listeners on \(server.statusMessage)")
+                                applyAndRestartPort()
                             } label: {
                                 Label(server.isRunning ? "Restart" : "Start", systemImage: "arrow.clockwise")
                                     .font(.system(size: 12, weight: .medium))
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 7)
-                                    .background(Color.white.opacity(0.08), in: Capsule())
+                                    .background(theme.pillFill, in: Capsule())
+                                    .overlay(
+                                        Capsule()
+                                            .strokeBorder(theme.pillStroke, lineWidth: 0.8)
+                                    )
                             }
                             .buttonStyle(.plain)
 
@@ -1941,19 +1986,21 @@ struct LocalhostServerView: View {
                 }
 
                 if let banner = copiedBanner {
+                    let isError = banner.localizedCaseInsensitiveContains("error") || banner.localizedCaseInsensitiveContains("invalid")
+                    let bannerTint: Color = isError ? .orange : .green
                     HStack(spacing: 8) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
+                        Image(systemName: isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                            .foregroundStyle(bannerTint)
                         Text(banner)
                             .font(.system(size: 12.5, weight: .medium))
                         Spacer()
                     }
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
-                    .background(Color.green.opacity(0.14), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .background(bannerTint.opacity(0.14), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .strokeBorder(Color.green.opacity(0.3), lineWidth: 1)
+                            .strokeBorder(bannerTint.opacity(0.32), lineWidth: 1)
                     )
                 }
 
@@ -2019,7 +2066,7 @@ struct LocalhostServerView: View {
                                     let usedRatio = min(max(activeGB / max(hardware.totalRamGB, 1), 0.015), safeRatio)
                                     ZStack(alignment: .leading) {
                                         Capsule()
-                                            .fill(Color.white.opacity(0.07))
+                                            .fill(theme.recessedFill)
                                         Capsule()
                                             .fill(Color.green.opacity(0.18))
                                             .frame(width: geo.size.width * safeRatio)
@@ -2077,7 +2124,7 @@ struct LocalhostServerView: View {
                                 )
                             }
 
-                            HStack(spacing: 14) {
+                            HStack(spacing: 12) {
                                 HStack(spacing: 6) {
                                     Text("Primary Port:")
                                         .font(.system(size: 11.5))
@@ -2088,11 +2135,14 @@ struct LocalhostServerView: View {
                                         .padding(.horizontal, 7)
                                         .padding(.vertical, 3)
                                         .frame(width: 58)
-                                        .background(Color.black.opacity(0.28), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                                        .background(theme.recessedFill, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
                                         .overlay(
                                             RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                                .strokeBorder(Color.white.opacity(0.10), lineWidth: 0.8)
+                                                .strokeBorder(theme.recessedStroke, lineWidth: 0.8)
                                         )
+                                        .onSubmit {
+                                            applyAndRestartPort()
+                                        }
                                 }
 
                                 Toggle("Emulate Ollama (:11434)", isOn: $server.enableOllamaFallbackPort)
@@ -2139,7 +2189,11 @@ struct LocalhostServerView: View {
                                         .font(.system(size: 11.5, weight: .medium))
                                         .padding(.horizontal, 10)
                                         .padding(.vertical, 5)
-                                        .background(Color.white.opacity(0.07), in: Capsule())
+                                        .background(theme.pillFill, in: Capsule())
+                                        .overlay(
+                                            Capsule()
+                                                .strokeBorder(theme.pillStroke, lineWidth: 0.8)
+                                        )
                                 }
                                 .buttonStyle(.plain)
 
@@ -2157,7 +2211,11 @@ struct LocalhostServerView: View {
                                         .font(.system(size: 11.5, weight: .medium))
                                         .padding(.horizontal, 10)
                                         .padding(.vertical, 5)
-                                        .background(Color.white.opacity(0.07), in: Capsule())
+                                        .background(theme.pillFill, in: Capsule())
+                                        .overlay(
+                                            Capsule()
+                                                .strokeBorder(theme.pillStroke, lineWidth: 0.8)
+                                        )
                                 }
                                 .buttonStyle(.plain)
 
@@ -2175,7 +2233,11 @@ struct LocalhostServerView: View {
                                         .font(.system(size: 11.5, weight: .medium))
                                         .padding(.horizontal, 10)
                                         .padding(.vertical, 5)
-                                        .background(Color.white.opacity(0.07), in: Capsule())
+                                        .background(theme.pillFill, in: Capsule())
+                                        .overlay(
+                                            Capsule()
+                                                .strokeBorder(theme.pillStroke, lineWidth: 0.8)
+                                        )
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -2196,7 +2258,7 @@ struct LocalhostServerView: View {
                             HStack {
                                 Label("RAD SDK Code Generator (cURL · Python · TypeScript · Swift)", systemImage: "chevron.left.forwardslash.chevron.right")
                                     .font(.system(size: 13.5, weight: .semibold))
-                                    .foregroundStyle(.cyan)
+                                    .foregroundStyle(theme.isLight ? .blue : .cyan)
                                 Spacer()
 
                                 Button {
@@ -2208,7 +2270,7 @@ struct LocalhostServerView: View {
                                         .padding(.horizontal, 12)
                                         .padding(.vertical, 5.5)
                                         .background(Color.cyan.opacity(0.20), in: Capsule())
-                                        .foregroundStyle(.cyan)
+                                        .foregroundStyle(theme.isLight ? .blue : .cyan)
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -2235,7 +2297,11 @@ struct LocalhostServerView: View {
                                             .foregroundStyle(active ? .white : .secondary)
                                             .padding(.horizontal, 9)
                                             .padding(.vertical, 4.5)
-                                            .background(active ? Color.blue.opacity(0.45) : Color.white.opacity(0.05), in: Capsule())
+                                            .background(active ? Color.blue : theme.pillFill, in: Capsule())
+                                            .overlay(
+                                                Capsule()
+                                                    .strokeBorder(active ? Color.clear : theme.pillStroke, lineWidth: 0.8)
+                                            )
                                         }
                                         .buttonStyle(.plain)
                                     }
@@ -2260,7 +2326,11 @@ struct LocalhostServerView: View {
                                                 .foregroundStyle(active ? .white : .secondary)
                                                 .padding(.horizontal, 9)
                                                 .padding(.vertical, 4.5)
-                                                .background(active ? Color.indigo.opacity(0.55) : Color.white.opacity(0.05), in: Capsule())
+                                                .background(active ? Color.indigo : theme.pillFill, in: Capsule())
+                                                .overlay(
+                                                    Capsule()
+                                                        .strokeBorder(active ? Color.clear : theme.pillStroke, lineWidth: 0.8)
+                                                )
                                         }
                                         .buttonStyle(.plain)
                                     }
@@ -2275,10 +2345,10 @@ struct LocalhostServerView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .background(
                                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .fill(Color.black.opacity(0.32))
+                                        .fill(theme.recessedFill)
                                         .overlay(
                                             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                                .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.8)
+                                                .strokeBorder(theme.recessedStroke, lineWidth: 0.8)
                                         )
                                 )
                         }
@@ -2301,7 +2371,11 @@ struct LocalhostServerView: View {
                                         .foregroundStyle(.secondary)
                                         .padding(.horizontal, 8)
                                         .padding(.vertical, 4)
-                                        .background(Color.white.opacity(0.06), in: Capsule())
+                                        .background(theme.pillFill, in: Capsule())
+                                        .overlay(
+                                            Capsule()
+                                                .strokeBorder(theme.pillStroke, lineWidth: 0.8)
+                                        )
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -2361,7 +2435,7 @@ struct LocalhostServerView: View {
                                     }
                                     .padding(.horizontal, 10)
                                     .padding(.vertical, 6)
-                                    .background(Color.white.opacity(0.03), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                    .background(theme.elevatedRowFill, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                                 }
                             }
                         }
@@ -2378,16 +2452,36 @@ struct LocalhostServerView: View {
         .onChange(of: server.requestLogs.count) { _, _ in
             hardware = HardwareGuardInspector.inspect()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .modelCacheDidChange)) { _ in
+            hardware = HardwareGuardInspector.inspect()
+        }
+    }
+
+    private func applyAndRestartPort() {
+        let trimmed = portString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let p = UInt16(trimmed), p >= 1024 else {
+            portString = String(server.primaryPort)
+            showBanner("Invalid port '\(trimmed)' — please enter a port between 1024 and 65535")
+            return
+        }
+        server.primaryPort = p
+        server.startServer()
+        showBanner("Restarted listeners on \(server.statusMessage)")
     }
 
     private func runSelfTest() async {
+        server.startIfNeeded()
         let port = server.activePorts.first ?? server.primaryPort
         guard let url = URL(string: "http://127.0.0.1:\(port)/api/tags") else { return }
         do {
             let (_, response) = try await URLSession.shared.data(from: url)
-            if let http = response as? HTTPURLResponse, http.statusCode == 200 {
-                hardware = HardwareGuardInspector.inspect()
-                showBanner("Loopback verified on 127.0.0.1:\(port)/api/tags (HTTP 200 OK)")
+            if let http = response as? HTTPURLResponse {
+                if http.statusCode == 200 {
+                    hardware = HardwareGuardInspector.inspect()
+                    showBanner("Loopback verified on 127.0.0.1:\(port)/api/tags (HTTP 200 OK)")
+                } else {
+                    showBanner("Loopback test error: HTTP \(http.statusCode) on 127.0.0.1:\(port)/api/tags")
+                }
             }
         } catch {
             showBanner("Loopback test error: \(error.localizedDescription)")
@@ -2566,10 +2660,15 @@ struct LocalhostServerView: View {
 }
 
 struct HardwareMetricTile: View {
+    @AppStorage("VoicesApp.TTSViewModel.readAlongTheme") private var rawStudioTheme: String = ReadAlongTheme.midnight.rawValue
     let label: String
     let value: String
     let sub: String
     let tint: Color
+
+    private var theme: ReadAlongTheme {
+        ReadAlongTheme(rawValue: rawStudioTheme) ?? .midnight
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -2587,14 +2686,26 @@ struct HardwareMetricTile: View {
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+        .background(
+            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                .fill(theme.elevatedRowFill)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        .strokeBorder(theme.pillStroke, lineWidth: 0.8)
+                )
+        )
     }
 }
 
 struct PortStatusBadge: View {
+    @AppStorage("VoicesApp.TTSViewModel.readAlongTheme") private var rawStudioTheme: String = ReadAlongTheme.midnight.rawValue
     let port: Int
     let label: String
     let active: Bool
+
+    private var theme: ReadAlongTheme {
+        ReadAlongTheme(rawValue: rawStudioTheme) ?? .midnight
+    }
 
     var body: some View {
         HStack(spacing: 7) {
@@ -2615,19 +2726,24 @@ struct PortStatusBadge: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(active ? Color.green.opacity(0.10) : Color.white.opacity(0.03))
+                .fill(active ? Color.green.opacity(0.10) : theme.elevatedRowFill)
                 .overlay(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .strokeBorder(active ? Color.green.opacity(0.3) : Color.white.opacity(0.06), lineWidth: 1)
+                        .strokeBorder(active ? Color.green.opacity(0.32) : theme.pillStroke, lineWidth: 1)
                 )
         )
     }
 }
 
 struct EndpointRow: View {
+    @AppStorage("VoicesApp.TTSViewModel.readAlongTheme") private var rawStudioTheme: String = ReadAlongTheme.midnight.rawValue
     let method: String
     let path: String
     let desc: String
+
+    private var theme: ReadAlongTheme {
+        ReadAlongTheme(rawValue: rawStudioTheme) ?? .midnight
+    }
 
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
@@ -2652,17 +2768,22 @@ struct EndpointRow: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .background(Color.white.opacity(0.025), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(theme.elevatedRowFill, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
 
 // MARK: - Codecaine Homebrew & Studio Packages Easy Installer View
 
 struct PackagesInstallerView: View {
+    @AppStorage("VoicesApp.TTSViewModel.readAlongTheme") private var rawStudioTheme: String = ReadAlongTheme.midnight.rawValue
     @State private var manager = StudioPackageManager.shared
     @State private var selectedFilter: String = "All"
     @State private var searchQuery: String = ""
     @State private var copiedMessage: String? = nil
+
+    private var theme: ReadAlongTheme {
+        ReadAlongTheme(rawValue: rawStudioTheme) ?? .midnight
+    }
 
     private let filters = ["All", "Core Studio", "Installed", "Missing"]
 
@@ -2815,7 +2936,11 @@ struct PackagesInstallerView: View {
                                 .font(.system(size: 12, weight: .medium))
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 8)
-                                .background(Color.white.opacity(0.08), in: Capsule())
+                                .background(theme.pillFill, in: Capsule())
+                                .overlay(
+                                    Capsule()
+                                        .strokeBorder(theme.pillStroke, lineWidth: 0.8)
+                                )
                         }
                         .buttonStyle(.plain)
                     }
@@ -2832,7 +2957,7 @@ struct PackagesInstallerView: View {
             ? "STEP 1: HOMEBREW PACKAGE MANAGER READY (\(manager.brewPath ?? "/opt/homebrew/bin/brew"))"
             : "STEP 1: INSTALL HOMEBREW FIRST (REQUIRED ONCE ON MACOS)"
         let btnLabel = brewReady ? "Re-Run Homebrew Setup in Terminal" : "1-Click Install Homebrew in Terminal"
-        let btnBg: Color = brewReady ? Color.white.opacity(0.09) : Color.orange.opacity(0.28)
+        let btnBg: Color = brewReady ? theme.pillFill : Color.orange.opacity(0.28)
         let btnFg: Color = brewReady ? Color.primary : Color.orange
 
         HStack(spacing: 12) {
@@ -2862,7 +2987,11 @@ struct PackagesInstallerView: View {
                     .font(.system(size: 11.5, weight: .medium))
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
-                    .background(Color.white.opacity(0.07), in: Capsule())
+                    .background(theme.pillFill, in: Capsule())
+                    .overlay(
+                        Capsule()
+                            .strokeBorder(theme.pillStroke, lineWidth: 0.8)
+                    )
             }
             .buttonStyle(.plain)
 
@@ -2874,6 +3003,10 @@ struct PackagesInstallerView: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
                     .background(btnBg, in: Capsule())
+                    .overlay(
+                        Capsule()
+                            .strokeBorder(brewReady ? theme.pillStroke : Color.orange.opacity(0.45), lineWidth: 0.8)
+                    )
                     .foregroundStyle(btnFg)
             }
             .buttonStyle(.plain)
@@ -2881,10 +3014,10 @@ struct PackagesInstallerView: View {
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(brewReady ? Color.black.opacity(0.24) : Color.orange.opacity(0.10))
+                .fill(brewReady ? theme.recessedFill : Color.orange.opacity(0.10))
                 .overlay(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(brewReady ? Color.white.opacity(0.08) : Color.orange.opacity(0.35), lineWidth: 0.8)
+                        .strokeBorder(brewReady ? theme.recessedStroke : Color.orange.opacity(0.35), lineWidth: 0.8)
                 )
         )
     }
@@ -2904,16 +3037,17 @@ struct PackagesInstallerView: View {
                             .font(.system(size: 10, weight: .bold, design: .rounded))
                             .padding(.horizontal, 6)
                             .padding(.vertical, 1.5)
-                            .background(active ? Color.white.opacity(0.22) : Color.white.opacity(0.07), in: Capsule())
+                            .background(active ? Color.white.opacity(0.22) : Color.primary.opacity(0.08), in: Capsule())
                     }
+                    .foregroundStyle(active ? .white : .primary)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
                     .background(
                         Capsule()
-                            .fill(active ? Color.blue.opacity(0.32) : Color.white.opacity(0.045))
+                            .fill(active ? Color.blue : theme.pillFill)
                             .overlay(
                                 Capsule()
-                                    .strokeBorder(active ? Color.blue.opacity(0.8) : Color.white.opacity(0.08), lineWidth: 0.8)
+                                    .strokeBorder(active ? Color.blue : theme.pillStroke, lineWidth: 0.8)
                             )
                     )
                 }
@@ -2945,10 +3079,10 @@ struct PackagesInstallerView: View {
             .padding(.vertical, 6)
             .background(
                 Capsule()
-                    .fill(Color.white.opacity(0.05))
+                    .fill(theme.recessedFill)
                     .overlay(
                         Capsule()
-                            .strokeBorder(Color.white.opacity(0.10), lineWidth: 0.8)
+                            .strokeBorder(theme.recessedStroke, lineWidth: 0.8)
                     )
             )
         }
@@ -3044,13 +3178,20 @@ struct PackagesInstallerView: View {
                     ScrollView {
                         Text(manager.consoleLog)
                             .font(.system(size: 11, weight: .regular, design: .monospaced))
-                            .foregroundStyle(.green.opacity(0.9))
+                            .foregroundStyle(.green.opacity(0.92))
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .textSelection(.enabled)
                     }
                     .frame(maxHeight: 150)
                     .padding(10)
-                    .background(Color.black.opacity(0.45), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .background(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(Color(red: 0.05, green: 0.07, blue: 0.10))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .strokeBorder(theme.recessedStroke, lineWidth: 0.8)
+                            )
+                    )
                 }
             }
         }
@@ -3081,11 +3222,16 @@ private extension StudioToolStatus {
 }
 
 struct StudioPackageTileView: View {
+    @AppStorage("VoicesApp.TTSViewModel.readAlongTheme") private var rawStudioTheme: String = ReadAlongTheme.midnight.rawValue
     let item: StudioToolStatus
     let isInstalling: Bool
     let onCopy: () -> Void
     let onInstall: () -> Void
     let onTerminal: () -> Void
+
+    private var theme: ReadAlongTheme {
+        ReadAlongTheme(rawValue: rawStudioTheme) ?? .midnight
+    }
 
     private var statusColor: Color {
         item.installed ? .green : .orange
@@ -3150,14 +3296,22 @@ struct StudioPackageTileView: View {
                         .padding(.horizontal, 9)
                         .padding(.vertical, 5)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.black.opacity(0.28), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .background(theme.recessedFill, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .strokeBorder(theme.recessedStroke, lineWidth: 0.8)
+                        )
                         .lineLimit(1)
 
                     Button(action: onCopy) {
                         Image(systemName: "doc.on.doc")
                             .font(.system(size: 11, weight: .medium))
                             .padding(6)
-                            .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                            .background(theme.pillFill, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                    .strokeBorder(theme.pillStroke, lineWidth: 0.8)
+                            )
                     }
                     .buttonStyle(.plain)
                     .help("Copy brew install command")
@@ -3172,8 +3326,12 @@ struct StudioPackageTileView: View {
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5.5)
                         .background(
-                            item.installed ? Color.white.opacity(0.08) : Color.blue.opacity(0.28),
+                            item.installed ? theme.pillFill : Color.blue,
                             in: Capsule()
+                        )
+                        .overlay(
+                            Capsule()
+                                .strokeBorder(item.installed ? theme.pillStroke : Color.clear, lineWidth: 0.8)
                         )
                         .foregroundStyle(item.installed ? Color.primary : Color.white)
                     }
@@ -3185,7 +3343,11 @@ struct StudioPackageTileView: View {
                         Image(systemName: "terminal")
                             .font(.system(size: 11, weight: .semibold))
                             .padding(6)
-                            .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                            .background(theme.pillFill, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                    .strokeBorder(theme.pillStroke, lineWidth: 0.8)
+                            )
                     }
                     .buttonStyle(.plain)
                     .help("Run '\(item.installCommand)' interactively in macOS Terminal.app")
@@ -3220,11 +3382,16 @@ struct DownloadedModelsSheetView: View {
 }
 
 struct DownloadedModelsCardView: View {
+    @AppStorage("VoicesApp.TTSViewModel.readAlongTheme") private var rawStudioTheme: String = ReadAlongTheme.midnight.rawValue
     var isSheet: Bool = false
     @State private var manager = DownloadedModelsManager.shared
     @State private var selectedCategory: DownloadedModelCategory = .all
     @State private var searchQuery: String = ""
     @State private var pendingDeleteItem: DownloadedModelItem? = nil
+
+    private var theme: ReadAlongTheme {
+        ReadAlongTheme(rawValue: rawStudioTheme) ?? .midnight
+    }
 
     private var filteredItems: [DownloadedModelItem] {
         manager.items.filter { item in
@@ -3335,7 +3502,11 @@ struct DownloadedModelsCardView: View {
                                 .font(.system(size: 11.5, weight: .medium))
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 7)
-                                .background(Color.white.opacity(0.08), in: Capsule())
+                                .background(theme.pillFill, in: Capsule())
+                                .overlay(
+                                    Capsule()
+                                        .strokeBorder(theme.pillStroke, lineWidth: 0.8)
+                                )
                         }
                         .buttonStyle(.plain)
                         #endif
@@ -3347,7 +3518,11 @@ struct DownloadedModelsCardView: View {
                                 .font(.system(size: 11.5, weight: .medium))
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 7)
-                                .background(Color.white.opacity(0.08), in: Capsule())
+                                .background(theme.pillFill, in: Capsule())
+                                .overlay(
+                                    Capsule()
+                                        .strokeBorder(theme.pillStroke, lineWidth: 0.8)
+                                )
                         }
                         .buttonStyle(.plain)
                     }
@@ -3388,16 +3563,17 @@ struct DownloadedModelsCardView: View {
                                                 .font(.system(size: 9.5, weight: .bold, design: .rounded))
                                                 .padding(.horizontal, 5.5)
                                                 .padding(.vertical, 1)
-                                                .background(active ? Color.white.opacity(0.22) : Color.white.opacity(0.07), in: Capsule())
+                                                .background(active ? Color.white.opacity(0.22) : Color.primary.opacity(0.08), in: Capsule())
                                         }
+                                        .foregroundStyle(active ? .white : .primary)
                                         .padding(.horizontal, 11)
                                         .padding(.vertical, 5.5)
                                         .background(
                                             Capsule()
-                                                .fill(active ? Color.blue.opacity(0.32) : Color.white.opacity(0.045))
+                                                .fill(active ? Color.blue : theme.pillFill)
                                                 .overlay(
                                                     Capsule()
-                                                        .strokeBorder(active ? Color.blue.opacity(0.8) : Color.white.opacity(0.08), lineWidth: 0.8)
+                                                        .strokeBorder(active ? Color.blue : theme.pillStroke, lineWidth: 0.8)
                                                 )
                                         )
                                     }
@@ -3432,10 +3608,10 @@ struct DownloadedModelsCardView: View {
                     .padding(.vertical, 5.5)
                     .background(
                         Capsule()
-                            .fill(Color.white.opacity(0.05))
+                            .fill(theme.recessedFill)
                             .overlay(
                                 Capsule()
-                                    .strokeBorder(Color.white.opacity(0.10), lineWidth: 0.8)
+                                    .strokeBorder(theme.recessedStroke, lineWidth: 0.8)
                             )
                     )
                 }
@@ -3498,7 +3674,11 @@ struct DownloadedModelsCardView: View {
                                     Image(systemName: "folder")
                                         .font(.system(size: 11.5, weight: .medium))
                                         .padding(6.5)
-                                        .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                                        .background(theme.pillFill, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                                .strokeBorder(theme.pillStroke, lineWidth: 0.8)
+                                        )
                                 }
                                 .buttonStyle(.plain)
                                 .help("Reveal \(item.repoId) in Finder")
@@ -3531,10 +3711,10 @@ struct DownloadedModelsCardView: View {
                             .padding(.vertical, 8)
                             .background(
                                 RoundedRectangle(cornerRadius: 11, style: .continuous)
-                                    .fill(Color.black.opacity(0.22))
+                                    .fill(theme.elevatedRowFill)
                                     .overlay(
                                         RoundedRectangle(cornerRadius: 11, style: .continuous)
-                                            .strokeBorder(Color.white.opacity(0.07), lineWidth: 0.8)
+                                            .strokeBorder(theme.pillStroke, lineWidth: 0.8)
                                     )
                             )
                         }

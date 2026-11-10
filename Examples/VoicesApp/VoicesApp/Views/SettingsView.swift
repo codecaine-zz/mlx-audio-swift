@@ -9,6 +9,7 @@ import AppKit
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable var viewModel: TTSViewModel
+    @AppStorage("VoicesApp.TTSViewModel.readAlongTheme") private var rawStudioTheme: String = ReadAlongTheme.midnight.rawValue
     @FocusState private var focusedField: Field?
     @State private var modelFilter: String = ""
     @State private var showCachedOnly: Bool = false
@@ -17,6 +18,10 @@ struct SettingsView: View {
     @State private var prefs = StudioUserPreferencesManager.shared
     @State private var pendingDeleteModel: (name: String, id: String, size: String)? = nil
     @State private var showDownloadedModelsSheet: Bool = false
+
+    private var activeTheme: ReadAlongTheme {
+        ReadAlongTheme(rawValue: rawStudioTheme) ?? .midnight
+    }
 
     private var filteredPresets: [(name: String, id: String)] {
         _ = modelsManager.cacheRevision
@@ -60,10 +65,10 @@ struct SettingsView: View {
             }
         }
         #if os(macOS)
-        .frame(minWidth: 500, minHeight: 720)
+        .frame(minWidth: 500, minHeight: 580)
         #endif
-        .background(Color(red: 0.08, green: 0.09, blue: 0.13))
-        .preferredColorScheme(.dark)
+        .background(activeTheme.canvasBackground)
+        .preferredColorScheme(activeTheme.colorScheme)
         .sheet(isPresented: $showDownloadedModelsSheet) {
             DownloadedModelsSheetView()
         }
@@ -476,8 +481,8 @@ struct SettingsView: View {
                         get: { Double(viewModel.maxTokens) },
                         set: { viewModel.maxTokens = Int($0) }
                     ),
-                    range: 100...2000,
-                    step: 100
+                    range: 256...8192,
+                    step: 256
                 )
                 #else
                 Slider(
@@ -485,8 +490,8 @@ struct SettingsView: View {
                         get: { Double(viewModel.maxTokens) },
                         set: { viewModel.maxTokens = Int($0) }
                     ),
-                    in: 100...2000,
-                    step: 100
+                    in: 256...8192,
+                    step: 256
                 )
                 .tint(.blue)
                 #endif

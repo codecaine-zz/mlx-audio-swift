@@ -3,6 +3,7 @@ import SwiftUI
 struct STTSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable var viewModel: STTViewModel
+    @AppStorage("VoicesApp.TTSViewModel.readAlongTheme") private var rawStudioTheme: String = ReadAlongTheme.midnight.rawValue
     @State private var modelFilter: String = ""
     @State private var showCachedOnly: Bool = false
     @State private var showFavoritesOnly: Bool = false
@@ -10,6 +11,10 @@ struct STTSettingsView: View {
     @State private var prefs = StudioUserPreferencesManager.shared
     @State private var pendingDeleteModel: (name: String, id: String, size: String)? = nil
     @State private var showDownloadedModelsSheet: Bool = false
+
+    private var activeTheme: ReadAlongTheme {
+        ReadAlongTheme(rawValue: rawStudioTheme) ?? .midnight
+    }
 
     private var filteredPresets: [(name: String, id: String)] {
         _ = modelsManager.cacheRevision
@@ -49,10 +54,10 @@ struct STTSettingsView: View {
             }
         }
         #if os(macOS)
-        .frame(minWidth: 500, minHeight: 620)
+        .frame(minWidth: 500, minHeight: 580)
         #endif
-        .background(Color(red: 0.08, green: 0.09, blue: 0.13))
-        .preferredColorScheme(.dark)
+        .background(activeTheme.canvasBackground)
+        .preferredColorScheme(activeTheme.colorScheme)
         .sheet(isPresented: $showDownloadedModelsSheet) {
             DownloadedModelsSheetView()
         }
@@ -435,8 +440,8 @@ struct STTSettingsView: View {
                         get: { Double(viewModel.chunkDuration) },
                         set: { viewModel.chunkDuration = Float($0) }
                     ),
-                    range: 30...600,
-                    step: 10
+                    range: 15...120,
+                    step: 5
                 )
                 #else
                 Slider(
@@ -444,8 +449,8 @@ struct STTSettingsView: View {
                         get: { Double(viewModel.chunkDuration) },
                         set: { viewModel.chunkDuration = Float($0) }
                     ),
-                    in: 30...600,
-                    step: 10
+                    in: 15...120,
+                    step: 5
                 )
                 .tint(.blue)
                 #endif

@@ -193,6 +193,8 @@ struct ContentView: View {
             viewModel.applyMasterBusInPlaceToCurrentAudio()
         case "preset_bypass":
             masteringManager.applyPreset(.bypass)
+        case "clearAllText":
+            clearAllStudioText()
         case "saveCurrentProfile":
             let vName = viewModel.selectedVoice?.name.components(separatedBy: " ").first ?? "Studio"
             newProfileName = "\(vName) \(String(format: "%.2gx", viewModel.playbackRate)) (\(masteringManager.preset.shortBadge))"
@@ -242,6 +244,23 @@ struct ContentView: View {
             )
         }
         #endif
+    }
+
+    private func clearAllStudioText() {
+        viewModel.stop()
+        withAnimation(.easeOut(duration: 0.16)) {
+            textInput = ""
+            viewModel.synthesizedWordTimings = []
+            viewModel.activeChunkIndex = 0
+            viewModel.synthesizingChunkIndex = 0
+            viewModel.synthesizedStartChunkIndex = 0
+            viewModel.synthesizedEndChunkIndex = nil
+            previewWordId = nil
+            showTeleprompter = false
+            viewModel.errorMessage = nil
+            sessionManager.saveSessionScript("", chunkIndex: 0, title: "Studio Script")
+        }
+        syncMiniReaderState()
     }
 
     private func toggleVoiceAudition() {
@@ -714,6 +733,29 @@ struct ContentView: View {
                         .menuStyle(.borderlessButton)
                         .fixedSize()
 
+                        Divider().frame(height: 14).opacity(0.35)
+
+                        // 1-Click Clear All Text Button (⇧⌘⌫)
+                        Button {
+                            clearAllStudioText()
+                        } label: {
+                            HStack(spacing: 3.5) {
+                                Image(systemName: "trash.fill")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(textInput.isEmpty ? Color.secondary.opacity(0.5) : Color.red)
+                                Text("Clear Text")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(textInput.isEmpty ? .secondary : .primary)
+                            }
+                            .padding(.horizontal, 6.5)
+                            .padding(.vertical, 5)
+                            .contentShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(textInput.isEmpty && !showTeleprompter)
+                        .keyboardShortcut(.delete, modifiers: [.command, .shift])
+                        .help("Clear all text and reset editor to blank canvas (⇧⌘⌫)")
+
                     Divider().frame(height: 14).opacity(0.35)
 
                     // Reading Bookmarks & Recent Documents Menu
@@ -735,6 +777,9 @@ struct ContentView: View {
                                     Button {
                                         let target = min(max(0, bm.chunkIndex), max(0, chunks.count - 1))
                                         viewModel.activeChunkIndex = target
+                                        if let firstWord = timings.first(where: { $0.chunkIndex == target }) {
+                                            previewWordId = firstWord.id
+                                        }
                                         withAnimation(.spring(response: 0.24, dampingFraction: 0.82)) {
                                             showTeleprompter = true
                                         }
@@ -754,7 +799,7 @@ struct ContentView: View {
                                             viewModel.activeChunkIndex = doc.lastChunkIndex
                                         }
                                     } label: {
-                                        Label("\(doc.title) (§\(doc.lastChunkIndex + 1))", systemImage: "Clock")
+                                        Label("\(doc.title) (§\(doc.lastChunkIndex + 1))", systemImage: "clock")
                                     }
                                 }
                             }
@@ -909,9 +954,9 @@ struct ContentView: View {
                         }
                         Divider()
                         Button(role: .destructive) {
-                            textInput = ""
+                            clearAllStudioText()
                         } label: {
-                            Label("Clear Editor", systemImage: "trash")
+                            Label("Clear All Text (⇧⌘⌫)", systemImage: "trash")
                         }
                     } label: {
                         HStack(spacing: 4) {
@@ -1354,7 +1399,7 @@ struct ContentView: View {
                                 HStack(spacing: 4) {
                                     Image(systemName: "bolt.fill")
                                         .font(.system(size: 10))
-                                        .foregroundStyle(.yellow)
+                                        .foregroundStyle(theme.isLight ? .orange : .yellow)
                                     Text(viewModel.synthesisScope.shortBadge)
                                         .font(.system(size: 10.5, weight: .semibold, design: .rounded))
                                 }
@@ -1409,7 +1454,7 @@ struct ContentView: View {
                                 HStack(spacing: 4) {
                                     Image(systemName: "star.circle.fill")
                                         .font(.system(size: 10.5))
-                                        .foregroundStyle(.yellow)
+                                        .foregroundStyle(theme.isLight ? .orange : .yellow)
                                     Text("Presets (\(prefs.userProfiles.count))")
                                         .font(.system(size: 10.5, weight: .semibold, design: .rounded))
                                 }
@@ -1563,6 +1608,9 @@ struct ContentView: View {
 
                                                 Button("Jump") {
                                                     viewModel.activeChunkIndex = c.index
+                                                    if let firstWord = timings.first(where: { $0.chunkIndex == c.index }) {
+                                                        previewWordId = firstWord.id
+                                                    }
                                                     showTeleprompter = true
                                                     showChunkSearchPopover = false
                                                 }
@@ -1571,6 +1619,9 @@ struct ContentView: View {
 
                                                 Button {
                                                     viewModel.activeChunkIndex = c.index
+                                                    if let firstWord = timings.first(where: { $0.chunkIndex == c.index }) {
+                                                        previewWordId = firstWord.id
+                                                    }
                                                     showTeleprompter = true
                                                     showChunkSearchPopover = false
                                                     if viewModel.isModelLoaded {
@@ -1645,10 +1696,10 @@ struct ContentView: View {
                                         .padding(.vertical, 3.5)
                                         .background(
                                             Capsule()
-                                                .fill(isCurrent ? Color.blue.opacity(0.65) : Color.white.opacity(0.06))
+                                                .fill(isCurrent ? Color.blue : theme.pillFill)
                                                 .overlay(
                                                     Capsule()
-                                                        .strokeBorder(isCurrent ? Color.blue : (isBookmarked ? Color.orange.opacity(0.6) : Color.white.opacity(0.10)), lineWidth: 0.8)
+                                                        .strokeBorder(isCurrent ? Color.blue : (isBookmarked ? Color.orange.opacity(0.6) : theme.pillStroke), lineWidth: 0.8)
                                                 )
                                         )
                                     }
@@ -1723,6 +1774,9 @@ struct ContentView: View {
                                 chunkIndex: chunkIdx,
                                 format: .wav
                             )
+                        },
+                        onClearAllText: {
+                            clearAllStudioText()
                         }
                     )
                     .padding(.horizontal, 20)
@@ -1778,13 +1832,30 @@ struct ContentView: View {
                             Spacer()
 
                             Button {
+                                clearAllStudioText()
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "trash.fill")
+                                        .font(.system(size: 9.5))
+                                    Text("Clear All")
+                                        .font(.system(size: 11, weight: .semibold))
+                                }
+                                .foregroundStyle(.red)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 4.5)
+                                .background(Color.red.opacity(0.14), in: Capsule())
+                            }
+                            .buttonStyle(.plain)
+                            .help("Clear entire loaded document and return to empty script editor (⇧⌘⌫)")
+
+                            Button {
                                 viewModel.activeChunkIndex = max(0, (currentSection - 1) * chunksPerSection)
                             } label: {
                                 Label("Prev Section", systemImage: "chevron.left")
                                     .font(.system(size: 11, weight: .semibold))
                                     .padding(.horizontal, 9)
                                     .padding(.vertical, 4)
-                                    .background(Color.white.opacity(0.07), in: Capsule())
+                                    .background(theme.pillFill, in: Capsule())
                             }
                             .buttonStyle(.plain)
                             .disabled(currentSection <= 0)
@@ -1796,7 +1867,7 @@ struct ContentView: View {
                                     .font(.system(size: 11, weight: .semibold))
                                     .padding(.horizontal, 9)
                                     .padding(.vertical, 4)
-                                    .background(Color.white.opacity(0.07), in: Capsule())
+                                    .background(theme.pillFill, in: Capsule())
                             }
                             .buttonStyle(.plain)
                             .disabled(currentSection >= totalSections - 1)
@@ -1820,7 +1891,7 @@ struct ContentView: View {
                                     Text("Synthesize §\(sectionStartIdx + 1) (2s)")
                                         .font(.system(size: 11, weight: .semibold))
                                 }
-                                .foregroundStyle(.white)
+                                .foregroundStyle(theme.activeWordForeground)
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 4.5)
                                 .background(theme.activeWordBackground, in: Capsule())
@@ -1842,7 +1913,7 @@ struct ContentView: View {
                                     Text("2s Export §\(sectionStartIdx + 1)")
                                         .font(.system(size: 11, weight: .semibold))
                                 }
-                                .foregroundStyle(.yellow)
+                                .foregroundStyle(theme.isLight ? .orange : .yellow)
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 4.5)
                                 .background(Color.yellow.opacity(0.16), in: Capsule())
@@ -2045,13 +2116,14 @@ struct ContentView: View {
                             Divider().frame(height: 10)
 
                             Button {
-                                textInput = ""
+                                clearAllStudioText()
                             } label: {
-                                Label("Clear", systemImage: "xmark.circle.fill")
-                                    .font(.system(size: 11, weight: .medium))
-                                    .foregroundStyle(.secondary)
+                                Label("Clear All", systemImage: "trash.fill")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundStyle(.red.opacity(0.9))
                             }
                             .buttonStyle(.plain)
+                            .help("Clear all text in editor (⇧⌘⌫)")
 
                             Divider().frame(height: 10)
                         }
@@ -2266,10 +2338,10 @@ struct ContentView: View {
                     .padding(.vertical, 6)
                     .background(
                         RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(Color.white.opacity(0.04))
+                            .fill(theme.recessedFill)
                             .overlay(
                                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                    .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.8)
+                                    .strokeBorder(theme.recessedStroke, lineWidth: 0.8)
                             )
                     )
                 }
@@ -2324,10 +2396,10 @@ struct ContentView: View {
                         .frame(height: 44)
                         .background(
                             Capsule()
-                                .fill(Color.white.opacity(0.06))
+                                .fill(theme.pillFill)
                                 .overlay(
                                     Capsule()
-                                        .strokeBorder(Color.white.opacity(0.12), lineWidth: 0.8)
+                                        .strokeBorder(theme.pillStroke, lineWidth: 0.8)
                                 )
                         )
                     }
@@ -2342,14 +2414,14 @@ struct ContentView: View {
                         } label: {
                             Image(systemName: isFavVoice ? "star.fill" : "star")
                                 .font(.system(size: 13.5, weight: .semibold))
-                                .foregroundStyle(isFavVoice ? .yellow : .secondary)
+                                .foregroundStyle(isFavVoice ? (theme.isLight ? .orange : .yellow) : .secondary)
                                 .frame(width: 38, height: 44)
                                 .background(
                                     Circle()
-                                        .fill(isFavVoice ? Color.yellow.opacity(0.14) : Color.white.opacity(0.06))
+                                        .fill(isFavVoice ? Color.yellow.opacity(0.14) : theme.pillFill)
                                         .overlay(
                                             Circle()
-                                                .strokeBorder(isFavVoice ? Color.yellow.opacity(0.45) : Color.white.opacity(0.12), lineWidth: 0.8)
+                                                .strokeBorder(isFavVoice ? Color.yellow.opacity(0.45) : theme.pillStroke, lineWidth: 0.8)
                                         )
                                 )
                         }
@@ -2512,10 +2584,10 @@ struct ContentView: View {
                             .frame(height: 44)
                             .background(
                                 Capsule()
-                                    .fill(Color.white.opacity(0.06))
+                                    .fill(theme.pillFill)
                                     .overlay(
                                         Capsule()
-                                            .strokeBorder(Color.white.opacity(0.12), lineWidth: 0.8)
+                                            .strokeBorder(theme.pillStroke, lineWidth: 0.8)
                                     )
                             )
                         }
@@ -2528,14 +2600,14 @@ struct ContentView: View {
                             let isFav = prefs.isFavoriteTTSModel(viewModel.modelId)
                             Image(systemName: isFav ? "star.fill" : "star")
                                 .font(.system(size: 13.5, weight: .semibold))
-                                .foregroundStyle(isFav ? .yellow : .secondary)
+                                .foregroundStyle(isFav ? (theme.isLight ? .orange : .yellow) : .secondary)
                                 .frame(width: 38, height: 44)
                                 .background(
                                     Circle()
-                                        .fill(isFav ? Color.yellow.opacity(0.14) : Color.white.opacity(0.06))
+                                        .fill(isFav ? Color.yellow.opacity(0.14) : theme.pillFill)
                                         .overlay(
                                             Circle()
-                                                .strokeBorder(isFav ? Color.yellow.opacity(0.45) : Color.white.opacity(0.12), lineWidth: 0.8)
+                                                .strokeBorder(isFav ? Color.yellow.opacity(0.45) : theme.pillStroke, lineWidth: 0.8)
                                         )
                                 )
                         }
@@ -2551,10 +2623,10 @@ struct ContentView: View {
                             .frame(width: 44, height: 44)
                             .background(
                                 Circle()
-                                    .fill(Color.white.opacity(0.06))
+                                    .fill(theme.pillFill)
                                     .overlay(
                                         Circle()
-                                            .strokeBorder(Color.white.opacity(0.12), lineWidth: 0.8)
+                                            .strokeBorder(theme.pillStroke, lineWidth: 0.8)
                                     )
                             )
                     }
@@ -2705,7 +2777,7 @@ struct ContentView: View {
                         HStack(spacing: 6) {
                             Image(systemName: "bolt.horizontal.circle.fill")
                                 .font(.system(size: 13.5, weight: .semibold))
-                                .foregroundStyle(.yellow)
+                                .foregroundStyle(theme.isLight ? .orange : .yellow)
                             Text("Silent Export")
                                 .font(.system(size: 13, weight: .semibold))
                                 .foregroundStyle(.primary)
@@ -2717,7 +2789,7 @@ struct ContentView: View {
                         .frame(height: 44)
                         .background(
                             Capsule()
-                                .fill(Color.white.opacity(0.06))
+                                .fill(theme.pillFill)
                                 .overlay(
                                     Capsule()
                                         .strokeBorder(Color.yellow.opacity(0.32), lineWidth: 0.9)
@@ -2789,7 +2861,7 @@ struct ContentView: View {
                                 LinearGradient(
                                     colors: canGenerate
                                         ? [Color.blue, Color.indigo]
-                                        : [Color.white.opacity(0.08), Color.white.opacity(0.05)],
+                                        : [theme.pillFill, theme.recessedFill],
                                     startPoint: .topLeading,
                                     endPoint: .bottomTrailing
                                 ),
@@ -2797,7 +2869,7 @@ struct ContentView: View {
                             )
                             .overlay(
                                 Capsule()
-                                    .strokeBorder(Color.white.opacity(canGenerate ? 0.25 : 0.08), lineWidth: 0.8)
+                                    .strokeBorder(canGenerate ? Color.white.opacity(0.25) : theme.pillStroke, lineWidth: 0.8)
                             )
                             .shadow(color: canGenerate ? Color.blue.opacity(0.35) : .clear, radius: 10, y: 4)
                         }
@@ -2907,6 +2979,9 @@ struct ContentView: View {
             syncMiniReaderState()
         }
         .onChange(of: viewModel.activeChunkIndex) { _, newChunk in
+            if previewWordId != nil && !viewModel.isPlaying {
+                previewWordId = timings.first(where: { $0.chunkIndex == newChunk })?.id
+            }
             sessionManager.saveActiveChunkIndex(newChunk)
             syncMiniReaderState()
         }
@@ -2973,6 +3048,11 @@ struct ContentView: View {
                       let restored = sessionManager.restoreSessionScript() {
                 textInput = restored.text
                 viewModel.activeChunkIndex = restored.chunkIndex
+            }
+            if textInput.contains("\\'") || textInput.contains("\\\"") {
+                textInput = textInput
+                    .replacingOccurrences(of: "\\'", with: "'")
+                    .replacingOccurrences(of: "\\\"", with: "\"")
             }
             syncMiniReaderState()
         }
@@ -3168,6 +3248,7 @@ struct ContentView: View {
                 Button {
                     showVoices = true
                 } label: {
+                    let theme = viewModel.readAlongTheme
                     HStack(spacing: 4) {
                         Image(systemName: "square.grid.2x2")
                             .font(.system(size: 11, weight: .semibold))
@@ -3179,10 +3260,10 @@ struct ContentView: View {
                     .padding(.vertical, 5)
                     .background(
                         Capsule()
-                            .fill(Color.white.opacity(0.05))
+                            .fill(theme.pillFill)
                             .overlay(
                                 Capsule()
-                                    .strokeBorder(Color.white.opacity(0.10), lineWidth: 0.8)
+                                    .strokeBorder(theme.pillStroke, lineWidth: 0.8)
                             )
                     )
                 }
@@ -3195,10 +3276,11 @@ struct ContentView: View {
 
     @ViewBuilder
     private func quickVoicePillButton(for voice: Voice) -> some View {
+        let theme = viewModel.readAlongTheme
         let isSelected = viewModel.selectedVoice?.name == voice.name && viewModel.selectedVoice?.voiceId == voice.voiceId
         let isFav = prefs.isFavoriteVoice(voice)
-        let fillStyle: Color = isSelected ? Color.blue.opacity(0.34) : (isFav ? Color.yellow.opacity(0.08) : Color.white.opacity(0.05))
-        let borderStyle: Color = isSelected ? Color.blue.opacity(0.88) : (isFav ? Color.yellow.opacity(0.38) : Color.white.opacity(0.09))
+        let fillStyle: Color = isSelected ? Color.blue : (isFav ? Color.yellow.opacity(0.08) : theme.pillFill)
+        let borderStyle: Color = isSelected ? Color.blue : (isFav ? Color.yellow.opacity(0.38) : theme.pillStroke)
         Button {
             withAnimation(.spring(response: 0.24, dampingFraction: 0.8)) {
                 viewModel.selectedVoice = voice
@@ -3208,7 +3290,7 @@ struct ContentView: View {
                 if isFav {
                     Image(systemName: "star.fill")
                         .font(.system(size: 9.5, weight: .bold))
-                        .foregroundStyle(.yellow)
+                        .foregroundStyle(isSelected ? .yellow : (theme.isLight ? .orange : .yellow))
                 }
                 VoiceAvatar(color: voice.color, size: 15)
                 Text(voice.name)
@@ -3310,6 +3392,7 @@ struct KaraokeTeleprompterView: View {
     let onSelectChunk: (Int) -> Void
     let onSynthesizeFromChunk: (Int) -> Void
     let onQuickExportChunk: (Int) -> Void
+    var onClearAllText: (() -> Void)? = nil
 
     @AppStorage("VoicesApp.Teleprompter.stageMode") private var stageMode: Bool = true
     @AppStorage("VoicesApp.Teleprompter.fontSize") private var teleprompterFontSize: Double = 16.0
@@ -3340,6 +3423,7 @@ struct KaraokeTeleprompterView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 14) {
                     // Header Banner
+                    ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         HStack(spacing: 6) {
                             Image(systemName: "waveform.and.magnifyingglass")
@@ -3363,7 +3447,7 @@ struct KaraokeTeleprompterView: View {
                                 } label: {
                                     Text("🎯 Stage (§\(safeActiveChunk + 1)/\(totalChunks))")
                                         .font(.system(size: 10.5, weight: stageMode ? .bold : .medium, design: .rounded))
-                                        .foregroundStyle(stageMode ? .white : .secondary)
+                                        .foregroundStyle(stageMode ? theme.activeWordForeground : .secondary)
                                         .padding(.horizontal, 8)
                                         .padding(.vertical, 3.5)
                                         .background(stageMode ? theme.activeWordBackground : Color.clear, in: Capsule())
@@ -3377,7 +3461,7 @@ struct KaraokeTeleprompterView: View {
                                 } label: {
                                     Text("📜 All (§1–§\(totalChunks))")
                                         .font(.system(size: 10.5, weight: !stageMode ? .bold : .medium, design: .rounded))
-                                        .foregroundStyle(!stageMode ? .white : .secondary)
+                                        .foregroundStyle(!stageMode ? theme.activeWordForeground : .secondary)
                                         .padding(.horizontal, 8)
                                         .padding(.vertical, 3.5)
                                         .background(!stageMode ? theme.activeWordBackground : Color.clear, in: Capsule())
@@ -3385,7 +3469,7 @@ struct KaraokeTeleprompterView: View {
                                 .buttonStyle(.plain)
                             }
                             .padding(2)
-                            .background(Color.white.opacity(0.06), in: Capsule())
+                            .background(theme.pillFill, in: Capsule())
 
                             Button {
                                 onSelectChunk(max(0, safeActiveChunk - 1))
@@ -3394,7 +3478,7 @@ struct KaraokeTeleprompterView: View {
                                     .font(.system(size: 10.5, weight: .bold))
                                     .padding(.horizontal, 7)
                                     .padding(.vertical, 4.5)
-                                    .background(Color.white.opacity(0.07), in: Capsule())
+                                    .background(theme.pillFill, in: Capsule())
                             }
                             .buttonStyle(.plain)
                             .disabled(safeActiveChunk <= 0)
@@ -3407,7 +3491,7 @@ struct KaraokeTeleprompterView: View {
                                     .font(.system(size: 10.5, weight: .bold))
                                     .padding(.horizontal, 7)
                                     .padding(.vertical, 4.5)
-                                    .background(Color.white.opacity(0.07), in: Capsule())
+                                    .background(theme.pillFill, in: Capsule())
                             }
                             .buttonStyle(.plain)
                             .disabled(safeActiveChunk >= totalChunks - 1)
@@ -3475,6 +3559,25 @@ struct KaraokeTeleprompterView: View {
                                 )
                         )
 
+                        if let onClearAllText {
+                            Button {
+                                onClearAllText()
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "trash.fill")
+                                        .font(.system(size: 9.5))
+                                    Text("Clear All")
+                                        .font(.system(size: 10.5, weight: .semibold))
+                                }
+                                .foregroundStyle(.red)
+                                .padding(.horizontal, 9)
+                                .padding(.vertical, 4)
+                                .background(Color.red.opacity(0.14), in: Capsule())
+                            }
+                            .buttonStyle(.plain)
+                            .help("Clear all text and return to empty script editor (⇧⌘⌫)")
+                        }
+
                         Button {
                             onQuickExportChunk(safeActiveChunk)
                         } label: {
@@ -3484,7 +3587,7 @@ struct KaraokeTeleprompterView: View {
                                 Text("2s Export §\(safeActiveChunk + 1)")
                                     .font(.system(size: 10.5, weight: .semibold))
                             }
-                            .foregroundStyle(.yellow)
+                            .foregroundStyle(theme.isLight ? .orange : .yellow)
                             .padding(.horizontal, 9)
                             .padding(.vertical, 4)
                             .background(Color.yellow.opacity(0.15), in: Capsule())
@@ -3501,8 +3604,9 @@ struct KaraokeTeleprompterView: View {
                                 .foregroundStyle(theme.activeWordBackground)
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 4)
-                                .background(Color.white.opacity(0.06), in: Capsule())
+                                .background(theme.pillFill, in: Capsule())
                         }
+                    }
                     }
 
                     if useFocusedStage {
@@ -3525,10 +3629,10 @@ struct KaraokeTeleprompterView: View {
                                 .padding(.vertical, 7)
                                 .background(
                                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .fill(Color.white.opacity(0.04))
+                                        .fill(theme.elevatedRowFill)
                                         .overlay(
                                             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                                .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.8)
+                                                .strokeBorder(theme.pillStroke, lineWidth: 0.8)
                                         )
                                 )
                             }
@@ -3568,7 +3672,7 @@ struct KaraokeTeleprompterView: View {
                                         Text("Read from §\(safeActiveChunk + 1)")
                                             .font(.system(size: 10.5, weight: .semibold))
                                     }
-                                    .foregroundStyle(.white)
+                                    .foregroundStyle(theme.activeWordForeground)
                                     .padding(.horizontal, 10)
                                     .padding(.vertical, 4)
                                     .background(theme.activeWordBackground, in: Capsule())
@@ -3580,7 +3684,7 @@ struct KaraokeTeleprompterView: View {
                             GeometryReader { geo in
                                 ZStack(alignment: .leading) {
                                     Capsule()
-                                        .fill(Color.white.opacity(0.08))
+                                        .fill(theme.pillStroke)
                                     Capsule()
                                         .fill(theme.activeWordBackground)
                                         .frame(width: max(8, geo.size.width * min(1.0, max(0.02, chunkProgress))))
@@ -3634,10 +3738,10 @@ struct KaraokeTeleprompterView: View {
                                 .padding(.vertical, 7)
                                 .background(
                                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .fill(Color.white.opacity(0.04))
+                                        .fill(theme.elevatedRowFill)
                                         .overlay(
                                             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                                .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.8)
+                                                .strokeBorder(theme.pillStroke, lineWidth: 0.8)
                                         )
                                 )
                             }
@@ -3662,7 +3766,7 @@ struct KaraokeTeleprompterView: View {
                                             .padding(.horizontal, 8)
                                             .padding(.vertical, 3)
                                             .background(
-                                                isChunkActive ? theme.activeWordBackground : Color.white.opacity(0.07),
+                                                isChunkActive ? theme.activeWordBackground : theme.pillFill,
                                                 in: Capsule()
                                             )
 
@@ -3683,7 +3787,7 @@ struct KaraokeTeleprompterView: View {
                                                 Text("2s Export")
                                                     .font(.system(size: 10, weight: .semibold))
                                             }
-                                            .foregroundStyle(.yellow)
+                                            .foregroundStyle(theme.isLight ? .orange : .yellow)
                                             .padding(.horizontal, 8)
                                             .padding(.vertical, 3)
                                             .background(Color.yellow.opacity(0.14), in: Capsule())
