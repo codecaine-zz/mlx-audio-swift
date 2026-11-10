@@ -498,6 +498,21 @@ struct STTSettingsView: View {
                 .tint(.blue)
                 #endif
 
+                HStack(spacing: 6) {
+                    ForEach([(0, "0ms Instant"), (200, "200ms Realtime"), (480, "480ms Agent"), (2400, "2400ms Subtitle")], id: \.0) { ms, label in
+                        let isSel = viewModel.streamingDelayMs == ms
+                        Button(label) {
+                            viewModel.streamingDelayMs = ms
+                        }
+                        .font(.caption2.weight(isSel ? .semibold : .regular))
+                        .foregroundStyle(isSel ? .white : .primary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3.5)
+                        .background(isSel ? Color.blue : Color.gray.opacity(0.15), in: Capsule())
+                        .buttonStyle(.plain)
+                    }
+                }
+
                 Text("How long tokens must be stable before confirming. Lower = faster but more corrections.")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
@@ -512,7 +527,7 @@ struct STTSettingsView: View {
 
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
-                        ForEach(["Auto", "English", "Chinese", "Japanese", "Spanish", "French", "German"], id: \.self) { lang in
+                        ForEach(["Auto", "English", "Chinese", "Japanese", "Korean", "Spanish", "French", "German"], id: \.self) { lang in
                             let val = (lang == "Auto") ? "" : lang
                             let isSelected = (lang == "Auto" && viewModel.language.trimmingCharacters(in: .whitespaces).isEmpty) || viewModel.language.caseInsensitiveCompare(lang) == .orderedSame
                             Button(lang) {

@@ -341,18 +341,18 @@ public class AudioPlayer: NSObject, ObservableObject {
 
     private func startTimer() {
         stopTimer()
-        timer = Timer.scheduledTimer(withTimeInterval: 0.025, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: 0.016, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let player = self?.player else { return }
                 self?.currentTime = player.currentTime
             }
         }
-        timer?.tolerance = 0.008
+        timer?.tolerance = 0.004
     }
 
     private func startStreamingTimer() {
         stopTimer()
-        timer = Timer.scheduledTimer(withTimeInterval: 0.025, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: 0.016, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self,
                       self.isNodeActivelyPlaying,
@@ -362,7 +362,7 @@ public class AudioPlayer: NSObject, ObservableObject {
                 self.currentTime = self.duration > 0 ? min(self.duration, totalSec) : totalSec
             }
         }
-        timer?.tolerance = 0.008
+        timer?.tolerance = 0.004
     }
 
     private func stopTimer() {

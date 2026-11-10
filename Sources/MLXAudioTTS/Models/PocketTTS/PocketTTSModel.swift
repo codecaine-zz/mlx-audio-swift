@@ -321,6 +321,7 @@ public final class PocketTTSModel: Module, SpeechGenerationModel, @unchecked Sen
         "bryony": "gfP44RlHwr2kEwk7",
         "alfie": "X6NceqF285Gr04gb",
         "hugh": "YyKcxPG7iIgS3jsK",
+        "sterling": "YyKcxPG7iIgS3jsK",
         "edwin": "zUCxzrOrugTSis03",
         "spencer": "JOW0vchyswkQUMDS",
         "toby": "dME3IWyZBvmh1n1q",

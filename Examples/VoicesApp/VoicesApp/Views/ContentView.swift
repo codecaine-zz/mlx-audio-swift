@@ -125,6 +125,7 @@ struct ContentView: View {
     @State private var showMasteringRackSheet = ProcessInfo.processInfo.arguments.contains("--open-mastering")
     @State private var showChunkSearchPopover = ProcessInfo.processInfo.arguments.contains("--open-chunk-search")
     @State private var chunkSearchQuery: String = ""
+    @State private var chunkSearchChaptersOnly: Bool = false
 
     private func syncMiniReaderState() {
         let chunks = textChunks
@@ -264,29 +265,208 @@ struct ContentView: View {
     }
 
     private func toggleVoiceAudition() {
-        if isAuditioningVoice {
-            auditionPlayer?.stop()
-            auditionPlayer = nil
-            isAuditioningVoice = false
-            return
+        viewModel.toggleVoiceAudition(viewModel.selectedVoice)
+    }
+
+    private func isChapterHeadingChunk(_ chunk: PhononTextChunk) -> Bool {
+        let lines = chunk.text
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        for line in lines.prefix(3) {
+            if HierarchicalChunker.isStandaloneBookHeading(line) {
+                return true
+            }
         }
-        guard let voice = viewModel.selectedVoice,
-              let url = Voice.previewAudioURL(for: voice) else { return }
-        do {
-            let player = try AVAudioPlayer(contentsOf: url)
-            player.prepareToPlay()
-            player.play()
-            auditionPlayer = player
-            isAuditioningVoice = true
-            let duration = max(0.5, player.duration)
-            DispatchQueue.main.asyncAfter(deadline: .now() + duration + 0.1) {
-                if self.auditionPlayer === player {
-                    self.isAuditioningVoice = false
-                    self.auditionPlayer = nil
+        return false
+    }
+
+    @ViewBuilder
+    private func chunkSearchPopoverView(
+        chunks: [PhononTextChunk],
+        timings: [WordTiming],
+        activeChunkIdx: Int
+    ) -> some View {
+        let queryTrimmed = chunkSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        let chapterChunksCount = chunks.filter { isChapterHeadingChunk($0) }.count
+        let filteredChunks = chunks.filter { c in
+            let matchesChapter = !chunkSearchChaptersOnly || isChapterHeadingChunk(c)
+            let matchesQuery = queryTrimmed.isEmpty || c.text.localizedCaseInsensitiveContains(queryTrimmed)
+            return matchesChapter && matchesQuery
+        }
+
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField("Search across \(chunks.count) chunks (e.g. Chapter, Cabin)…", text: $chunkSearchQuery)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12.5))
+                if !chunkSearchQuery.isEmpty {
+                    Button {
+                        chunkSearchQuery = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
-        } catch {
-            isAuditioningVoice = false
+            .padding(8)
+            .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+
+            HStack(spacing: 8) {
+                Button {
+                    chunkSearchChaptersOnly.toggle()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: chunkSearchChaptersOnly ? "book.closed.fill" : "book.closed")
+                            .font(.system(size: 10.5, weight: .bold))
+                        Text("Chapters Only (\(chapterChunksCount))")
+                            .font(.system(size: 11, weight: .semibold))
+                    }
+                    .foregroundStyle(chunkSearchChaptersOnly ? .white : .blue)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 4)
+                    .background(
+                        chunkSearchChaptersOnly ? Color.blue : Color.blue.opacity(0.14),
+                        in: Capsule()
+                    )
+                }
+                .buttonStyle(.plain)
+                .help("Filter navigator to detected book chapters & headings only")
+
+                Spacer()
+
+                Text("\(filteredChunks.count) of \(chunks.count) chunks matching")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 6) {
+                    ForEach(filteredChunks.prefix(50)) { c in
+                        HStack(spacing: 8) {
+                            Text("§\(c.index + 1)")
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 3)
+                                .background(c.index == activeChunkIdx ? Color.blue : Color.secondary.opacity(0.35), in: Capsule())
+
+                            Text(c.text.replacingOccurrences(of: "\n", with: " "))
+                                .font(.system(size: 11.5))
+                                .lineLimit(2)
+                                .foregroundStyle(.primary)
+
+                            Spacer()
+
+                            Button("Jump") {
+                                viewModel.activeChunkIndex = c.index
+                                if let firstWord = timings.first(where: { $0.chunkIndex == c.index }) {
+                                    previewWordId = firstWord.id
+                                }
+                                showTeleprompter = true
+                                showChunkSearchPopover = false
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.mini)
+
+                            Button {
+                                viewModel.activeChunkIndex = c.index
+                                if let firstWord = timings.first(where: { $0.chunkIndex == c.index }) {
+                                    previewWordId = firstWord.id
+                                }
+                                showTeleprompter = true
+                                showChunkSearchPopover = false
+                                if viewModel.isModelLoaded {
+                                    viewModel.startSynthesis(
+                                        text: textInput,
+                                        voice: viewModel.selectedVoice,
+                                        startChunkIndex: c.index
+                                    )
+                                }
+                            } label: {
+                                Image(systemName: "play.fill")
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.mini)
+                            .help("Speak immediately from Chunk §\(c.index + 1)")
+                        }
+                        .padding(6)
+                        .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+                    }
+                }
+            }
+            .frame(height: 240)
+        }
+        .padding(12)
+        .frame(width: 440)
+    }
+
+    @ViewBuilder
+    private var exportCompletionBannerRow: some View {
+        if let exportedURL = viewModel.lastExportedFileURL,
+           FileManager.default.fileExists(atPath: exportedURL.path) {
+            HStack(spacing: 8) {
+                Image(systemName: "checkmark.seal.fill")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(.green)
+
+                Text("Saved \(viewModel.lastExportedSummary.isEmpty ? exportedURL.lastPathComponent : viewModel.lastExportedSummary)")
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+
+                Spacer()
+
+                #if os(macOS)
+                Button {
+                    NSWorkspace.shared.activateFileViewerSelecting([exportedURL])
+                } label: {
+                    Label("Reveal in Finder", systemImage: "folder.fill")
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .foregroundStyle(.green)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3.5)
+                        .background(Color.green.opacity(0.15), in: Capsule())
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    NSWorkspace.shared.open(exportedURL)
+                } label: {
+                    Label("Open File", systemImage: "play.rectangle.fill")
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .foregroundStyle(.blue)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3.5)
+                        .background(Color.blue.opacity(0.15), in: Capsule())
+                }
+                .buttonStyle(.plain)
+                #endif
+
+                Button {
+                    viewModel.lastExportedFileURL = nil
+                    viewModel.lastExportedSummary = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Dismiss export notice")
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(Color.green.opacity(0.08))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .strokeBorder(Color.green.opacity(0.28), lineWidth: 0.8)
+                    )
+            )
         }
     }
 
@@ -477,19 +657,21 @@ struct ContentView: View {
             guard !textInput.isEmpty && (showTeleprompter || viewModel.isGenerating || viewModel.isPlaying || viewModel.audioURL != nil) else {
                 return []
             }
-            if viewModel.synthesizedWordTimings.count == totalWords,
+            let matchesLastSynth = viewModel.lastSynthesizedText == textInput.trimmingCharacters(in: .whitespacesAndNewlines)
+            if matchesLastSynth,
+               viewModel.synthesizedWordTimings.count == totalWords,
                let firstPlayable = viewModel.synthesizedWordTimings.first(where: { $0.end > $0.start }),
                firstPlayable.end > firstPlayable.start {
                 return viewModel.synthesizedWordTimings
             }
             return WordTimingEngine.computeWordTimings(
                 text: textInput,
-                audioURL: viewModel.audioURL,
-                duration: viewModel.duration > 0.05 ? viewModel.duration : Double(max(estimatedSeconds, 2)),
+                audioURL: matchesLastSynth ? viewModel.audioURL : nil,
+                duration: (matchesLastSynth && viewModel.duration > 0.05) ? viewModel.duration : Double(max(estimatedSeconds, 2)),
                 maxChunkChars: max(180, viewModel.maxChunkLength),
                 enableChunking: viewModel.enableChunking,
-                startChunkIndex: viewModel.synthesizedStartChunkIndex,
-                endChunkIndex: viewModel.synthesizedEndChunkIndex,
+                startChunkIndex: matchesLastSynth ? viewModel.synthesizedStartChunkIndex : 0,
+                endChunkIndex: matchesLastSynth ? viewModel.synthesizedEndChunkIndex : nil,
                 paragraphPauseMs: viewModel.paragraphPauseMs
             )
         }()
@@ -993,23 +1175,23 @@ struct ContentView: View {
                             }
                         }
                         Divider()
-                        Section("Instant Audio Export (<1s if Generated · ~2s Silent)") {
+                        Section("Full Book / All \(max(1, chunks.count)) Chapters Audio Export") {
                             ForEach(AudioExportFormat.allCases) { fmt in
                                 Button {
                                     viewModel.saveAudioInFormat(
                                         fmt,
                                         fallbackText: textInput,
                                         voice: viewModel.selectedVoice,
-                                        chunkIndex: activeChunkIdx,
-                                        scopeOverride: nil
+                                        chunkIndex: 0,
+                                        scopeOverride: .fullDocument
                                     )
                                 } label: {
-                                    Label("Export Audio as \(fmt.label)", systemImage: "waveform.badge.plus")
+                                    Label("Export Full Audio as \(fmt.label) (All \(max(1, chunks.count)) Chapters)", systemImage: "waveform.badge.plus")
                                 }
                             }
                         }
                         Divider()
-                        Section("Instant 1.5s Active Chunk (§\(activeChunkIdx + 1)) Silent Export") {
+                        Section("Quick Active Section (§\(activeChunkIdx + 1)) Export") {
                             ForEach([AudioExportFormat.wav, .m4b, .mp3, .m4a]) { fmt in
                                 Button {
                                     viewModel.quickExportActiveChunk(
@@ -1020,37 +1202,49 @@ struct ContentView: View {
                                         scope: .activeChunk
                                     )
                                 } label: {
-                                    Label("⚡ 1.5s Export Chunk §\(activeChunkIdx + 1) as \(fmt.rawValue.uppercased()) (Silent)", systemImage: "bolt.fill")
-                                }
-                            }
-                        }
-                        Divider()
-                        Section("Export Full Book / Novel Batch (All \(max(1, chunks.count)) Chunks)") {
-                            ForEach([AudioExportFormat.m4b, .wav, .mp3, .m4a]) { fmt in
-                                Button {
-                                    viewModel.quickExportActiveChunk(
-                                        text: textInput,
-                                        voice: viewModel.selectedVoice,
-                                        chunkIndex: 0,
-                                        format: fmt,
-                                        scope: .fullDocument
-                                    )
-                                } label: {
-                                    Label("📚 Export Full Book as \(fmt.rawValue.uppercased()) (Silent)", systemImage: "books.vertical.fill")
+                                    Label("⚡ 1.5s Export Active Chunk §\(activeChunkIdx + 1) as \(fmt.rawValue.uppercased())", systemImage: "bolt.fill")
                                 }
                             }
                         }
                         Divider()
                         Section("Synchronized Read-Along Karaoke Video (.MP4)") {
+                            if viewModel.audioURL != nil {
+                                ForEach(ReadAlongVideoAspect.allCases) { aspect in
+                                    Button {
+                                        viewModel.exportCurrentSyncedAudioAsMP4(
+                                            text: textInput,
+                                            theme: viewModel.readAlongTheme,
+                                            aspect: aspect
+                                        )
+                                    } label: {
+                                        Label("⚡ Instant Export Synced Audio as MP4 — \(aspect.label) (<1s)", systemImage: "bolt.badge.film.fill")
+                                    }
+                                }
+                            }
                             ForEach(ReadAlongVideoAspect.allCases) { aspect in
                                 Button {
                                     viewModel.exportReadAlongVideo(
                                         text: textInput,
                                         theme: viewModel.readAlongTheme,
-                                        aspect: aspect
+                                        aspect: aspect,
+                                        scope: .fastSection
                                     )
                                 } label: {
-                                    Label("Export Read-Along Video — \(aspect.label)", systemImage: "film.stack")
+                                    Label("⚡ Quick Section MP4 — \(aspect.label) (§\(activeChunkIdx + 1) · 4 Chunks)", systemImage: "bolt.fill")
+                                }
+                            }
+                            Menu("Full Document Read-Along Video (All \(max(1, chunks.count)) Chapters)") {
+                                ForEach(ReadAlongVideoAspect.allCases) { aspect in
+                                    Button {
+                                        viewModel.exportReadAlongVideo(
+                                            text: textInput,
+                                            theme: viewModel.readAlongTheme,
+                                            aspect: aspect,
+                                            scope: .fullDocument
+                                        )
+                                    } label: {
+                                        Label("🎬 Full Book MP4 — \(aspect.label) (All \(max(1, chunks.count)) Chapters)", systemImage: "film.stack")
+                                    }
                                 }
                             }
                         }
@@ -1560,93 +1754,7 @@ struct ContentView: View {
                         .fixedSize()
                         .help("Search chapters, character names, or keywords across all \(chunks.count) chunks")
                         .popover(isPresented: $showChunkSearchPopover, arrowEdge: .bottom) {
-                            VStack(alignment: .leading, spacing: 10) {
-                                HStack {
-                                    Image(systemName: "magnifyingglass")
-                                        .foregroundStyle(.secondary)
-                                    TextField("Search across \(chunks.count) chunks (e.g. Chapter, Cabin)…", text: $chunkSearchQuery)
-                                        .textFieldStyle(.plain)
-                                        .font(.system(size: 12.5))
-                                    if !chunkSearchQuery.isEmpty {
-                                        Button {
-                                            chunkSearchQuery = ""
-                                        } label: {
-                                            Image(systemName: "xmark.circle.fill")
-                                                .foregroundStyle(.secondary)
-                                        }
-                                        .buttonStyle(.plain)
-                                    }
-                                }
-                                .padding(8)
-                                .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
-
-                                let filteredChunks = chunkSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                                    ? chunks
-                                    : chunks.filter { $0.text.localizedCaseInsensitiveContains(chunkSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines)) }
-
-                                Text("\(filteredChunks.count) of \(chunks.count) chunks matching")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-
-                                ScrollView {
-                                    LazyVStack(alignment: .leading, spacing: 6) {
-                                        ForEach(filteredChunks.prefix(50)) { c in
-                                            HStack(spacing: 8) {
-                                                Text("§\(c.index + 1)")
-                                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
-                                                    .foregroundStyle(.white)
-                                                    .padding(.horizontal, 7)
-                                                    .padding(.vertical, 3)
-                                                    .background(c.index == activeChunkIdx ? Color.blue : Color.secondary.opacity(0.35), in: Capsule())
-
-                                                Text(c.text.replacingOccurrences(of: "\n", with: " "))
-                                                    .font(.system(size: 11.5))
-                                                    .lineLimit(2)
-                                                    .foregroundStyle(.primary)
-
-                                                Spacer()
-
-                                                Button("Jump") {
-                                                    viewModel.activeChunkIndex = c.index
-                                                    if let firstWord = timings.first(where: { $0.chunkIndex == c.index }) {
-                                                        previewWordId = firstWord.id
-                                                    }
-                                                    showTeleprompter = true
-                                                    showChunkSearchPopover = false
-                                                }
-                                                .buttonStyle(.bordered)
-                                                .controlSize(.mini)
-
-                                                Button {
-                                                    viewModel.activeChunkIndex = c.index
-                                                    if let firstWord = timings.first(where: { $0.chunkIndex == c.index }) {
-                                                        previewWordId = firstWord.id
-                                                    }
-                                                    showTeleprompter = true
-                                                    showChunkSearchPopover = false
-                                                    if viewModel.isModelLoaded {
-                                                        viewModel.startSynthesis(
-                                                            text: textInput,
-                                                            voice: viewModel.selectedVoice,
-                                                            startChunkIndex: c.index
-                                                        )
-                                                    }
-                                                } label: {
-                                                    Image(systemName: "play.fill")
-                                                }
-                                                .buttonStyle(.borderedProminent)
-                                                .controlSize(.mini)
-                                                .help("Speak immediately from Chunk §\(c.index + 1)")
-                                            }
-                                            .padding(6)
-                                            .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
-                                        }
-                                    }
-                                }
-                                .frame(height: 240)
-                            }
-                            .padding(12)
-                            .frame(width: 440)
+                            chunkSearchPopoverView(chunks: chunks, timings: timings, activeChunkIdx: activeChunkIdx)
                         }
 
                         ScrollView(.horizontal, showsIndicators: false) {
@@ -2173,19 +2281,33 @@ struct ContentView: View {
             VStack(spacing: 12) {
                 // Status / Error Banner inside Dock
                 if !viewModel.generationProgress.isEmpty {
-                    VStack(spacing: 5) {
+                    VStack(spacing: 6) {
                         HStack(spacing: 8) {
                             ProgressView()
                                 .controlSize(.small)
                             Text(viewModel.generationProgress)
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundStyle(.secondary)
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(.primary.opacity(0.90))
                             Spacer()
                             if viewModel.isGenerating && viewModel.totalChunkCount > 1 {
                                 let completedFrac = Double(min(viewModel.totalChunkCount, viewModel.synthesizingChunkIndex + 1)) / Double(max(1, viewModel.totalChunkCount))
-                                Text("Chunk §\(min(viewModel.totalChunkCount, viewModel.synthesizingChunkIndex + 1))/\(viewModel.totalChunkCount) · \(Int(round(completedFrac * 100)))%")
-                                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                Text("Chapter §\(min(viewModel.totalChunkCount, viewModel.synthesizingChunkIndex + 1)) of \(viewModel.totalChunkCount) · \(Int(round(completedFrac * 100)))%")
+                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
                                     .foregroundStyle(theme.activeWordBackground)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 2.5)
+                                    .background(theme.activeWordBackground.opacity(0.14), in: Capsule())
+                            }
+                            if viewModel.isGenerating {
+                                Button {
+                                    viewModel.stop()
+                                } label: {
+                                    Label("Cancel", systemImage: "xmark.circle.fill")
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundStyle(.red)
+                                }
+                                .buttonStyle(.plain)
+                                .help("Cancel active synthesis or export")
                             }
                         }
                         if viewModel.isGenerating && viewModel.totalChunkCount > 1 {
@@ -2199,10 +2321,19 @@ struct ContentView: View {
                                         .frame(width: max(12, geo.size.width * min(1.0, max(0.04, completedFrac))))
                                 }
                             }
-                            .frame(height: 4)
+                            .frame(height: 5)
                         }
                     }
-                    .padding(.horizontal, 6)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(theme.recessedFill)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .strokeBorder(theme.recessedStroke, lineWidth: 0.7)
+                            )
+                    )
                 }
 
                 if let error = viewModel.errorMessage {
@@ -2225,6 +2356,8 @@ struct ContentView: View {
                     }
                     .padding(.horizontal, 6)
                 }
+
+                exportCompletionBannerRow
 
                 // Upper Dock Row: Dedicated Full-Width Built-In Voices Palette + Category Menu + Voice Browser Trigger
                 upperDockVoicesPaletteRow
@@ -2273,24 +2406,50 @@ struct ContentView: View {
 
                         // Multi-format Download menu
                         Menu {
-                            Section("Save Audio Format") {
+                            Section("Save Full Book / All \(max(1, chunks.count)) Chapters Audio") {
                                 ForEach(AudioExportFormat.allCases) { fmt in
                                     Button {
-                                        viewModel.saveAudioInFormat(fmt)
+                                        viewModel.saveAudioInFormat(
+                                            fmt,
+                                            fallbackText: textInput,
+                                            voice: viewModel.selectedVoice,
+                                            chunkIndex: 0,
+                                            scopeOverride: .fullDocument
+                                        )
                                     } label: {
-                                        Label("Save as \(fmt.label)", systemImage: "waveform")
+                                        Label("Save Full Audio as \(fmt.label)", systemImage: "waveform")
                                     }
+                                }
+                            }
+                            Divider()
+                            Section("Save Chapterized .M4B Audiobook") {
+                                Button {
+                                    showM4BExporterSheet = true
+                                } label: {
+                                    Label("📖 Configure & Export Chapterized .M4B Audiobook…", systemImage: "books.vertical.circle.fill")
                                 }
                             }
                             Divider()
                             Section("Save Read-Along Karaoke Video (.MP4)") {
                                 ForEach(ReadAlongVideoAspect.allCases) { aspect in
-                                    Button("Save Read-Along MP4 — \(aspect.label)") {
-                                        viewModel.exportReadAlongVideo(
+                                    Button("⚡ Instant Save Synced Audio as MP4 — \(aspect.label) (<1s)") {
+                                        viewModel.exportCurrentSyncedAudioAsMP4(
                                             text: textInput,
                                             theme: viewModel.readAlongTheme,
                                             aspect: aspect
                                         )
+                                    }
+                                }
+                                Menu("Full Document Read-Along MP4 (All \(max(1, chunks.count)) Chapters)") {
+                                    ForEach(ReadAlongVideoAspect.allCases) { aspect in
+                                        Button("🎬 Save Full Book MP4 — \(aspect.label) (All \(max(1, chunks.count)) Chapters)") {
+                                            viewModel.exportReadAlongVideo(
+                                                text: textInput,
+                                                theme: viewModel.readAlongTheme,
+                                                aspect: aspect,
+                                                scope: .fullDocument
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -2429,16 +2588,17 @@ struct ContentView: View {
                         .help(isFavVoice ? "Remove '\(activeVoice.name)' from favorite voices" : "Star '\(activeVoice.name)' as a favorite voice")
                     }
 
-                    // 1-Click Active Voice Audition Button
-                    if viewModel.selectedVoice.flatMap(Voice.previewAudioURL(for:)) != nil {
+                    // 1-Click Active Voice Audition Button (Synthesizes/plays genuine neural sample for the selected voice)
+                    if let activeVoice = viewModel.selectedVoice {
+                        let isAuditioningThis = viewModel.isAuditioningVoice && viewModel.auditioningVoiceKey == activeVoice.voiceKey
                         Button {
-                            toggleVoiceAudition()
+                            viewModel.toggleVoiceAudition(activeVoice)
                         } label: {
                             HStack(spacing: 5) {
-                                Image(systemName: isAuditioningVoice ? "stop.fill" : "speaker.wave.2.fill")
+                                Image(systemName: isAuditioningThis ? "stop.fill" : "speaker.wave.2.fill")
                                     .font(.system(size: 12.5, weight: .semibold))
-                                    .foregroundStyle(isAuditioningVoice ? .orange : .blue)
-                                Text(isAuditioningVoice ? "Stop" : "Sample")
+                                    .foregroundStyle(isAuditioningThis ? .orange : .blue)
+                                Text(isAuditioningThis ? "Stop" : "Sample")
                                     .font(.system(size: 11.5, weight: .semibold))
                                     .foregroundStyle(.primary)
                             }
@@ -2446,18 +2606,18 @@ struct ContentView: View {
                             .frame(height: 44)
                             .background(
                                 Capsule()
-                                    .fill(isAuditioningVoice ? Color.orange.opacity(0.16) : theme.pillFill)
+                                    .fill(isAuditioningThis ? Color.orange.opacity(0.16) : theme.pillFill)
                                     .overlay(
                                         Capsule()
                                             .strokeBorder(
-                                                isAuditioningVoice ? Color.orange.opacity(0.45) : theme.pillStroke,
+                                                isAuditioningThis ? Color.orange.opacity(0.45) : theme.pillStroke,
                                                 lineWidth: 0.8
                                             )
                                     )
                             )
                         }
                         .buttonStyle(.plain)
-                        .help("Audition \(viewModel.selectedVoice?.name ?? "selected voice") reference sample")
+                        .help("Audition '\(activeVoice.name)' with a real neural voice sample")
                     }
 
                     // Quick Model Engine Picker Capsule (Favorites + Categorized + Cached Pinned)
@@ -2712,23 +2872,56 @@ struct ContentView: View {
 
                     // Direct Silent Export Menu (Export without pressing Generate Speech & without playing sound)
                     Menu {
-                        Section("Instant Audio Export (<1s if Generated · ~2s Silent)") {
+                        Section("Full Book / All \(max(1, chunks.count)) Chapters Silent Export") {
+                            Button {
+                                showM4BExporterSheet = true
+                            } label: {
+                                Label("📖 Configure & Export Chapterized .M4B Audiobook…", systemImage: "books.vertical.circle.fill")
+                            }
                             ForEach(AudioExportFormat.allCases) { fmt in
                                 Button {
                                     viewModel.saveAudioInFormat(
                                         fmt,
                                         fallbackText: textInput,
                                         voice: viewModel.selectedVoice,
-                                        chunkIndex: activeChunkIdx,
-                                        scopeOverride: nil
+                                        chunkIndex: 0,
+                                        scopeOverride: .fullDocument
                                     )
                                 } label: {
-                                    Label("Export as \(fmt.label)", systemImage: "arrow.down.doc.fill")
+                                    Label("Export Full Document as \(fmt.label) (All \(max(1, chunks.count)) Chapters)", systemImage: "arrow.down.doc.fill")
                                 }
                             }
                         }
                         Divider()
-                        Section("Instant 1.5s Active Chunk (§\(activeChunkIdx + 1)) Silent Export") {
+                        Section("Synchronized Read-Along Karaoke Video (.MP4)") {
+                            if viewModel.audioURL != nil {
+                                ForEach(ReadAlongVideoAspect.allCases) { aspect in
+                                    Button {
+                                        viewModel.exportCurrentSyncedAudioAsMP4(
+                                            text: textInput,
+                                            theme: viewModel.readAlongTheme,
+                                            aspect: aspect
+                                        )
+                                    } label: {
+                                        Label("⚡ Instant Export Synced Audio as MP4 — \(aspect.label) (<1s)", systemImage: "bolt.badge.film.fill")
+                                    }
+                                }
+                            }
+                            ForEach(ReadAlongVideoAspect.allCases) { aspect in
+                                Button {
+                                    viewModel.exportReadAlongVideo(
+                                        text: textInput,
+                                        theme: viewModel.readAlongTheme,
+                                        aspect: aspect,
+                                        scope: .fullDocument
+                                    )
+                                } label: {
+                                    Label("🎬 Export Full Book MP4 — \(aspect.label) (All \(max(1, chunks.count)) Chapters)", systemImage: "film.stack")
+                                }
+                            }
+                        }
+                        Divider()
+                        Section("Quick Active Section (§\(activeChunkIdx + 1)) Silent Export") {
                             ForEach([AudioExportFormat.wav, .mp3, .m4a]) { fmt in
                                 Button {
                                     viewModel.quickExportActiveChunk(
@@ -2739,37 +2932,19 @@ struct ContentView: View {
                                         scope: .activeChunk
                                     )
                                 } label: {
-                                    Label("⚡ 1.5s Export Chunk §\(activeChunkIdx + 1) as \(fmt.rawValue.uppercased())", systemImage: "bolt.fill")
+                                    Label("⚡ 1.5s Export Active Chunk §\(activeChunkIdx + 1) as \(fmt.rawValue.uppercased())", systemImage: "bolt.fill")
                                 }
                             }
-                        }
-                        Divider()
-                        Section("Export Full Book / Document Batch (All \(max(1, chunks.count)) Chunks)") {
-                            ForEach([AudioExportFormat.wav, .mp3, .m4a]) { fmt in
-                                Button {
-                                    viewModel.quickExportActiveChunk(
-                                        text: textInput,
-                                        voice: viewModel.selectedVoice,
-                                        chunkIndex: 0,
-                                        format: fmt,
-                                        scope: .fullDocument
-                                    )
-                                } label: {
-                                    Label("📚 Export Full Document as \(fmt.rawValue.uppercased()) (Silent)", systemImage: "books.vertical.fill")
-                                }
-                            }
-                        }
-                        Divider()
-                        Section("Synchronized Read-Along Karaoke Video (.MP4)") {
                             ForEach(ReadAlongVideoAspect.allCases) { aspect in
                                 Button {
                                     viewModel.exportReadAlongVideo(
                                         text: textInput,
                                         theme: viewModel.readAlongTheme,
-                                        aspect: aspect
+                                        aspect: aspect,
+                                        scope: .fastSection
                                     )
                                 } label: {
-                                    Label("Export Read-Along MP4 — \(aspect.label) (Silent)", systemImage: "film.stack")
+                                    Label("⚡ Quick Section MP4 — \(aspect.label) (§\(activeChunkIdx + 1))", systemImage: "bolt.fill")
                                 }
                             }
                         }
@@ -2919,8 +3094,15 @@ struct ContentView: View {
                 modelId: viewModel.modelId,
                 builtInVoices: viewModel.builtInVoices,
                 activeVoice: viewModel.selectedVoice,
+                auditioningVoiceKey: viewModel.isAuditioningVoice ? viewModel.auditioningVoiceKey : nil,
                 recentlyUsed: $recentlyUsed,
-                customVoices: $customVoices
+                customVoices: $customVoices,
+                onPreviewVoice: { voice in
+                    viewModel.toggleVoiceAudition(voice)
+                },
+                onPreviewVoiceWithPhrase: { voice, phrase in
+                    viewModel.toggleVoiceAudition(voice, customPhrase: phrase)
+                }
             ) { voice in
                 viewModel.selectedVoice = voice
                 showVoices = false
@@ -3026,6 +3208,14 @@ struct ContentView: View {
                 viewModel.duration = 9.4
                 viewModel.currentTime = 3.8
                 viewModel.tokensPerSecond = 84.6
+                let demoMP4 = URL(fileURLWithPath: ("~/Desktop/read_along_paper_9x16.mp4" as NSString).expandingTildeInPath)
+                if FileManager.default.fileExists(atPath: demoMP4.path) {
+                    viewModel.lastExportedFileURL = demoMP4
+                    viewModel.lastExportedSummary = "read_along_paper_9x16.mp4 • 9:16 Read-Along MP4 + SRT/VTT (All Chapters)"
+                } else {
+                    viewModel.lastExportedFileURL = sampleURL
+                    viewModel.lastExportedSummary = "Deadlocked_2_Audiobook.m4b • 25 Chapters + Cover Art"
+                }
             }
             if let docPath = UserDefaults.standard.string(forKey: "VoicesApp.VoiceStudio.autoImportDocPath"),
                !docPath.isEmpty,
@@ -4572,10 +4762,15 @@ struct M4BAudiobookExportSheet: View {
     let scriptText: String
     let defaultTitle: String
 
+    @AppStorage("VoicesApp.studioTheme") private var rawStudioTheme: String = ReadAlongTheme.midnight.rawValue
     @State private var bookTitle: String = ""
     @State private var authorName: String = "Codecaine MLX Audio Studio"
     @State private var customCoverURL: URL? = nil
     @State private var showCoverPicker: Bool = false
+
+    private var activeTheme: ReadAlongTheme {
+        ReadAlongTheme(rawValue: rawStudioTheme) ?? viewModel.readAlongTheme
+    }
 
     private var previewChunks: [PhononTextChunk] {
         viewModel.chunkTextWithMetadata(scriptText)
@@ -4583,10 +4778,11 @@ struct M4BAudiobookExportSheet: View {
 
     var body: some View {
         let chunks = previewChunks
-        let estSec = viewModel.duration > 0 ? viewModel.duration : max(2.0, Double(scriptText.count) / 14.0)
+        let isAlreadyComplete = viewModel.hasCompleteAudio(for: scriptText, voice: viewModel.selectedVoice, requiredScope: .fullDocument)
+        let estSec = (isAlreadyComplete && viewModel.duration > 0) ? viewModel.duration : max(2.0, Double(scriptText.count) / 14.0)
         let chapters = M4BAudiobookExporter.buildChapters(
             chunks: chunks,
-            timings: viewModel.synthesizedWordTimings,
+            timings: isAlreadyComplete ? viewModel.synthesizedWordTimings : [],
             totalDurationSec: estSec
         )
 
@@ -4614,15 +4810,27 @@ struct M4BAudiobookExportSheet: View {
                     }
 
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("Chapterized .M4B Audiobook Exporter")
-                            .font(.headline)
-                        Text("Packages your book or script into an Apple Books & podcast player compatible .M4B audiobook with embedded chapter markers (\(chapters.count) chapters) and 600×600 studio cover artwork.")
+                        HStack(spacing: 8) {
+                            Text("Chapterized .M4B Audiobook Exporter")
+                                .font(.headline)
+                            Text(isAlreadyComplete ? "✓ All \(chapters.count) Chapters Ready" : "Full Book · All \(chapters.count) Chapters")
+                                .font(.system(size: 10.5, weight: .bold, design: .rounded))
+                                .foregroundStyle(isAlreadyComplete ? .green : .indigo)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 2.5)
+                                .background((isAlreadyComplete ? Color.green : Color.indigo).opacity(0.14), in: Capsule())
+                        }
+                        Text("Packages your entire book or script into an Apple Books & podcast player compatible .M4B audiobook with embedded chapter markers (\(chapters.count) chapters) and 600×600 studio cover artwork.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                 }
                 .padding(12)
-                .background(Color.indigo.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
+                .background(activeTheme.elevatedRowFill, in: RoundedRectangle(cornerRadius: 12))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .strokeBorder(activeTheme.pillStroke, lineWidth: 0.8)
+                )
 
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 4) {

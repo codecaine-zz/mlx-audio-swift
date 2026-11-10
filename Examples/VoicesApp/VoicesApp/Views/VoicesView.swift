@@ -11,6 +11,16 @@ struct VoicesView: View {
     @State private var previewingVoiceId: UUID? = nil
     @State private var previewPlayer: AVAudioPlayer? = nil
     @State private var prefs = StudioUserPreferencesManager.shared
+    @State private var auditionPhrase: String = ""
+    @State private var selectedAuditionPreset: String = "Default"
+
+    private let auditionPresets: [(label: String, phrase: String)] = [
+        ("Default", ""),
+        ("Novel Narration", "The rain hammered against the cabin roof as the lantern flickered in the dark."),
+        ("Conversational", "Hey there! Let's walk through the key highlights from today's studio session."),
+        ("Technical", "Apple Silicon unified memory accelerates neural speech synthesis with sub-second latency."),
+        ("Dramatic", "Stand fast! Whatever comes through that gate, we hold this line together.")
+    ]
 
     private var activeTheme: ReadAlongTheme {
         ReadAlongTheme(rawValue: rawStudioTheme) ?? .midnight
@@ -19,8 +29,11 @@ struct VoicesView: View {
     var modelId: String = ""
     var builtInVoices: [Voice] = []
     var activeVoice: Voice? = nil
+    var auditioningVoiceKey: String? = nil
     @Binding var recentlyUsed: [Voice]
     @Binding var customVoices: [Voice]
+    var onPreviewVoice: ((Voice) -> Void)? = nil
+    var onPreviewVoiceWithPhrase: ((Voice, String?) -> Void)? = nil
     var onVoiceSelected: ((Voice) -> Void)?
 
     private var shortModelName: String {
@@ -217,6 +230,68 @@ struct VoicesView: View {
                         }
                     }
                 }
+
+                // Custom Audition Phrase & Genre Presets Bar
+                HStack(spacing: 8) {
+                    Image(systemName: "waveform.badge.mic")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.blue)
+
+                    Menu {
+                        ForEach(auditionPresets, id: \.label) { preset in
+                            Button {
+                                selectedAuditionPreset = preset.label
+                                auditionPhrase = preset.phrase
+                            } label: {
+                                if selectedAuditionPreset == preset.label {
+                                    Label(preset.label, systemImage: "checkmark")
+                                } else {
+                                    Text(preset.label)
+                                }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text("Audition: \(selectedAuditionPreset)")
+                                .font(.system(size: 11, weight: .semibold))
+                            Image(systemName: "chevron.up.chevron.down")
+                                .font(.system(size: 8.5, weight: .bold))
+                        }
+                        .foregroundStyle(.blue)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 5)
+                        .background(Color.blue.opacity(0.14), in: Capsule())
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+
+                    TextField("Custom audition phrase (or leave blank for default greeting)…", text: $auditionPhrase)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 12))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .fill(activeTheme.recessedFill)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .strokeBorder(activeTheme.recessedStroke, lineWidth: 0.8)
+                                )
+                        )
+
+                    if !auditionPhrase.isEmpty {
+                        Button {
+                            auditionPhrase = ""
+                            selectedAuditionPreset = "Default"
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 13))
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Reset to default voice greeting")
+                    }
+                }
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
@@ -256,7 +331,7 @@ struct VoicesView: View {
                                     voice: voice,
                                     isSelected: isActive,
                                     isFavorite: prefs.isFavoriteVoice(voice),
-                                    isPreviewing: previewingVoiceId == voice.id,
+                                    isPreviewing: previewingVoiceId == voice.id || auditioningVoiceKey == voice.voiceKey,
                                     onToggleFavorite: { prefs.toggleFavoriteVoice(voice) },
                                     onPreview: { togglePreview(for: voice) },
                                     onTap: {
@@ -283,7 +358,7 @@ struct VoicesView: View {
                                         voice: voice,
                                         isSelected: isActive,
                                         isFavorite: prefs.isFavoriteVoice(voice),
-                                        isPreviewing: previewingVoiceId == voice.id,
+                                        isPreviewing: previewingVoiceId == voice.id || auditioningVoiceKey == voice.voiceKey,
                                         showDelete: true,
                                         onToggleFavorite: { prefs.toggleFavoriteVoice(voice) },
                                         onPreview: { togglePreview(for: voice) },
@@ -322,6 +397,15 @@ struct VoicesView: View {
     }
 
     private func togglePreview(for voice: Voice) {
+        let custom = auditionPhrase.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let onPreviewVoiceWithPhrase {
+            onPreviewVoiceWithPhrase(voice, custom.isEmpty ? nil : custom)
+            return
+        }
+        if let onPreviewVoice {
+            onPreviewVoice(voice)
+            return
+        }
         if previewingVoiceId == voice.id {
             previewPlayer?.stop()
             previewingVoiceId = nil

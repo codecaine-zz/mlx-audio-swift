@@ -947,6 +947,96 @@ class STTViewModel {
         #endif
     }
 
+    /// Computes word timings locked to `[start][speaker] ... [end]` ASR/LRC segment boundaries when present,
+    /// or falls back to `WordTimingEngine.computeWordTimings` across the audio file duration.
+    func computeTranscriptWordTimings(from rawTranscript: String, fallbackDuration: TimeInterval) -> [WordTiming] {
+        let trimmed = rawTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+
+        let pattern = #"\[(\d+(?:[\.,]\d+)?)\]\[([A-Za-z0-9_ -]{1,24})\]"#
+        if let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) {
+            let nsRange = NSRange(trimmed.startIndex..<trimmed.endIndex, in: trimmed)
+            let matches = regex.matches(in: trimmed, range: nsRange)
+            if !matches.isEmpty {
+                let trailingRegex = try? NSRegularExpression(pattern: #"\[(\d+(?:[\.,]\d+)?)\]\s*$"#)
+                var wordTimings: [WordTiming] = []
+                var nextWordID = 0
+
+                for (segIdx, match) in matches.enumerated() {
+                    guard let matchRange = Range(match.range, in: trimmed),
+                          let startRange = Range(match.range(at: 1), in: trimmed),
+                          let segStart = Double(trimmed[startRange].replacingOccurrences(of: ",", with: ".")) else {
+                        continue
+                    }
+                    let bodyEnd: String.Index
+                    var nextSegStart: Double? = nil
+                    if segIdx + 1 < matches.count,
+                       let nr = Range(matches[segIdx + 1].range, in: trimmed) {
+                        bodyEnd = nr.lowerBound
+                        if let nsRange1 = Range(matches[segIdx + 1].range(at: 1), in: trimmed) {
+                            nextSegStart = Double(trimmed[nsRange1].replacingOccurrences(of: ",", with: "."))
+                        }
+                    } else {
+                        bodyEnd = trimmed.endIndex
+                    }
+
+                    var segBody = String(trimmed[matchRange.upperBound..<bodyEnd])
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    var explicitEnd: Double? = nil
+                    if let trailingRegex {
+                        let r = NSRange(segBody.startIndex..<segBody.endIndex, in: segBody)
+                        if let tm = trailingRegex.firstMatch(in: segBody, range: r),
+                           let tr = Range(tm.range(at: 1), in: segBody),
+                           let fullR = Range(tm.range, in: segBody) {
+                            explicitEnd = Double(segBody[tr].replacingOccurrences(of: ",", with: "."))
+                            segBody.removeSubrange(fullR)
+                            segBody = segBody.trimmingCharacters(in: .whitespacesAndNewlines)
+                        }
+                    }
+
+                    let cleanSeg = Self.cleanTranscriptForVoiceStudio(segBody)
+                    let words = cleanSeg.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).map(String.init)
+                    guard !words.isEmpty else { continue }
+
+                    let segEnd = max(
+                        segStart + 0.25,
+                        explicitEnd ?? nextSegStart ?? max(fallbackDuration, segStart + Double(words.count) * 0.32)
+                    )
+                    let span = max(0.2, segEnd - segStart)
+                    let totalChars = max(1, words.reduce(0) { $0 + max(1, $1.count) })
+                    var cursor = segStart
+                    for (wIdx, word) in words.enumerated() {
+                        let weight = Double(max(1, word.count)) / Double(totalChars)
+                        let wEnd = (wIdx == words.count - 1) ? segEnd : (cursor + span * weight)
+                        wordTimings.append(
+                            WordTiming(
+                                id: nextWordID,
+                                word: word,
+                                start: cursor,
+                                end: max(cursor + 0.04, wEnd),
+                                chunkIndex: segIdx,
+                                paragraphIndex: segIdx
+                            )
+                        )
+                        nextWordID += 1
+                        cursor = wEnd
+                    }
+                }
+                if !wordTimings.isEmpty {
+                    return wordTimings
+                }
+            }
+        }
+
+        let cleanText = Self.cleanTranscriptForVoiceStudio(trimmed)
+        let effectiveText = cleanText.isEmpty ? trimmed : cleanText
+        return WordTimingEngine.computeWordTimings(
+            text: effectiveText,
+            audioURL: selectedAudioURL,
+            duration: fallbackDuration
+        )
+    }
+
     func exportTranscription(format: String) {
         let trimmed = transcriptionText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
@@ -956,7 +1046,7 @@ class STTViewModel {
         let effectiveText = cleanText.isEmpty ? trimmed : cleanText
 
         let estDuration = duration > 0 ? duration : max(2.0, Double(effectiveText.count) / 14.0)
-        let timings = WordTimingEngine.computeWordTimings(text: effectiveText, audioURL: selectedAudioURL, duration: estDuration)
+        let timings = computeTranscriptWordTimings(from: trimmed, fallbackDuration: estDuration)
         let content: String
         let ext: String
 
@@ -1017,6 +1107,86 @@ class STTViewModel {
             } catch {
                 DispatchQueue.main.async {
                     self?.errorMessage = "Export failed: \(error.localizedDescription)"
+                }
+            }
+        }
+        #endif
+    }
+
+    func exportReadAlongVideo(
+        aspect: ReadAlongVideoAspect = .landscape16x9,
+        theme: ReadAlongTheme = .midnight
+    ) {
+        let trimmed = transcriptionText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            errorMessage = "Transcribe an audio file or recording before exporting Read-Along video"
+            return
+        }
+        guard let sourceURL = selectedAudioURL ?? originalAudioURL ?? Voice.bundledStudioSamples().first?.url else {
+            errorMessage = "No audio source available for Read-Along MP4 export"
+            return
+        }
+
+        let cleanText = Self.cleanTranscriptForVoiceStudio(trimmed)
+        let effectiveText = cleanText.isEmpty ? trimmed : cleanText
+        let estDuration = duration > 0 ? duration : max(2.0, Double(effectiveText.count) / 14.0)
+        let timings = computeTranscriptWordTimings(from: trimmed, fallbackDuration: estDuration)
+        let aspectTag = aspect.rawValue.replacingOccurrences(of: ":", with: "x")
+        let stem = (audioFileName as NSString?)?.deletingPathExtension ?? "transcription"
+        let docTitle = audioFileName ?? "Transcribe Studio Read-Along"
+        let modelBadge = modelId.split(separator: "/").last.map(String.init) ?? modelId
+
+        #if os(macOS)
+        let savePanel = NSSavePanel()
+        savePanel.canCreateDirectories = true
+        savePanel.isExtensionHidden = false
+        savePanel.title = "Export Synchronized Read-Along Karaoke Video (.mp4)"
+        savePanel.nameFieldStringValue = "\(stem)_readalong_\(aspectTag).mp4"
+        savePanel.begin { [weak self] response in
+            guard let self, response == .OK, let dest = savePanel.url else { return }
+            let ext = sourceURL.pathExtension.isEmpty ? "wav" : sourceURL.pathExtension
+            let snapshotAudio = FileManager.default.temporaryDirectory
+                .appendingPathComponent("stt_video_snap_\(UUID().uuidString).\(ext)")
+            try? FileManager.default.copyItem(at: sourceURL, to: snapshotAudio)
+            let audioForVideo = FileManager.default.fileExists(atPath: snapshotAudio.path) ? snapshotAudio : sourceURL
+
+            self.generationProgress = "Rendering 3-Level Delta-Band Read-Along MP4 (\(aspect.rawValue))..."
+            Task.detached(priority: .userInitiated) {
+                defer {
+                    if audioForVideo == snapshotAudio {
+                        try? FileManager.default.removeItem(at: snapshotAudio)
+                    }
+                }
+                do {
+                    let t0 = CFAbsoluteTimeGetCurrent()
+                    try ReadAlongVideoExporter.exportKaraokeVideo(
+                        sourceWAV: audioForVideo,
+                        timings: timings,
+                        theme: theme,
+                        aspect: aspect,
+                        title: docTitle,
+                        voiceName: modelBadge,
+                        fallbackText: effectiveText,
+                        to: dest
+                    )
+                    let elapsed = max(0.05, CFAbsoluteTimeGetCurrent() - t0)
+                    let audioSec = max(1.0, timings.last?.end ?? estDuration)
+                    let rtFactor = max(1, Int((audioSec / elapsed).rounded()))
+                    let elapsedStr = String(format: "%.1fs", elapsed)
+                    await MainActor.run {
+                        self.generationProgress = "Exported Read-Along MP4 + SRT/VTT in \(elapsedStr) (\(rtFactor)× real-time): \(dest.lastPathComponent)"
+                        Task { @MainActor in
+                            try? await Task.sleep(for: .seconds(3.5))
+                            if self.generationProgress.hasPrefix("Exported Read-Along MP4") {
+                                self.generationProgress = ""
+                            }
+                        }
+                    }
+                } catch {
+                    await MainActor.run {
+                        self.generationProgress = ""
+                        self.errorMessage = "Read-Along Video export failed: \(error.localizedDescription)"
+                    }
                 }
             }
         }

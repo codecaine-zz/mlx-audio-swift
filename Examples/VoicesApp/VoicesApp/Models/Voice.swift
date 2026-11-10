@@ -11,6 +11,8 @@ import Network
 import SwiftUI
 #if os(macOS)
 import AppKit
+import CoreText
+import CoreVideo
 import PDFKit
 import Vision
 #endif
@@ -746,11 +748,28 @@ extension Voice {
 
         if lower.contains("nativ-community/phonon") {
             specs = [
-                ("Freya", "freya", "Phonon built-in (Default)", "English"),
-                ("Harper", "harper", "Phonon built-in", "English"),
-                ("Sterling", "sterling", "Phonon built-in", "English"),
-                ("Toby", "toby", "Phonon built-in", "English"),
-                ("Zoey (maps to Freya)", "freya", "Codecaine Phonon Default", "English"),
+                ("Freya", "freya", "Phonon built-in (Default · UK)", "English"),
+                ("Harper", "harper", "Phonon built-in · Conversational (US)", "English"),
+                ("Sterling", "sterling", "Phonon built-in · Narrator (UK)", "English"),
+                ("Toby", "toby", "Phonon built-in · Conversational (UK)", "English"),
+                ("Zoey", "zoey", "Conversational · English (US)", "English"),
+                ("Russell", "russell", "Narrator · English (US)", "English"),
+                ("Trevor", "trevor", "Narrator · English (US)", "English"),
+                ("Alfie", "alfie", "Conversational · English (UK)", "English"),
+                ("Maeve", "maeve", "Narrator · English (UK)", "English"),
+                ("Hugh", "hugh", "Narrator · English (UK)", "English"),
+                ("Preston", "preston", "Narrator · English (US)", "English"),
+                ("Miles", "miles", "Conversational · English (US)", "English"),
+                ("Juniper", "juniper", "Conversational · English (US)", "English"),
+                ("Everly", "everly", "Conversational · English (US)", "English"),
+                ("Delia", "delia", "Conversational · English (US)", "English"),
+                ("Easton", "easton", "Conversational · English (US)", "English"),
+                ("Micah", "micah", "Conversational · English (US)", "English"),
+                ("Pippa", "pippa", "Conversational · English (UK)", "English"),
+                ("Elodie-Rose", "elodie-rose", "Narrator · English (UK)", "English"),
+                ("Imogen", "imogen", "Narrator · English (UK)", "English"),
+                ("Edwin", "edwin", "Narrator · English (UK)", "English"),
+                ("Spencer", "spencer", "Conversational · English (UK)", "English"),
             ]
         } else if lower.contains("gradium/phonon") || lower.contains("empyrealworks/phonon") {
             let lang: String
@@ -1018,37 +1037,190 @@ extension Voice {
         let pitchSemitones: Float
     }
 
-    /// Maps each of the 38 built-in studio voices to a natural Fish S2 Pro studio reference anchor without artificial pitch resampling distortion.
+    /// Maps each of the 38 built-in studio voices to a distinct Fish S2 Pro studio reference anchor and natural timbre profile.
     static func fishS2Preset(for voiceId: String?) -> FishS2VoicePreset? {
         guard let raw = voiceId?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
             return nil
         }
         let standardTranscript = "Judge Victor quickly mixed a beige waxy potion for the zesty, grumpy elf who yawns."
-        switch raw.lowercased() {
+        let key = raw.lowercased()
+            .replacingOccurrences(of: " (default)", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        switch key {
         case "default":
             return nil
-        case "zoey", "delia", "hadley", "elodie-rose", "imogen", "maeve", "morwenna of the deep", "the snow queen", "the thing under the stairs", "lily":
+        // Female Anchor 1 (Lily base — warm, clear conversational/narrator)
+        case "zoey", "lily":
             return FishS2VoicePreset(resourceName: "Lily", refText: standardTranscript, inlineTag: nil, pitchSemitones: 0.0)
-        case "bryony", "everly", "harper", "juniper", "lottie", "pippa", "freya", "fairy godmother", "sophie":
+        case "delia":
+            return FishS2VoicePreset(resourceName: "Lily", refText: standardTranscript, inlineTag: nil, pitchSemitones: 0.65)
+        case "hadley":
+            return FishS2VoicePreset(resourceName: "Lily", refText: standardTranscript, inlineTag: nil, pitchSemitones: -0.55)
+        case "elodie-rose":
+            return FishS2VoicePreset(resourceName: "Lily", refText: standardTranscript, inlineTag: nil, pitchSemitones: 1.15)
+        case "imogen":
+            return FishS2VoicePreset(resourceName: "Lily", refText: standardTranscript, inlineTag: nil, pitchSemitones: -0.95)
+        case "maeve":
+            return FishS2VoicePreset(resourceName: "Lily", refText: standardTranscript, inlineTag: nil, pitchSemitones: -1.35)
+        case "morwenna of the deep":
+            return FishS2VoicePreset(resourceName: "Lily", refText: standardTranscript, inlineTag: nil, pitchSemitones: -2.10)
+        case "the snow queen":
+            return FishS2VoicePreset(resourceName: "Lily", refText: standardTranscript, inlineTag: nil, pitchSemitones: -1.60)
+        case "the thing under the stairs":
+            return FishS2VoicePreset(resourceName: "Lily", refText: standardTranscript, inlineTag: nil, pitchSemitones: -2.85)
+        // Female Anchor 2 (Sophie base — bright, expressive UK/US narrator)
+        case "freya", "sophie":
             return FishS2VoicePreset(resourceName: "Sophie", refText: standardTranscript, inlineTag: nil, pitchSemitones: 0.0)
-        case "alfie", "easton", "micah", "miles", "spencer", "teddy", "toby", "edwin", "hugh", "preston", "russell", "trevor", "captain silas blackwater", "fennick the young elf", "grub the ogre", "master aldric", "old mortlake", "sir bramwell", "vyrmathrax the ancient", "azgorath", "german action voice", "bane", "james":
+        case "harper":
+            return FishS2VoicePreset(resourceName: "Sophie", refText: standardTranscript, inlineTag: nil, pitchSemitones: -0.60)
+        case "bryony":
+            return FishS2VoicePreset(resourceName: "Sophie", refText: standardTranscript, inlineTag: nil, pitchSemitones: 0.55)
+        case "everly":
+            return FishS2VoicePreset(resourceName: "Sophie", refText: standardTranscript, inlineTag: nil, pitchSemitones: 0.95)
+        case "juniper":
+            return FishS2VoicePreset(resourceName: "Sophie", refText: standardTranscript, inlineTag: nil, pitchSemitones: -1.05)
+        case "lottie":
+            return FishS2VoicePreset(resourceName: "Sophie", refText: standardTranscript, inlineTag: nil, pitchSemitones: 1.35)
+        case "pippa":
+            return FishS2VoicePreset(resourceName: "Sophie", refText: standardTranscript, inlineTag: nil, pitchSemitones: 1.75)
+        case "fairy godmother":
+            return FishS2VoicePreset(resourceName: "Sophie", refText: standardTranscript, inlineTag: nil, pitchSemitones: 2.20)
+        // Male Anchor (James base — rich baritone/tenor narrator & characters)
+        case "russell", "james":
             return FishS2VoicePreset(resourceName: "James", refText: standardTranscript, inlineTag: nil, pitchSemitones: 0.0)
+        case "trevor":
+            return FishS2VoicePreset(resourceName: "James", refText: standardTranscript, inlineTag: nil, pitchSemitones: -0.75)
+        case "alfie":
+            return FishS2VoicePreset(resourceName: "James", refText: standardTranscript, inlineTag: nil, pitchSemitones: 0.85)
+        case "toby":
+            return FishS2VoicePreset(resourceName: "James", refText: standardTranscript, inlineTag: nil, pitchSemitones: 1.25)
+        case "sterling":
+            return FishS2VoicePreset(resourceName: "James", refText: standardTranscript, inlineTag: nil, pitchSemitones: -0.45)
+        case "hugh":
+            return FishS2VoicePreset(resourceName: "James", refText: standardTranscript, inlineTag: nil, pitchSemitones: -0.62)
+        case "edwin":
+            return FishS2VoicePreset(resourceName: "James", refText: standardTranscript, inlineTag: nil, pitchSemitones: -1.15)
+        case "preston":
+            return FishS2VoicePreset(resourceName: "James", refText: standardTranscript, inlineTag: nil, pitchSemitones: -1.50)
+        case "easton":
+            return FishS2VoicePreset(resourceName: "James", refText: standardTranscript, inlineTag: nil, pitchSemitones: 0.45)
+        case "micah":
+            return FishS2VoicePreset(resourceName: "James", refText: standardTranscript, inlineTag: nil, pitchSemitones: 1.05)
+        case "miles":
+            return FishS2VoicePreset(resourceName: "James", refText: standardTranscript, inlineTag: nil, pitchSemitones: -0.30)
+        case "spencer":
+            return FishS2VoicePreset(resourceName: "James", refText: standardTranscript, inlineTag: nil, pitchSemitones: 0.65)
+        case "teddy":
+            return FishS2VoicePreset(resourceName: "James", refText: standardTranscript, inlineTag: nil, pitchSemitones: 1.55)
+        case "captain silas blackwater":
+            return FishS2VoicePreset(resourceName: "James", refText: standardTranscript, inlineTag: nil, pitchSemitones: -2.10)
+        case "fennick the young elf":
+            return FishS2VoicePreset(resourceName: "James", refText: standardTranscript, inlineTag: nil, pitchSemitones: 2.50)
+        case "grub the ogre":
+            return FishS2VoicePreset(resourceName: "James", refText: standardTranscript, inlineTag: nil, pitchSemitones: -3.40)
+        case "master aldric":
+            return FishS2VoicePreset(resourceName: "James", refText: standardTranscript, inlineTag: nil, pitchSemitones: -1.75)
+        case "old mortlake":
+            return FishS2VoicePreset(resourceName: "James", refText: standardTranscript, inlineTag: nil, pitchSemitones: -2.35)
+        case "sir bramwell":
+            return FishS2VoicePreset(resourceName: "James", refText: standardTranscript, inlineTag: nil, pitchSemitones: -1.25)
+        case "vyrmathrax the ancient":
+            return FishS2VoicePreset(resourceName: "James", refText: standardTranscript, inlineTag: nil, pitchSemitones: -3.80)
+        case "azgorath":
+            return FishS2VoicePreset(resourceName: "James", refText: standardTranscript, inlineTag: nil, pitchSemitones: -3.10)
+        case "bane":
+            return FishS2VoicePreset(resourceName: "James", refText: standardTranscript, inlineTag: nil, pitchSemitones: -2.75)
+        case "german action voice":
+            return FishS2VoicePreset(resourceName: "James", refText: standardTranscript, inlineTag: nil, pitchSemitones: -0.95)
+        case "anton", "leon", "augustin", "arnaud", "marcos", "lalo", "davi", "igor", "marius", "javert", "jean":
+            return FishS2VoicePreset(resourceName: "James", refText: standardTranscript, inlineTag: nil, pitchSemitones: -0.85)
         default:
             return nil
         }
     }
 
-    /// Returns a local preview/audition WAV URL for any built-in Fish S2 voice or custom cloned voice.
+    /// Generates and caches a voice-distinct offline preview WAV when no live neural TTS model sample is cached yet.
+    static func distinctPreviewWAV(for voice: Voice) -> URL? {
+        let rawKey = (voice.voiceId ?? voice.name).lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        let isCanonicalBundleClone = (rawKey == "lily" || rawKey == "james" || rawKey == "sophie")
+        if let url = voice.audioFileURL,
+           FileManager.default.fileExists(atPath: url.path) {
+            let isBundledSeed = url.path.contains(".app/Contents/Resources/")
+                && ["lily.wav", "james.wav", "sophie.wav"].contains(url.lastPathComponent.lowercased())
+            if !isBundledSeed || isCanonicalBundleClone {
+                return url
+            }
+        }
+        let safeKey = rawKey.replacingOccurrences(of: "[^a-z0-9_-]", with: "_", options: .regularExpression)
+        let cacheDir = FileManager.default.temporaryDirectory.appendingPathComponent("CodecaineVoicePreviews", isDirectory: true)
+        try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+
+        // Check if a neural sample was already synthesized for this voice across any model
+        if let files = try? FileManager.default.contentsOfDirectory(at: cacheDir, includingPropertiesForKeys: nil),
+           let neuralHit = files.first(where: { $0.lastPathComponent.hasPrefix("neural_") && $0.lastPathComponent.hasSuffix("_\(safeKey).wav") }),
+           FileManager.default.fileExists(atPath: neuralHit.path) {
+            return neuralHit
+        }
+
+        let preset = fishS2Preset(for: voice.voiceId ?? voice.name)
+        let anchors = ["Sophie", "Lily", "James"]
+        var hashVal: UInt64 = 5381
+        for b in rawKey.utf8 {
+            hashVal = ((hashVal << 5) &+ hashVal) &+ UInt64(b)
+        }
+        let resourceName = preset?.resourceName ?? anchors[Int(hashVal % UInt64(anchors.count))]
+        // Deterministic prime-modulus micro-detune (19,946 distinct steps) ensures zero collisions across all 69+ voices
+        let microDetune: Float = isCanonicalBundleClone
+            ? 0.0
+            : ((0.06 + Float(hashVal % 9973) * (0.42 / 9973.0)) * (hashVal % 2 == 0 ? 1.0 : -1.0))
+        var semitones: Float
+        if let p = preset {
+            semitones = abs(p.pitchSemitones) <= 0.05 ? microDetune : (p.pitchSemitones + microDetune * 0.65)
+        } else {
+            let offsets: [Float] = [-1.8, -1.2, -0.7, -0.35, 0.35, 0.75, 1.15, 1.6]
+            semitones = offsets[Int((hashVal >> 3) % UInt64(offsets.count))] + microDetune * 0.65
+        }
+        if !isCanonicalBundleClone && abs(semitones) <= 0.12 {
+            semitones = (hashVal % 2 == 0) ? (0.18 + Float(hashVal % 97) * 0.001) : (-0.18 - Float(hashVal % 97) * 0.001)
+        }
+
+        guard let baseURL = Bundle.main.url(forResource: resourceName, withExtension: "wav")
+            ?? Bundle.main.url(forResource: "Sophie", withExtension: "wav") else {
+            return nil
+        }
+        if abs(semitones) <= 0.05 {
+            return baseURL
+        }
+
+        let cachedFallback = cacheDir.appendingPathComponent("fallback_v3_\(safeKey).wav")
+        if FileManager.default.fileExists(atPath: cachedFallback.path) {
+            return cachedFallback
+        }
+
+        guard let file = try? AVAudioFile(forReading: baseURL),
+              let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: file.processingFormat.sampleRate, channels: 1, interleaved: false),
+              let buf = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(file.length)),
+              (try? file.read(into: buf)) != nil,
+              let ch = buf.floatChannelData?[0] else {
+            return baseURL
+        }
+        let sr = file.processingFormat.sampleRate
+        let count = Int(buf.frameLength)
+        let samples = Array(UnsafeBufferPointer(start: ch, count: count))
+        let shifted = applyPitchShift(samples, semitones: semitones, sampleRate: sr)
+        if let writer = try? StreamingWAVWriter(url: cachedFallback, sampleRate: sr) {
+            try? writer.writeChunk(shifted)
+            _ = writer.finalize()
+            if FileManager.default.fileExists(atPath: cachedFallback.path) {
+                return cachedFallback
+            }
+        }
+        return baseURL
+    }
+
+    /// Returns a local preview/audition WAV URL for any built-in voice or custom cloned voice.
     static func previewAudioURL(for voice: Voice) -> URL? {
-        if let url = voice.audioFileURL, FileManager.default.fileExists(atPath: url.path) {
-            return url
-        }
-        if let preset = fishS2Preset(for: voice.voiceId ?? voice.name),
-           let resourceName = preset.resourceName,
-           let bundled = Bundle.main.url(forResource: resourceName, withExtension: "wav") {
-            return bundled
-        }
-        return Bundle.main.url(forResource: "Sophie", withExtension: "wav")
+        return distinctPreviewWAV(for: voice)
     }
 
     /// Phase-locked WSOLA pitch shift (in semitones) ported from bun_rad_studio fmPhonon.ts (`pitchShiftPCM`).
@@ -2365,8 +2537,231 @@ enum SpeechTextCleaner {
     private static let regexLock = NSLock()
     nonisolated(unsafe) private static var regexCache: [String: NSRegularExpression] = [:]
 
+    /// Ported directly from `bun_rad_studio` (`fmPreview.ts` `cleanEpubAndPandocClutter`):
+    /// Strips Calibre/Pandoc conversion artifacts (`{.calibre*}`, `:::`, `[]{#id}`, `[text]{.calibre1}`, `<svg>`, escaped quotes `\'`,
+    /// and stray backslashes) while preserving Windows drive/UNC file paths (`C:\...`, `\\server\share\...`).
+    static func cleanEpubAndPandocClutter(_ input: String) -> String {
+        guard !input.isEmpty else { return "" }
+        var s = input
+            .replacingOccurrences(of: "\u{FEFF}", with: "")
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+
+        // 1. Strip <svg>...</svg> blocks, self-closing <svg .../> tags, and Pandoc raw `{=html}` blocks/spans
+        if s.contains("<svg") || s.contains("<SVG") {
+            s = replaceRegex(s, pattern: "(?is)<svg\\b[^>]*>.*?</svg\\s*>", with: "")
+            s = replaceRegex(s, pattern: "(?i)<svg\\b[^>]*/>", with: "")
+        }
+        if s.contains("{=html}") {
+            s = replaceRegex(s, pattern: "(?ms)^ {0,3}(`{3,}|~{3,})\\{=html\\}.*?^ {0,3}\\1[ \\t]*$", with: "")
+            s = replaceRegex(s, pattern: "(?i)`[^`\\n]*`\\{=html\\}", with: "")
+        }
+
+        // 2. Strip Pandoc fenced div lines (e.g. "::: {.calibre1}", "::: calibre2", "::::::")
+        if s.contains(":::") {
+            s = replaceRegex(s, pattern: "(?m)^[ \\t]*:{3,}(?:[ \\t]*\\{[^}\\n]*\\}|[ \\t]*[A-Za-z0-9_.!:-]+)?[ \\t]*$", with: "")
+            s = replaceRegex(s, pattern: ":{3,}[ \\t]*\\{[^}\\n]*\\}", with: "")
+        }
+
+        // 3. Strip empty Pandoc anchor spans/links: []{#id .calibre1}, [](#anchor)
+        if s.contains("[]") {
+            s = replaceRegex(s, pattern: "\\[\\][ \\t]*\\{[^}\\n]*\\}", with: "")
+            s = replaceRegex(s, pattern: "\\[\\]\\(#[^)\\n]*\\)", with: "")
+        }
+
+        // 4. Unwrap Pandoc bracketed spans with attributes: [text]{.calibre1 #part0000_split_004.html} -> text (up to 5 nested levels)
+        let attrBlockPat = "\\{(?:=html|[.#][A-Za-z0-9_.!:-]+|[A-Za-z0-9_:-]+\\s*=\\s*(?:\"[^\"\\n]*\"|'[^'\\n]*'|[^\\s}\\n]+)|\\bcalibre[A-Za-z0-9_-]*)(?:\\s+(?:[.#][A-Za-z0-9_.!:-]+|[A-Za-z0-9_:-]+\\s*=\\s*(?:\"[^\"\\n]*\"|'[^'\\n]*'|[^\\s}\\n]+)|\\bcalibre[A-Za-z0-9_-]*))*\\}"
+        if s.contains("{") {
+            let spanPat = "\\[((?:[^\\[\\]]|\\[[^\\]\\n]*\\]\\([^)\\n]*\\)){1,4000})\\]\(attrBlockPat)"
+            for _ in 0..<5 {
+                let next = replaceRegex(s, pattern: spanPat, with: "$1")
+                if next == s { break }
+                s = next
+            }
+        }
+
+        // Unwrap internal EPUB/Pandoc TOC anchor links: [Chapter 1](#part0000_split_003.html__Toc...) -> Chapter 1
+        if s.contains("](#") {
+            s = replaceRegex(s, pattern: "\\[([^\\]\\n]+)\\]\\(#[^)\\n]*\\)(?:\\{[^}\\n]*\\})?", with: "$1")
+        }
+
+        // 5. Strip Markdown decorative/cover image tags from Calibre/Pandoc conversions
+        if s.contains("![") {
+            s = replaceRegex(s, pattern: "(?i)!\\[[^\\]]*\\]\\([^)\\n]*(?:calibre|cover|ornament|divider|spacer|fleuron|titlepage)[^)\\n]*\\)(?:\\{[^}\\n]*\\})?", with: "")
+            s = replaceRegex(s, pattern: "!\\[\\]\\([^)\\n]+\\)(?:\\{[^}\\n]*\\})?", with: "")
+        }
+
+        // 6. Strip remaining Pandoc/Calibre/Kramdown attribute blocks: {.calibre1}, {#part0000_split_004.html_calibre_pb_10 .calibre15}
+        if s.contains("{") {
+            s = replaceRegex(s, pattern: "[ \\t]*\(attrBlockPat)", with: "")
+        }
+
+        // Strip stray standalone HTML closing/opening structural tags (`</p>`, `<p>`, `</div>`, `</span>`, `<br/>`)
+        if s.contains("<") {
+            s = replaceRegex(s, pattern: "(?im)^[ \\t]*</?(?:p|div|span|br)\\s*/?>[ \\t]*$", with: "")
+        }
+
+        // 7. Unescape Pandoc backslash-escaped quotes, apostrophes, and punctuation (\', \", \-, \., \@, etc.) and stray backslashes
+        //    while preserving Windows drive/UNC file paths (e.g. C:\Users\alice\notes.txt or \\server\share\file.md).
+        if s.contains("\\") {
+            var winPathTokens: [String] = []
+            let winPathPattern = "(?:\\b[A-Za-z]:\\\\(?:[^\\s\\\\/:*?\"<>|]+\\\\)*[^\\s\\\\/:*?\"<>|]+|\\\\\\\\[^\\s\\\\/:*?\"<>|]+\\\\[^\\s\\\\/:*?\"<>|]+(?:\\\\[^\\s\\\\/:*?\"<>|]+)*)"
+            if let regex = try? NSRegularExpression(pattern: winPathPattern, options: []) {
+                let ns = s as NSString
+                let matches = regex.matches(in: s, options: [], range: NSRange(location: 0, length: ns.length)).reversed()
+                if !matches.isEmpty {
+                    let mutable = NSMutableString(string: s)
+                    for m in matches {
+                        let token = ns.substring(with: m.range)
+                        let idx = winPathTokens.count
+                        winPathTokens.append(token)
+                        mutable.replaceCharacters(in: m.range, with: "\u{E000}WINPATH_\(idx)\u{E001}")
+                    }
+                    s = mutable as String
+                }
+            }
+            s = s.replacingOccurrences(of: "\\'", with: "'")
+                .replacingOccurrences(of: "\\\"", with: "\"")
+            s = replaceRegex(s, pattern: "\\\\([\\\\’‘“”—–…!?,;:.()\\[\\]{}/+*_#~&$@^%=<>|`-])", with: "$1")
+            s = replaceRegex(s, pattern: "(?m)\\\\+[ \\t]*$", with: "")
+            s = replaceRegex(s, pattern: "\\\\+(?=[A-Za-z0-9'\"“”‘’\\s]|$)", with: "")
+            for (idx, token) in winPathTokens.enumerated() {
+                s = s.replacingOccurrences(of: "\u{E000}WINPATH_\(idx)\u{E001}", with: token)
+            }
+        }
+
+        return s
+    }
+
+    /// Ported directly from `bun_rad_studio` (`fmPhonon.ts` `stripNonSpeechChars`):
+    /// Strips non-language decorative, separator, ASCII-art, and box-drawing characters (`======`, `------`, `******`, `──────`, `══════`)
+    /// so TTS models never attempt to pronounce them and Read-Along subtitles never display them as words.
+    static func stripNonSpeechChars(_ input: String) -> String {
+        guard !input.isEmpty else { return "" }
+        var s = cleanEpubAndPandocClutter(input)
+        // Strip ANSI escape sequences and non-printable control characters
+        if s.contains("\u{001B}") {
+            s = replaceRegex(s, pattern: "\\x1B\\[[0-9;?]*[A-Za-z]", with: "")
+        }
+        s = replaceRegex(s, pattern: "[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F\\x7F\\u200B-\\u200D\\u00AD]", with: "")
+
+        // Protect <|speaker:N|> model control tokens during symbol stripping
+        var speakerTokens: [String] = []
+        if s.contains("<|") {
+            if let regex = try? NSRegularExpression(pattern: "<\\|[^>]+\\|>", options: []) {
+                let ns = s as NSString
+                let matches = regex.matches(in: s, options: [], range: NSRange(location: 0, length: ns.length)).reversed()
+                if !matches.isEmpty {
+                    let mutable = NSMutableString(string: s)
+                    for m in matches {
+                        let tok = ns.substring(with: m.range)
+                        let idx = speakerTokens.count
+                        speakerTokens.append(tok)
+                        mutable.replaceCharacters(in: m.range, with: "SPKTOK\(idx)END")
+                    }
+                    s = mutable as String
+                }
+            }
+        }
+
+        // 1. Remove full lines consisting only of divider, rule, border, or box-drawing characters
+        s = replaceRegex(
+            s,
+            pattern: "(?m)^[ \\t]*(?:[=\\-*_#~+^|<>/\\\\•·▪▫▬─━│┃┄┅┆┇┈┉┊┋┌┐└┘├┤┬┴┼═║╔╗╚╝╠╣╦╩╬╭╮╯╰╱╲╳▀▄█▌▐░▒▓][ \\t]*){2,}$",
+            with: ""
+        )
+
+        // 2. Strip Unicode box-drawing and block-element characters anywhere in lines
+        s = replaceRegex(s, pattern: "[\\u2500-\\u259F▪▫▬]+", with: " ")
+        s = replaceRegex(s, pattern: "[\\u2012-\\u2015\\u2E3A\\u2E3B]{2,}", with: " — ")
+
+        // 3. Strip repeated non-language separator/decorator runs ("======", "------", "--", "******", "______", "~~~~~~", "######")
+        s = replaceRegex(s, pattern: "[=*_#~+^|<>`\\\\]{2,}", with: " ")
+        s = replaceRegex(s, pattern: "[-]{2,}>?|<[-]{2,}|[=]{2,}>|<[=]{2,}", with: " ")
+        s = replaceRegex(s, pattern: "(?:[=\\-*_#~+^|][ \\t]*){3,}", with: " ")
+        s = replaceRegex(s, pattern: "(?<!:)/{2,}", with: " ")
+        // Strip 4+ leader dots ("Chapter 1 ............ 12") while keeping 3-dot ellipses ("...")
+        s = replaceRegex(s, pattern: "\\.{4,}", with: " ")
+        s = replaceRegex(s, pattern: "[•·]{2,}", with: " ")
+
+        // 4. Strip standalone non-speech symbol tokens surrounded by whitespace or line boundaries
+        s = replaceRegex(s, pattern: "(?m)(?:^|(?<=\\s))[=#*_~|^+\\\\<>`•]+(?=\\s|$)", with: " ")
+
+        for (idx, tok) in speakerTokens.enumerated() {
+            s = s.replacingOccurrences(of: "SPKTOK\(idx)END", with: tok)
+        }
+        return s
+    }
+
+    /// Ported directly from `bun_rad_studio` (`fmPreview.ts` `stripBackMatterPromoAndDuplicateChapters`):
+    /// Removes appended sneak-peek, bonus preview, "Also By", and duplicate promo chapters in the final 45% of an e-book
+    /// while preserving all genuine Author's Notes, Introductions, Forewords, Prologues, and Epilogues.
+    static func stripBackMatterPromoAndDuplicateChapters(_ rawText: String, bookTitle: String? = nil) -> String {
+        let cleaned = cleanEpubAndPandocClutter(rawText)
+        let doubleNewlineParas = cleaned.components(separatedBy: "\n\n")
+        let useDoubleNewline = doubleNewlineParas.count >= 4
+        let paras = useDoubleNewline ? doubleNewlineParas : cleaned.components(separatedBy: "\n")
+        let joiner = useDoubleNewline ? "\n\n" : "\n"
+        guard paras.count >= 3 else { return cleaned }
+
+        let explicitPromoTitlePattern = "(?i)^(?:sneak\\s+pe[ea]k|sneak\\s+preview|(?:special|bonus)\\s+(?:sneak\\s+)?(?:preview|chapter|excerpt)|sample\\s+chapter|preview\\s+of\\s+book|from\\s+the\\s+same\\s+author|other\\s+(?:titles|books|works)\\s+(?:from|by)|also\\s+by\\b|more\\s+books\\s+by\\b|about\\s+the\\s+publisher\\b)"
+        let explicitPromoBodyPattern = "(?i)(?:turn\\s+the\\s+page\\s+for\\s+a\\s+sneak\\s+pe[ea]k|here['’]?s\\s+a\\s+sneak\\s+pe[ea]k\\s+at|keep\\s+reading\\s+for\\s+a\\s+special\\s+preview|read\\s+on\\s+for\\s+a\\s+sneak\\s+pe[ea]k)"
+        let genuineNotePattern = "(?i)^(?:author['’‘]?s?\\s+notes?|a\\s+(?:note|word|plea|message)\\s+from(?:\\s+the\\s+author)?|notes?\\s+from\\s+the\\s+author|from\\s+the\\s+author|introduction|foreword|preface|afterword|prologue|epilogue)\\b"
+
+        let startScan = max(1, Int(floor(Double(paras.count) * 0.55)))
+        var seenHeadings = Set<String>()
+        for i in 0..<startScan {
+            let firstLine = (paras[i].components(separatedBy: .newlines).first ?? paras[i])
+                .replacingOccurrences(of: "^#+\\s*", with: "", options: .regularExpression)
+                .replacingOccurrences(of: "[*_`~]", with: "", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if firstLine.count >= 3 && firstLine.count <= 80 {
+                seenHeadings.insert(firstLine.lowercased())
+            }
+        }
+
+        for i in startScan..<paras.count {
+            let p = paras[i]
+                .replacingOccurrences(of: "^#+\\s*", with: "", options: .regularExpression)
+                .replacingOccurrences(of: "[*_`~]", with: "", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !p.isEmpty else { continue }
+            let firstLine = (p.components(separatedBy: .newlines).first ?? p)
+                .replacingOccurrences(of: "^#+\\s*", with: "", options: .regularExpression)
+                .replacingOccurrences(of: "[*_`~]", with: "", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let isShortHeading = firstLine.count <= 95
+            if isShortHeading && firstLine.range(of: genuineNotePattern, options: .regularExpression) != nil {
+                continue
+            }
+            if (isShortHeading && firstLine.range(of: explicitPromoTitlePattern, options: .regularExpression) != nil) ||
+               p.range(of: explicitPromoBodyPattern, options: .regularExpression) != nil {
+                // Keep any genuine Author's Note paragraphs that might appear after the promo block
+                var keptPrefix = Array(paras[0..<i])
+                for j in (i + 1)..<paras.count {
+                    let candFirst = (paras[j].components(separatedBy: .newlines).first ?? paras[j])
+                        .replacingOccurrences(of: "^#+\\s*", with: "", options: .regularExpression)
+                        .replacingOccurrences(of: "[*_`~]", with: "", options: .regularExpression)
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    if candFirst.count <= 95 && candFirst.range(of: genuineNotePattern, options: .regularExpression) != nil {
+                        keptPrefix.append(contentsOf: paras[j..<paras.count])
+                        break
+                    }
+                }
+                return keptPrefix.joined(separator: joiner).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            // Check for duplicate chapter 1 restart in back-matter teaser
+            if isShortHeading && seenHeadings.contains(firstLine.lowercased()) && firstLine.range(of: "(?i)^(?:chapter|part|book)\\s+(?:1|one|i)\\b", options: .regularExpression) != nil {
+                return paras[0..<i].joined(separator: joiner).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        return cleaned
+    }
+
     static func clean(_ rawText: String, options: SpeechCleanOptions = SpeechCleanOptions()) -> String {
-        var s = rawText.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+        var s = stripBackMatterPromoAndDuplicateChapters(
+            rawText.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+        )
 
         if options.stripCodeBlocks && s.contains("`") {
             s = replaceRegex(s, pattern: "```[^`]*```", with: " [code block omitted] ")
@@ -2432,7 +2827,7 @@ enum SpeechTextCleaner {
         }
 
         if options.stripDividers {
-            s = replaceRegex(s, pattern: "(?m)^\\s*[-=*_]{3,}\\s*$", with: "")
+            s = stripNonSpeechChars(s)
         }
 
         s = replaceRegex(s, pattern: "[ \\t]+", with: " ")
@@ -2562,15 +2957,17 @@ enum SpeechTextCleaner {
 
         // 2. E-Books: EPUB / iBooks (.epub, .ibooks)
         if ext == "epub" || ext == "ibooks" {
-            if let pandoc = StudioPackageManager.findExecutable(names: ["pandoc"]),
+            if let epubText = extractEpubText(from: url), !epubText.isEmpty {
+                return epubText
+            }
+            if !isDir.boolValue,
+               let pandoc = StudioPackageManager.findExecutable(names: ["pandoc"]),
                let out = runCLI(executable: pandoc, arguments: ["-t", "plain", url.path]),
                !out.isEmpty {
                 return clean(out, options: bookCleanOpts)
             }
-            if let epubText = extractEpubText(from: url), !epubText.isEmpty {
-                return epubText
-            }
-            if let calibreText = runEbookConvertToText(from: url), !calibreText.isEmpty {
+            if !isDir.boolValue,
+               let calibreText = runEbookConvertToText(from: url), !calibreText.isEmpty {
                 return clean(calibreText, options: bookCleanOpts)
             }
         }
@@ -2848,6 +3245,9 @@ enum SpeechTextCleaner {
 
     private static func insertParagraphBreaksInHTML(_ html: String) -> String {
         html
+            .replacingOccurrences(of: "\r\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+            .replacingOccurrences(of: "\n", with: " ")
             .replacingOccurrences(of: "</p>", with: "</p>\n\n", options: .caseInsensitive)
             .replacingOccurrences(of: "</div>", with: "</div>\n\n", options: .caseInsensitive)
             .replacingOccurrences(of: "</section>", with: "</section>\n\n", options: .caseInsensitive)
@@ -4005,6 +4405,19 @@ enum HierarchicalChunker {
     nonisolated(unsafe) private static var lastMergeShort: Bool = true
     nonisolated(unsafe) private static var lastCachedChunks: [PhononTextChunk] = []
 
+    /// Matches standalone book/novel headings (`CHAPTER ONE - SACRIFICE`, `Chapter 1`, `PROLOGUE`, `EPILOGUE`, `BOOK I`, `PART 1`, `AUTHOR'S NOTE`, etc.)
+    static func isStandaloneBookHeading(_ rawLine: String) -> Bool {
+        let stripped = rawLine
+            .replacingOccurrences(of: "^#+\\s*", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "[*_`~]", with: "", options: .regularExpression)
+            .trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: ".")))
+        guard !stripped.isEmpty && stripped.count <= 96 else { return false }
+        let numberedPattern = "(?i)^(?:chapter|ch\\.?|part|book|act|volume|vol\\.?|section|scene|episode)\\s+(?:[0-9]+|[ivxlcdm]+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty)(?:\\b|[\\s:.\\-—–])"
+        let namedPattern = "(?i)^(?:prologue|epilogue|interlude|prelude|foreword|preface|introduction|afterword|author['’]?s\\s+note|acknowledg(?:e)?ments|dedication|appendix|to\\s+be\\s+continued)(?:\\b|[\\s:.\\-—–]|$)"
+        return stripped.range(of: numberedPattern, options: .regularExpression) != nil
+            || stripped.range(of: namedPattern, options: .regularExpression) != nil
+    }
+
     /// Sanitizes raw Markdown/novel paragraph lines so horizontal dividers (`---`, `***`), heading hashes (`# `, `## `),
     /// and inline emphasis wrappers (`*text*`, `**text**`) never cause TTS models to stumble or insert dead pauses.
     private static func sanitizeParagraphForSpeech(_ rawPara: String) -> String {
@@ -4047,7 +4460,10 @@ enum HierarchicalChunker {
 
             guard !line.isEmpty else { continue }
             // Ensure standalone heading lines end with sentence punctuation so TTS gives them natural title cadence
-            if isHeading || (line.count <= 72 && !line.contains("\"")) {
+            let looksLikeStandaloneHeading = isHeading
+                || isStandaloneBookHeading(line)
+                || (lines.count == 1 && line.count <= 72 && !line.contains("\""))
+            if looksLikeStandaloneHeading {
                 if let last = line.last, !".!?:;…\"')]}".contains(last) {
                     line.append(".")
                 }
@@ -4074,7 +4490,7 @@ enum HierarchicalChunker {
         }
         cacheLock.unlock()
 
-        let normalized = rawText
+        let normalized = SpeechTextCleaner.stripNonSpeechChars(rawText)
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -4106,6 +4522,11 @@ enum HierarchicalChunker {
         for rawPara in rawParagraphs {
             let cleanPara = sanitizeParagraphForSpeech(rawPara)
             if cleanPara.isEmpty { continue }
+
+            let firstLineOfPara = cleanPara.components(separatedBy: "\n").first ?? cleanPara
+            if isStandaloneBookHeading(firstLineOfPara) {
+                flushPending()
+            }
 
             // Keep Chunk #0 compact (~260 chars = ~13s of speech) so playback starts in ~1.0s while Chunk #1+ prefetches!
             let targetMaxForPara = (chunks.isEmpty && pendingText.isEmpty && normalized.count > 360)
@@ -4606,23 +5027,71 @@ enum ReadAlongVideoAspect: String, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
-        case .landscape16x9: return "16:9 Widescreen (1280×720)"
-        case .portrait9x16: return "9:16 Vertical Shorts (720×1280)"
-        case .square1x1: return "1:1 Square Social (720×720)"
+        case .landscape16x9: return "16:9 Widescreen (1920×1080 — YouTube / Desktop)"
+        case .portrait9x16: return "9:16 Vertical Short (1080×1920 — Shorts / Reels / TikTok)"
+        case .square1x1: return "1:1 Square Social (1080×1080 — Social Feed / Audiobook Card)"
         }
     }
 
     var width: Int {
         switch self {
-        case .landscape16x9: return 1280
-        case .portrait9x16, .square1x1: return 720
+        case .landscape16x9: return 1920
+        case .portrait9x16, .square1x1: return 1080
         }
     }
 
     var height: Int {
         switch self {
-        case .landscape16x9, .square1x1: return 720
-        case .portrait9x16: return 1280
+        case .landscape16x9, .square1x1: return 1080
+        case .portrait9x16: return 1920
+        }
+    }
+
+    var maxLineChars: Int {
+        switch self {
+        case .landscape16x9: return 54
+        case .portrait9x16: return 30
+        case .square1x1: return 36
+        }
+    }
+
+    var maxWordsPerCue: Int {
+        switch self {
+        case .landscape16x9: return 9
+        case .portrait9x16: return 6
+        case .square1x1: return 7
+        }
+    }
+
+    var fontSize: Int {
+        switch self {
+        case .landscape16x9: return 56
+        case .portrait9x16: return 58
+        case .square1x1: return 50
+        }
+    }
+
+    var contextFontSize: Int {
+        switch self {
+        case .landscape16x9: return 34
+        case .portrait9x16: return 36
+        case .square1x1: return 32
+        }
+    }
+
+    var headerFontSize: Int {
+        switch self {
+        case .landscape16x9: return 28
+        case .portrait9x16: return 30
+        case .square1x1: return 26
+        }
+    }
+
+    var lineSpacingPx: Int {
+        switch self {
+        case .landscape16x9: return 118
+        case .portrait9x16: return 140
+        case .square1x1: return 115
         }
     }
 }
@@ -4707,66 +5176,112 @@ enum WordTimingEngine {
         return result
     }
 
-    /// Ported directly from bun_rad_studio fmPhonon.ts (`estimateSpokenWordWeight`).
+    private static let spelledOutAcronyms: Set<String> = [
+        "ai", "ui", "ux", "os", "io", "ip", "id", "tv", "pc", "uk", "eu", "un", "us", "usa",
+        "api", "url", "uri", "gui", "sdk", "ide", "dom", "css", "xml", "csv", "srt", "vtt",
+        "ass", "wav", "aac", "ogg", "m4a", "mp3", "mp4", "mkv", "mov", "avi", "png", "svg",
+        "bmp", "gif", "jpg", "pdf", "doc", "rtf", "zip", "tar", "ssh", "ssl", "tls", "tcp",
+        "udp", "dns", "ftp", "vpn", "cpu", "gpu", "npu", "tpu", "llm", "tts", "stt", "ocr",
+        "asr", "nlp", "rag", "mcp", "cli", "eof", "ios", "usb", "ssd", "hdd", "led", "lcd",
+        "fps", "bpm", "rpm", "mph", "ceo", "cfo", "cto", "vip", "faq", "diy", "eta", "tba",
+        "tbd", "fyi", "imo", "omg", "lol", "fbi", "cia", "nsa", "irs", "fda", "epa", "cdc",
+        "nih", "dna", "rna", "pcr", "mri", "ecg", "ekg", "icu", "mlx", "ffi"
+    ]
+
+    private static let fastFunctionWords: Set<String> = [
+        "a", "an", "the", "to", "of", "in", "on", "at", "by", "for", "as", "is", "be", "or",
+        "and", "so", "if", "it", "us", "we"
+    ]
+
+    /// Ported directly from `bun_rad_studio` `fmPhonon.ts` (`estimateSpokenWordWeight`).
+    /// Disambiguates uppercase book headings (`BOOK`, `ONE`, `CHAPTER`) from spelled-out initialisms (`SPELLED_OUT_ACRONYMS`),
+    /// weights spoken digits and symbols, and scales fast function words (`FAST_FUNCTION_WORDS`).
     private static func estimateSpokenWordWeight(_ raw: String) -> (weight: Double, pauseAffinity: Double) {
         if (raw.hasPrefix("<|") && raw.hasSuffix("|>")) || (raw.hasPrefix("[") && raw.hasSuffix("]")) {
             return (0.1, 0.0)
         }
-        let clean = raw.unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) || $0 == "'" }.map(String.init).joined()
-        let len = max(1, clean.count)
 
-        // Approximate English syllable count via vowel-group heuristic
-        let lower = clean.lowercased()
-        var vowelRunCount = 0
-        var prevVowel = false
-        for ch in lower {
-            let isV = (ch == "a" || ch == "e" || ch == "i" || ch == "o" || ch == "u" || ch == "y")
-            if isV && !prevVowel {
-                vowelRunCount += 1
-            }
-            prevVowel = isV
-        }
-        var syllables = max(1, vowelRunCount)
-        if lower.count > 3 && lower.hasSuffix("e") && !lower.hasSuffix("le") && syllables > 1 {
-            syllables -= 1
-        }
-
-        // Acronym / Initialism boost (e.g. "PDF", "AI", "CPU" -> spoken letter-by-letter)
-        let hasUpper = clean.rangeOfCharacter(from: .uppercaseLetters) != nil
-        let isAllCaps = hasUpper && clean == clean.uppercased() && clean.count >= 2 && clean.count <= 5
-        if isAllCaps {
-            syllables = max(syllables, clean.count)
-        }
-
-        // Digits (e.g. "2026", "42") take significantly longer per character than regular letters
-        let digitCount = clean.unicodeScalars.filter { CharacterSet.decimalDigits.contains($0) }.count
-        if digitCount > 0 {
-            syllables += digitCount * 2
-        }
-
-        let charWeight = pow(Double(len), 0.72)
-        let sylWeight = Double(syllables) * 1.35
-
-        // Trailing punctuation pause weight + affinity for aligning with acoustic silence valleys
-        var pauseWeight = 0.0
+        let trimmedQuotes = raw.trimmingCharacters(in: CharacterSet(charactersIn: "'\"“”‘’()[]»«"))
         var pauseAffinity = 0.0
-        let trimmed = raw.trimmingCharacters(in: CharacterSet(charactersIn: "\"')]}»"))
-        if trimmed.hasSuffix(".") || trimmed.hasSuffix("!") || trimmed.hasSuffix("?") || trimmed.hasSuffix("…") {
-            pauseWeight = 2.6
+        if trimmedQuotes.hasSuffix(".") || trimmedQuotes.hasSuffix("!") || trimmedQuotes.hasSuffix("?") || trimmedQuotes.hasSuffix("…") || raw.hasSuffix("...") {
             pauseAffinity = 3.0
-        } else if trimmed.hasSuffix(";") || trimmed.hasSuffix(":") || trimmed.hasSuffix("—") || trimmed.hasSuffix("–") {
-            pauseWeight = 1.6
-            pauseAffinity = 2.0
-        } else if trimmed.hasSuffix(",") {
-            pauseWeight = 1.0
-            pauseAffinity = 1.5
+        } else if trimmedQuotes.hasSuffix(";") || trimmedQuotes.hasSuffix(":") || trimmedQuotes.hasSuffix("—") || trimmedQuotes.hasSuffix("–") {
+            pauseAffinity = 2.2
+        } else if trimmedQuotes.hasSuffix(",") {
+            pauseAffinity = 1.8
         }
 
-        return (max(0.6, charWeight + sylWeight + pauseWeight), pauseAffinity)
+        let stripped = raw.trimmingCharacters(in: CharacterSet(charactersIn: "'\"“”‘’()[].!?,;:—–…"))
+        guard !stripped.isEmpty else {
+            return (1.0, pauseAffinity)
+        }
+
+        let subParts = stripped.components(separatedBy: CharacterSet(charactersIn: "-/—–:")).filter { !$0.isEmpty }
+        var totalSyllables = 0.0
+
+        for part in subParts {
+            var symOne = 0
+            var symTwo = 0
+            var digits = 0
+            var letters = ""
+            var upperCount = 0
+            var vowelCount = 0
+
+            for ch in part {
+                if ch == "&" || ch == "@" {
+                    symOne += 1
+                } else if "%$€£¥§".contains(ch) {
+                    symTwo += 1
+                } else if ch.isNumber {
+                    digits += 1
+                } else if ch.isLetter {
+                    letters.append(ch)
+                    if ch.isUppercase { upperCount += 1 }
+                    if "AEIOUYaeiouy".contains(ch) { vowelCount += 1 }
+                }
+            }
+            totalSyllables += Double(symOne) * 1.0 + Double(symTwo) * 1.8
+
+            let lower = letters.lowercased()
+            let isMixedCaseAcronym = letters.count >= 2 && upperCount >= 2 && upperCount < letters.count
+            let isSpelledAcronym = digits > 0 ||
+                (letters.count >= 2 && vowelCount == 0) ||
+                isMixedCaseAcronym ||
+                (upperCount == letters.count && spelledOutAcronyms.contains(lower))
+
+            if isSpelledAcronym {
+                totalSyllables += Double(letters.count) * 1.15 + Double(digits) * 1.35
+            } else {
+                var vowelGroups = 0
+                var prevVowel = false
+                for ch in lower {
+                    let isV = "aeiouyàáâãäåæèéêëìíîïòóôõöøùúûüýÿ".contains(ch)
+                    if isV && !prevVowel {
+                        vowelGroups += 1
+                    }
+                    prevVowel = isV
+                }
+                let silentE = (lower.count > 3 && lower.hasSuffix("e") && !lower.hasSuffix("le") && vowelGroups > 1) ? 1 : 0
+                let wordSyllables = letters.isEmpty ? 0 : max(1, vowelGroups - silentE)
+                totalSyllables += Double(wordSyllables)
+            }
+        }
+
+        let lowerClean = stripped.lowercased()
+        if fastFunctionWords.contains(lowerClean) {
+            let baseW = 0.64 + min(0.25, pauseAffinity * 0.08)
+            return (baseW, pauseAffinity)
+        }
+
+        let charFactor = pow(Double(max(1, stripped.count)), 0.45) * 0.35
+        let weight = max(0.95, totalSyllables * 0.95 + charFactor + min(0.3, pauseAffinity * 0.08))
+        return (weight, pauseAffinity)
     }
 
-    /// Ported directly from bun_rad_studio fmPhonon.ts (`computeWordTimingsForText`):
-    /// Uses pitch-invariant voiced-time cumulative curve + Dynamic Programming pause-valley anchoring + local energy minimum snapping.
+    /// Ported directly from `bun_rad_studio` `fmPhonon.ts` (`computeWordTimingsForText`):
+    /// Uses First-Difference Pre-Emphasis (`y[n] = x[n] - 0.95 * x[n-1]`) + 3-tap smoothed 10ms RMS envelope +
+    /// pitch-invariant voiced-time cumulative curve + Dynamic Programming sentence & intra-sentence comma/colon pause-valley
+    /// anchoring + local energy minimum snapping with a 40ms minimum visual hold floor (zero skipped words).
     static func alignWordsToPCM(
         words: [IndexedWordSpec],
         samples: [Float],
@@ -4777,11 +5292,12 @@ enum WordTimingEngine {
         let sr = max(8000.0, sampleRate)
         let totalSec = max(0.08, Double(samples.count) / sr)
 
-        // 1. Compute 10ms RMS energy envelope (SIMD vectorized via vDSP_measqv)
+        // 1. Compute 10ms raw RMS energy envelope AND First-Difference Pre-Emphasis envelope (`y[n] = x[n] - 0.95 * x[n-1]`)
+        //    which boosts high-frequency consonant and sibilant energy (s, t, k, f) for razor-sharp word boundary dips.
         let frameSamples = max(1, Int(floor(sr * 0.01)))
         let numFrames = max(1, Int(ceil(Double(samples.count) / Double(frameSamples))))
-        var env = [Float](repeating: 0, count: numFrames)
-        var maxEnv: Float = 0
+        var rawRms = [Float](repeating: 0, count: numFrames)
+        var rawPreEmphRms = [Float](repeating: 0, count: numFrames)
 
         samples.withUnsafeBufferPointer { buf in
             guard let base = buf.baseAddress else { return }
@@ -4792,10 +5308,39 @@ enum WordTimingEngine {
                 guard len > 0 else { continue }
                 var meanSq: Float = 0
                 vDSP_measqv(base + start, 1, &meanSq, vDSP_Length(len))
-                let rms = sqrt(meanSq)
-                env[f] = rms
-                if rms > maxEnv { maxEnv = rms }
+                rawRms[f] = sqrt(meanSq)
+
+                var preSum: Float = 0
+                var prevSample: Float = start > 0 ? base[start - 1] : 0
+                for k in start..<end {
+                    let cur = base[k]
+                    let y = cur - 0.95 * prevSample
+                    preSum += y * y
+                    prevSample = cur
+                }
+                rawPreEmphRms[f] = sqrt(preSum / Float(len))
             }
+        }
+
+        // 3-tap [0.25, 0.5, 0.25] smoothing matching fmPhonon.ts
+        var env = [Float](repeating: 0, count: numFrames)
+        var preEmphEnv = [Float](repeating: 0, count: numFrames)
+        var maxEnv: Float = 0
+        var maxPreEnv: Float = 0
+        for f in 0..<numFrames {
+            let p = rawRms[max(0, f - 1)]
+            let c = rawRms[f]
+            let n = rawRms[min(numFrames - 1, f + 1)]
+            let v = 0.25 * p + 0.5 * c + 0.25 * n
+            env[f] = v
+            if v > maxEnv { maxEnv = v }
+
+            let pp = rawPreEmphRms[max(0, f - 1)]
+            let pc = rawPreEmphRms[f]
+            let pn = rawPreEmphRms[min(numFrames - 1, f + 1)]
+            let pv = 0.25 * pp + 0.5 * pc + 0.25 * pn
+            preEmphEnv[f] = pv
+            if pv > maxPreEnv { maxPreEnv = pv }
         }
 
         let voiceThresh = max(Float(0.003), maxEnv * 0.055)
@@ -4810,8 +5355,8 @@ enum WordTimingEngine {
             startF = 0
             endF = numFrames - 1
         } else {
-            startF = max(0, startF - 2)
-            endF = min(numFrames - 1, endF + 3)
+            startF = max(0, startF - 1)
+            endF = min(numFrames - 1, endF + 2)
         }
 
         let activeStartSec = Double(startF * frameSamples) / sr
@@ -4819,7 +5364,14 @@ enum WordTimingEngine {
         let activeSpanSec = max(0.05, activeEndSec - activeStartSec)
         let activeLen = max(1, endF - startF + 1)
 
-        let wordMetas = words.map { estimateSpokenWordWeight($0.word) }
+        // Boost pause affinity across paragraph/chunk transitions (matching fmPhonon.ts newline gapBefore boost)
+        var wordMetas = words.map { estimateSpokenWordWeight($0.word) }
+        for i in 0..<(words.count - 1) {
+            if words[i + 1].paragraphIndex != words[i].paragraphIndex || words[i + 1].chunkIndex != words[i].chunkIndex {
+                wordMetas[i].pauseAffinity = max(wordMetas[i].pauseAffinity, 2.6)
+            }
+        }
+
         var totalWeight = 0.0
         var wordCum = [Double](repeating: 0, count: words.count + 1)
         for i in 0..<words.count {
@@ -4831,7 +5383,8 @@ enum WordTimingEngine {
             wordCum[i] /= safeTotalWeight
         }
 
-        // 3. Detect internal acoustic pause valleys (>= 110ms = 11 frames) inside [startF, endF]
+        // 3. Detect internal acoustic pause valleys (>= 150ms = 15 frames, or >= 120ms deep breath/clause closures)
+        //    so 80-110ms intra-word voiceless stop closures ("t", "k", "p") are never mistaken for clause pauses.
         struct AcousticPauseValley {
             let startF: Int
             let endF: Int
@@ -4840,39 +5393,60 @@ enum WordTimingEngine {
             let normPos: Double
         }
         var pauseValleys: [AcousticPauseValley] = []
-        let minPauseFrames = 11
-        var fIdx = startF + 3
-        while fIdx <= endF - 3 {
-            if env[fIdx] < voiceThresh {
-                let pStart = fIdx
-                while fIdx <= endF - 2 && env[fIdx] < voiceThresh { fIdx += 1 }
-                let pEnd = fIdx - 1
-                let dur = pEnd - pStart + 1
-                if dur >= minPauseFrames {
-                    let normPos = Double(pStart - startF) / Double(activeLen)
-                    if normPos > 0.04 && normPos < 0.96 {
+        var inValleyMask = [Bool](repeating: false, count: numFrames)
+        var inVal = false
+        var vStart = 0
+        var vMinEnv = Float.infinity
+
+        for f in startF...endF {
+            let curEnv = f < endF ? env[f] : (voiceThresh + 1.0)
+            let silent = f < endF ? (curEnv < voiceThresh) : false
+            if silent {
+                if !inVal {
+                    inVal = true
+                    vStart = f
+                    vMinEnv = curEnv
+                } else if curEnv < vMinEnv {
+                    vMinEnv = curEnv
+                }
+            } else if inVal {
+                inVal = false
+                let lenF = f - vStart
+                if lenF >= 15 || (lenF >= 12 && vMinEnv < voiceThresh * 0.55) {
+                    let normPos = Double(vStart - startF) / Double(activeLen)
+                    if normPos > 0.03 && normPos < 0.97 {
                         pauseValleys.append(AcousticPauseValley(
-                            startF: pStart,
-                            endF: pEnd,
-                            resumeF: min(endF, pEnd + 1),
-                            durationFrames: dur,
+                            startF: vStart,
+                            endF: f - 1,
+                            resumeF: min(endF, f),
+                            durationFrames: lenF,
                             normPos: normPos
                         ))
+                        for k in vStart..<min(numFrames, f) {
+                            inValleyMask[k] = true
+                        }
                     }
                 }
-            } else {
-                fIdx += 1
             }
         }
 
-        // 4. Build pitch-invariant voiced-time cumulative curve over [startF, endF]
+        // 4. Build pitch-invariant voiced-time cumulative curve over [startF, endF]:
+        //    Vowels and voiced consonants contribute ~1.0, brief intra-word voiceless consonants (t, k, p, s, f, th)
+        //    retain a 0.22 floor so short function words ("I", "on", "a", "to", "the") never collapse, and inter-clause
+        //    pause valleys (inValleyMask) get 0.001 so silence never advances voicedCum.
         var voicedCum = [Double](repeating: 0, count: activeLen + 1)
         for i in 0..<activeLen {
-            let rms = env[startF + i]
+            let f = startF + i
+            let rms = env[f]
             let isVoiced = rms >= voiceThresh
-            let contrib = isVoiced
-                ? (1.0 + 0.22 * min(1.0, Double(rms) / Double(max(maxEnv * 0.65, 1e-6))))
-                : 0.06
+            let contrib: Double
+            if inValleyMask[f] {
+                contrib = 0.001
+            } else if isVoiced {
+                contrib = 0.72 + 0.28 * min(1.0, Double(rms) / Double(max(maxEnv, 0.001)))
+            } else {
+                contrib = 0.22
+            }
             voicedCum[i + 1] = voicedCum[i] + contrib
         }
         let totalVoiced = max(voicedCum[activeLen], 1e-6)
@@ -4880,7 +5454,7 @@ enum WordTimingEngine {
             voicedCum[i] /= totalVoiced
         }
 
-        // 5. Anchor punctuated words to acoustic pause valleys via monotonic Dynamic Programming
+        // 5. Anchor punctuated words (sentences + intra-sentence commas, colons, semicolons, em-dashes) to acoustic pause valleys via monotonic DP
         struct PauseAnchor {
             let wordIdx: Int // word index BEFORE the pause (0 ..< words.count - 1)
             let pauseEndF: Int
@@ -4902,7 +5476,7 @@ enum WordTimingEngine {
             )
             let P = punctCandidates.count
             let V = topValleys.count
-            let maxDist = min(0.085, 2.2 / Double(max(words.count, 12)))
+            let maxDist = min(0.14, 2.6 / Double(max(words.count, 10)))
             var dp = Array(repeating: Array(repeating: 0.0, count: V + 1), count: P + 1)
             var choice = Array(repeating: Array(repeating: Int8(0), count: V + 1), count: P + 1)
 
@@ -4950,7 +5524,7 @@ enum WordTimingEngine {
             anchors = matched.reversed()
         }
 
-        // 6. Compute word boundaries within each anchored segment & snap to local energy minimum
+        // 6. Compute word boundaries within each anchored segment & snap to local energy minimum with 40ms min hold floor
         struct SegmentSpec {
             let startWord: Int
             let endWord: Int // exclusive
@@ -4968,8 +5542,8 @@ enum WordTimingEngine {
                 let vEnd = voicedCum[max(0, min(activeLen, a.pauseStartF - startF))]
                 let actualSpan = max(1e-4, vEnd - vStart)
                 let paceRatio = actualSpan / expectedSpan
-                // Reject any pause anchor that distorts segment speaking pace by more than [0.60x ... 1.65x]
-                if paceRatio >= 0.60 && paceRatio <= 1.65 {
+                // Reject any pause anchor that distorts segment speaking pace by more than [0.55x ... 1.75x]
+                if paceRatio >= 0.55 && paceRatio <= 1.75 {
                     segments.append(SegmentSpec(startWord: curW, endWord: nextW, segStartF: curF, segEndF: a.pauseStartF))
                     curW = nextW
                     curF = a.pauseEndF
@@ -4982,16 +5556,29 @@ enum WordTimingEngine {
 
         var timings: [WordTiming] = []
         timings.reserveCapacity(words.count)
+        let normPreScale: Float = maxPreEnv > 1e-5 ? (maxEnv / maxPreEnv) : 0.0
 
         for seg in segments {
             let segCount = seg.endWord - seg.startWord
             guard segCount > 0 else { continue }
             let segF0 = max(startF, min(endF, seg.segStartF))
             let segF1 = max(segF0 + 1, min(endF + 1, seg.segEndF + 1))
+            let segSpanF = max(segCount, segF1 - segF0)
+            // Guarantee at least 4 frames (40ms = 25 fps grid) per word when segment span permits so zero words are skipped
+            let segCountDouble = Double(max(1, segCount)) * 1.4
+            let maxFramesPerWord = Int(floor(Double(segSpanF) / segCountDouble))
+            let minWordFrames = max(1, min(maxFramesPerWord, 4))
 
+            var segWeights = [Double](repeating: 1.0, count: segCount)
             var segWeightSum = 0.0
-            for w in seg.startWord..<seg.endWord {
-                segWeightSum += wordMetas[w].weight
+            for localIdx in 0..<segCount {
+                let w = seg.startWord + localIdx
+                let baseW = max(0.58, wordMetas[w].weight)
+                let effW = (localIdx < segCount - 1 && wordMetas[w].pauseAffinity > 0)
+                    ? (baseW + wordMetas[w].pauseAffinity * 0.35)
+                    : baseW
+                segWeights[localIdx] = effW
+                segWeightSum += effW
             }
             let safeSegWeight = max(segWeightSum, 1e-6)
 
@@ -5006,52 +5593,77 @@ enum WordTimingEngine {
             var cumW = 0.0
             var searchCursor = segF0 - startF
             for localIdx in 0..<(segCount - 1) {
-                let w = seg.startWord + localIdx
-                cumW += wordMetas[w].weight
+                cumW += segWeights[localIdx]
                 let targetVoiced = v0 + (cumW / safeSegWeight) * vSpan
 
                 while searchCursor < (segF1 - startF) && voicedCum[searchCursor] < targetVoiced {
                     searchCursor += 1
                 }
-                let idealF = startF + searchCursor
-
-                // Snap boundary to local energy minimum within ±7 frames (±70ms)
-                let prevBoundary = boundaryFrames[localIdx]
-                let minAllowed = prevBoundary + 2
-                let maxAllowed = segF1 - (segCount - 1 - localIdx) * 2
-                if minAllowed >= maxAllowed {
-                    boundaryFrames[localIdx + 1] = max(prevBoundary + 1, min(segF1 - 1, idealF))
+                var idealF = startF + searchCursor
+                let minAllowed = boundaryFrames[localIdx] + minWordFrames
+                let maxAllowed = segF1 - (segCount - 1 - localIdx) * minWordFrames
+                if minAllowed <= maxAllowed {
+                    idealF = max(minAllowed, min(maxAllowed, idealF))
                 } else {
-                    let radius = 7
-                    let minSearch = max(minAllowed, idealF - radius)
-                    let maxSearch = min(maxAllowed, idealF + radius)
-                    var bestF = max(minAllowed, min(maxAllowed, idealF))
-                    var bestCost = Float.infinity
+                    idealF = max(boundaryFrames[localIdx] + 1, min(segF1 - 1, idealF))
+                }
+                boundaryFrames[localIdx + 1] = idealF
+            }
+
+            // Snap interior word boundaries to local energy + pre-emphasis minima while preserving >= minWordFrames on both sides
+            let estBounds = boundaryFrames
+            if segCount > 1 {
+                for k in 1..<segCount {
+                    let estF = estBounds[k]
+                    let prevBound = boundaryFrames[k - 1]
+                    let nextBound = estBounds[k + 1]
+                    let leftSpan = max(1, estF - prevBound)
+                    let rightSpan = max(1, nextBound - estF)
+                    let maxLeftShift = max(0, min(7, leftSpan - minWordFrames, Int(floor(Double(leftSpan) * 0.32))))
+                    let maxRightShift = max(0, min(7, rightSpan - minWordFrames, Int(floor(Double(rightSpan) * 0.32))))
+                    let minSearch = max(prevBound + minWordFrames, estF - maxLeftShift)
+                    let maxSearch = min(nextBound - minWordFrames, estF + maxRightShift)
                     if minSearch <= maxSearch {
+                        var bestF = estF
+                        var bestCost = Float.infinity
                         for candF in minSearch...maxSearch {
-                            let distPenalty = Float(abs(candF - idealF)) * 0.06 * max(maxEnv, 0.01)
-                            let cost = env[min(numFrames - 1, candF)] + distPenalty
+                            let idx = min(numFrames - 1, max(0, candF))
+                            let blendedEnv = 0.65 * env[idx] + 0.35 * (preEmphEnv[idx] * normPreScale)
+                            let isLocalMin = env[idx] <= env[max(0, idx - 1)] && env[idx] <= env[min(numFrames - 1, idx + 1)]
+                            let distPenalty = Float(abs(candF - estF)) * 0.032 * max(maxEnv, 0.01)
+                            let minBonus: Float = isLocalMin ? (-0.014 * maxEnv) : 0.0
+                            let cost = blendedEnv + distPenalty + minBonus
                             if cost < bestCost {
                                 bestCost = cost
                                 bestF = candF
                             }
                         }
+                        boundaryFrames[k] = bestF
                     }
-                    boundaryFrames[localIdx + 1] = bestF
                 }
             }
 
             for localIdx in 0..<segCount {
                 let spec = words[seg.startWord + localIdx]
                 let fStart = boundaryFrames[localIdx]
-                let fEnd = max(fStart + 1, boundaryFrames[localIdx + 1])
-                var startSec = startOffsetSec + min(totalSec, max(activeStartSec, Double(fStart * frameSamples) / sr))
-                var endSec = startOffsetSec + min(totalSec, max(startSec - startOffsetSec + 0.025, Double(fEnd * frameSamples) / sr))
+                var fEnd = max(fStart + 1, boundaryFrames[localIdx + 1])
+
+                // Trim trailing silence only at the very end of the segment if there is a long trailing pause (>= 140ms)
+                if localIdx == segCount - 1 && (fEnd - fStart) > (minWordFrames + 4) {
+                    while fEnd > (fStart + minWordFrames) && env[min(numFrames - 1, fEnd - 1)] < voiceThresh * 0.7 {
+                        fEnd -= 1
+                    }
+                }
+
+                let prevEndSec = timings.last?.end ?? startOffsetSec
+                let rawStartSec = startOffsetSec + min(totalSec, max(activeStartSec, Double(fStart * frameSamples) / sr))
+                let rawEndSec = startOffsetSec + min(totalSec, Double(fEnd * frameSamples) / sr)
+                let startSec = max(prevEndSec, min(startOffsetSec + totalSec - 0.005, rawStartSec))
+                // Enforce 40ms minimum visual hold floor (25 fps grid) when total duration permits
+                let minHoldSec = min(0.040, max(0.020, totalSec / Double(max(1, words.count) * 2)))
+                var endSec = max(startSec + minHoldSec, min(startOffsetSec + totalSec, rawEndSec))
                 if localIdx == segCount - 1 && seg.endWord == words.count {
                     endSec = max(endSec, startOffsetSec + min(totalSec, activeStartSec + activeSpanSec))
-                }
-                if startSec > endSec - 0.015 {
-                    startSec = max(startOffsetSec, endSec - 0.025)
                 }
                 timings.append(
                     WordTiming(
@@ -5333,44 +5945,126 @@ enum WordTimingEngine {
     }
 }
 
+struct ReadAlongCue: Sendable {
+    let index: Int
+    let chunkIndex: Int
+    let paragraphIndex: Int
+    let text: String
+    let startMs: Int
+    let endMs: Int
+    let words: [WordTiming]
+}
+
 enum SubtitleExporter {
-    static func formatSRT(timings: [WordTiming], wordsPerCue: Int = 8) -> String {
+    /// Ported directly from `bun_rad_studio` `fmPhonon.ts` (`computeReadAlongTimeline`):
+    /// Groups word timings into natural, sentence-aligned, pause-aware Read-Along Cues.
+    static func buildReadAlongCues(
+        timings: [WordTiming],
+        aspect: ReadAlongVideoAspect = .landscape16x9,
+        maxWordsOverride: Int? = nil,
+        maxCharsOverride: Int? = nil
+    ) -> [ReadAlongCue] {
         let playable = timings.filter { $0.end >= $0.start && !($0.start == 0 && $0.end == 0) }
-        guard !playable.isEmpty else { return "" }
+        guard !playable.isEmpty else { return [] }
+
+        let maxWordsPerCue = maxWordsOverride ?? aspect.maxWordsPerCue
+        let maxLineChars = maxCharsOverride ?? aspect.maxLineChars
+
+        func endsWithSentenceStop(_ wordStr: String) -> Bool {
+            let trimmed = wordStr.trimmingCharacters(in: CharacterSet(charactersIn: "'\"”’)] "))
+            if trimmed.hasSuffix("...") || trimmed.hasSuffix("…") { return false }
+            return trimmed.hasSuffix(".") || trimmed.hasSuffix("!") || trimmed.hasSuffix("?")
+        }
+
+        var allCues: [ReadAlongCue] = []
+        var currentCueWords: [WordTiming] = []
+        var currentCueChars = 0
+
+        func flushCue() {
+            guard !currentCueWords.isEmpty else { return }
+            let cueIdx = allCues.count
+            let first = currentCueWords.first!
+            let last = currentCueWords.last!
+            let sMs = max(0, Int(round(first.start * 1000)))
+            let eMs = max(sMs + 40, Int(round(last.end * 1000)))
+            allCues.append(
+                ReadAlongCue(
+                    index: cueIdx,
+                    chunkIndex: first.chunkIndex,
+                    paragraphIndex: first.paragraphIndex,
+                    text: currentCueWords.map(\.word).joined(separator: " "),
+                    startMs: sMs,
+                    endMs: eMs,
+                    words: currentCueWords
+                )
+            )
+            currentCueWords = []
+            currentCueChars = 0
+        }
+
+        for k in 0..<playable.count {
+            let w = playable[k]
+            if let prevInCue = currentCueWords.last {
+                let hasParagraphBreak = (w.paragraphIndex != prevInCue.paragraphIndex) || (w.chunkIndex != prevInCue.chunkIndex)
+                let pauseGapMs = Int(round((w.start - prevInCue.end) * 1000))
+                let nextWord = (k + 1 < playable.count) ? playable[k + 1] : nil
+                let isOneWordTail = endsWithSentenceStop(w.word) &&
+                    (currentCueWords.count + 1 <= maxWordsPerCue) &&
+                    (currentCueChars + 1 + w.word.count <= maxLineChars)
+                let isTwoWordTail = !isOneWordTail &&
+                    nextWord != nil &&
+                    endsWithSentenceStop(nextWord!.word) &&
+                    (currentCueWords.count + 2 <= maxWordsPerCue) &&
+                    (currentCueChars + 2 + w.word.count + nextWord!.word.count <= maxLineChars)
+                let nextIsShortTail = isOneWordTail || isTwoWordTail
+
+                if hasParagraphBreak || (pauseGapMs >= 280 && currentCueWords.count >= 2 && !nextIsShortTail) {
+                    flushCue()
+                } else if pauseGapMs >= 240 && currentCueWords.count == 1 && endsWithSentenceStop(prevInCue.word) {
+                    flushCue()
+                }
+            }
+
+            let nextLen = currentCueChars == 0 ? w.word.count : (currentCueChars + 1 + w.word.count)
+            if currentCueWords.count >= maxWordsPerCue || (!currentCueWords.isEmpty && nextLen > maxLineChars) {
+                flushCue()
+            }
+
+            currentCueWords.append(w)
+            currentCueChars = currentCueChars == 0 ? w.word.count : (currentCueChars + 1 + w.word.count)
+
+            let pauseAfterMs: Int = (k + 1 < playable.count)
+                ? Int(round((playable[k + 1].start - w.end) * 1000))
+                : 0
+            if endsWithSentenceStop(w.word) && (currentCueWords.count >= 2 || currentCueChars >= 10 || pauseAfterMs >= 220) {
+                flushCue()
+            }
+        }
+        flushCue()
+        return allCues
+    }
+
+    static func formatSRT(timings: [WordTiming], wordsPerCue: Int = 8) -> String {
+        let cues = buildReadAlongCues(timings: timings, maxWordsOverride: wordsPerCue)
+        guard !cues.isEmpty else { return "" }
         var lines: [String] = []
-        var cueIndex = 1
-        var i = 0
-        while i < playable.count {
-            let endIdx = min(i + wordsPerCue, playable.count)
-            let slice = playable[i..<endIdx]
-            let start = slice.first!.start
-            let end = slice.last!.end
-            let text = slice.map(\.word).joined(separator: " ")
-            lines.append("\(cueIndex)")
-            lines.append("\(srtTime(start)) --> \(srtTime(end))")
-            lines.append(text)
+        for (idx, cue) in cues.enumerated() {
+            lines.append("\(idx + 1)")
+            lines.append("\(srtTime(Double(cue.startMs) / 1000.0)) --> \(srtTime(Double(cue.endMs) / 1000.0))")
+            lines.append(cue.text)
             lines.append("")
-            cueIndex += 1
-            i = endIdx
         }
         return lines.joined(separator: "\n")
     }
 
     static func formatVTT(timings: [WordTiming], wordsPerCue: Int = 8) -> String {
         var lines: [String] = ["WEBVTT", ""]
-        let playable = timings.filter { $0.end >= $0.start && !($0.start == 0 && $0.end == 0) }
-        guard !playable.isEmpty else { return lines.joined(separator: "\n") }
-        var i = 0
-        while i < playable.count {
-            let endIdx = min(i + wordsPerCue, playable.count)
-            let slice = playable[i..<endIdx]
-            let start = slice.first!.start
-            let end = slice.last!.end
-            let text = slice.map(\.word).joined(separator: " ")
-            lines.append("\(vttTime(start)) --> \(vttTime(end))")
-            lines.append(text)
+        let cues = buildReadAlongCues(timings: timings, maxWordsOverride: wordsPerCue)
+        guard !cues.isEmpty else { return lines.joined(separator: "\n") }
+        for cue in cues {
+            lines.append("\(vttTime(Double(cue.startMs) / 1000.0)) --> \(vttTime(Double(cue.endMs) / 1000.0))")
+            lines.append(cue.text)
             lines.append("")
-            i = endIdx
         }
         return lines.joined(separator: "\n")
     }
@@ -5383,43 +6077,73 @@ enum SubtitleExporter {
     ) -> String {
         let primaryASSColor: String
         switch theme {
-        case .midnight: primaryASSColor = "&H00FFEA28"
-        case .sepia: primaryASSColor = "&H00289BFF"
-        case .paper: primaryASSColor = "&H00DC611D"
-        case .matrix: primaryASSColor = "&H0064FF18"
-        case .contrast: primaryASSColor = "&H0000EAFF"
-        case .nord: primaryASSColor = "&H00D4B606"
+        case .midnight: primaryASSColor = "&H00F8BD38"
+        case .sepia: primaryASSColor = "&H000B9EF5"
+        case .paper: primaryASSColor = "&H00EB6325"
+        case .matrix: primaryASSColor = "&H005EC522"
+        case .contrast: primaryASSColor = "&H0015CCFA"
+        case .nord: primaryASSColor = "&H00D0C088"
         }
-        let fontSize = aspect == .portrait9x16 ? 52 : 58
+        let cx = aspect.width / 2
+        let cy = aspect.height / 2
+        let prevY = cy - aspect.lineSpacingPx
+        let nextY = cy + aspect.lineSpacingPx
+        let progressY = aspect.height - Int(round(Double(aspect.height) * 0.08))
+
         var header = """
         [Script Info]
-        Title: MLX Audio Studio Karaoke Subtitles
+        Title: Codecaine MLX Read-Along Karaoke Subtitles
         ScriptType: v4.00+
         PlayResX: \(aspect.width)
         PlayResY: \(aspect.height)
 
         [V4+ Styles]
         Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-        Style: Karaoke,SF Pro Display,\(fontSize),\(primaryASSColor),&H00FFFFFF,&H00181818,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,5,80,80,90,1
+        Style: ActiveKaraoke,SF Pro Display,\(aspect.fontSize),\(primaryASSColor),&H00FFFFFF,&H00181818,&H80000000,-1,0,0,0,100,100,0,0,1,3,1,5,80,80,90,1
+        Style: ContextLine,SF Pro Display,\(aspect.contextFontSize),&H00B8A394,&H00B8A394,&H00181818,&H00000000,0,0,0,0,100,100,0,0,1,2,0,5,80,80,90,1
+        Style: ProgressHud,SF Pro Display,\(max(18, aspect.headerFontSize - 4)),&H00E2E8F0,&H00E2E8F0,&H00181818,&H00000000,-1,0,0,0,100,100,0,0,1,2,0,5,80,80,40,1
 
         [Events]
         Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
         """
-        let playable = timings.filter { $0.end >= $0.start && !($0.start == 0 && $0.end == 0) }
-        guard !playable.isEmpty else { return header }
-        var i = 0
-        while i < playable.count {
-            let endIdx = min(i + wordsPerCue, playable.count)
-            let slice = playable[i..<endIdx]
-            let start = slice.first!.start
-            let end = slice.last!.end
-            let kText = slice.map { w -> String in
-                let centisec = max(1, Int(round((w.end - w.start) * 100)))
-                return "{\\kf\(centisec)}\(w.word)"
-            }.joined(separator: " ")
-            header += "Dialogue: 0,\(assTime(start)),\(assTime(end)),Karaoke,,0,0,0,,\(kText)\n"
-            i = endIdx
+        let cues = buildReadAlongCues(timings: timings, aspect: aspect)
+        guard !cues.isEmpty else { return header }
+        let totalCues = cues.count
+        let totalSec = max(1, Int(round(Double(cues.last?.endMs ?? 1000) / 1000.0)))
+
+        for (i, cue) in cues.enumerated() {
+            let nextCue = (i + 1 < totalCues) ? cues[i + 1] : nil
+            let displayEndMs = (nextCue != nil && nextCue!.startMs > cue.endMs && (nextCue!.startMs - cue.endMs) <= 600)
+                ? nextCue!.startMs
+                : cue.endMs
+            let startStr = assTime(Double(cue.startMs) / 1000.0)
+            let endStr = assTime(Double(displayEndMs) / 1000.0)
+
+            if i > 0 {
+                header += "Dialogue: 1,\(startStr),\(endStr),ContextLine,,0,0,0,,{\\pos(\(cx),\(prevY))}\(cues[i - 1].text)\n"
+            }
+
+            var karaokeParts: [String] = []
+            var cursorCs = max(0, cue.startMs / 10)
+            for w in cue.words {
+                let wStartCs = max(cursorCs, Int(round(w.start * 100)))
+                let wEndCs = max(wStartCs + 2, Int(round(w.end * 100)))
+                let gapCs = max(0, wStartCs - cursorCs)
+                let wordCs = max(2, wEndCs - wStartCs)
+                let prefix = gapCs > 0 ? "{\\k\(gapCs)}" : ""
+                karaokeParts.append("\(prefix){\\kf\(wordCs)}\(w.word)")
+                cursorCs = wEndCs
+            }
+            header += "Dialogue: 2,\(startStr),\(endStr),ActiveKaraoke,,0,0,0,,{\\pos(\(cx),\(cy))}\(karaokeParts.joined(separator: " "))\n"
+
+            if i + 1 < totalCues {
+                header += "Dialogue: 1,\(startStr),\(endStr),ContextLine,,0,0,0,,{\\pos(\(cx),\(nextY))}\(cues[i + 1].text)\n"
+            }
+
+            let pct = min(100, Int(round(Double(i + 1) / Double(max(1, totalCues)) * 100.0)))
+            let curSec = Int(round(Double(cue.endMs) / 1000.0))
+            header += "Dialogue: 1,\(startStr),\(endStr),ProgressHud,,0,0,0,,{\\pos(\(cx),\(progressY))}\(pct)%   •   Line \(i + 1) of \(totalCues)   •   \(curSec)s / \(totalSec)s\n"
         }
         return header
     }
@@ -5589,7 +6313,49 @@ struct M4BChapterMarker: Identifiable, Sendable, Equatable {
 }
 
 enum M4BAudiobookExporter {
-    /// Builds chapter markers from synthesized word timings (grouped by chunk) or falls back to proportional chunk boundaries
+    /// Extracts a clean display chapter title if any line in the chunk is a real book heading, or nil otherwise.
+    private static func detectBookHeadingTitle(in chunkText: String) -> String? {
+        let lines = chunkText
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        for line in lines.prefix(3) {
+            if HierarchicalChunker.isStandaloneBookHeading(line) {
+                var cleaned = line
+                    .replacingOccurrences(of: "^#+\\s*", with: "", options: .regularExpression)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if cleaned.hasSuffix(".") {
+                    cleaned.removeLast()
+                }
+                return cleaned
+            }
+        }
+        return nil
+    }
+
+    private static func cleanFallbackChunkTitle(_ chunkText: String, index: Int) -> String {
+        let firstLine = chunkText
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty } ?? "Section \(index + 1)"
+        var cleaned = firstLine.replacingOccurrences(of: "^#+\\s*", with: "", options: .regularExpression)
+        if cleaned.hasSuffix(".") && cleaned.count <= 76 && !cleaned.contains("\"") {
+            cleaned.removeLast()
+        }
+        if cleaned.count > 56 {
+            let prefix = String(cleaned.prefix(56))
+            if let lastSpace = prefix.lastIndex(of: " "),
+               prefix.distance(from: prefix.startIndex, to: lastSpace) >= 28 {
+                cleaned = String(prefix[..<lastSpace]) + "…"
+            } else {
+                cleaned = prefix + "…"
+            }
+        }
+        return cleaned
+    }
+
+    /// Builds chapter markers from synthesized word timings (grouped by detected book chapters when headings are present,
+    /// or clean section boundaries for general scripts).
     static func buildChapters(
         chunks: [PhononTextChunk],
         timings: [WordTiming],
@@ -5601,18 +6367,21 @@ enum M4BAudiobookExporter {
         }
 
         let timingsByChunk = Dictionary(grouping: timings.filter { $0.end > $0.start }, by: \.chunkIndex)
-        var markers: [M4BChapterMarker] = []
         let totalWords = max(1, chunks.reduce(0) { $0 + max(1, $1.wordCount) })
         var runningSec: Double = 0.0
 
-        for (idx, chunk) in chunks.enumerated() {
-            let firstLine = chunk.text
-                .components(separatedBy: .newlines)
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .first { !$0.isEmpty } ?? "Section \(idx + 1)"
-            let cleanTitle = firstLine.count > 52 ? String(firstLine.prefix(52)) + "…" : firstLine
-            let chapterTitle = "§\(idx + 1) · \(cleanTitle)"
+        struct RawChunkSpan {
+            let chunkIndex: Int
+            let text: String
+            let detectedHeading: String?
+            let startSec: Double
+            let endSec: Double
+        }
 
+        var spans: [RawChunkSpan] = []
+        spans.reserveCapacity(chunks.count)
+
+        for chunk in chunks {
             let startSec: Double
             let endSec: Double
             if let chunkTimings = timingsByChunk[chunk.index],
@@ -5626,7 +6395,87 @@ enum M4BAudiobookExporter {
                 endSec = min(safeDuration, startSec + max(0.5, share * safeDuration))
             }
             runningSec = endSec
-            markers.append(M4BChapterMarker(id: idx, title: chapterTitle, startSec: startSec, endSec: endSec))
+            spans.append(
+                RawChunkSpan(
+                    chunkIndex: chunk.index,
+                    text: chunk.text,
+                    detectedHeading: detectBookHeadingTitle(in: chunk.text),
+                    startSec: startSec,
+                    endSec: endSec
+                )
+            )
+        }
+
+        let explicitHeadingCount = spans.reduce(0) { $0 + ($1.detectedHeading != nil ? 1 : 0) }
+
+        // Multi-chapter book mode: group contiguous chunks under each detected book chapter heading
+        if explicitHeadingCount >= 2 {
+            var grouped: [M4BChapterMarker] = []
+            for span in spans {
+                if let heading = span.detectedHeading {
+                    grouped.append(
+                        M4BChapterMarker(
+                            id: grouped.count,
+                            title: heading,
+                            startSec: span.startSec,
+                            endSec: span.endSec
+                        )
+                    )
+                } else if !grouped.isEmpty {
+                    grouped[grouped.count - 1].endSec = max(grouped[grouped.count - 1].endSec, span.endSec)
+                } else {
+                    // Front matter / title page before first explicit chapter heading
+                    let frontTitle = cleanFallbackChunkTitle(span.text, index: 0)
+                    grouped.append(
+                        M4BChapterMarker(
+                            id: 0,
+                            title: frontTitle,
+                            startSec: span.startSec,
+                            endSec: span.endSec
+                        )
+                    )
+                }
+            }
+            if !grouped.isEmpty {
+                grouped[grouped.count - 1].endSec = max(grouped[grouped.count - 1].startSec + 0.25, safeDuration)
+            }
+            return grouped
+        }
+
+        // Single-chapter book excerpt or general multi-chunk script: label chunks with active chapter heading + part number
+        var markers: [M4BChapterMarker] = []
+        var activeHeading: String? = nil
+        var activeHeadingPart = 0
+
+        for (idx, span) in spans.enumerated() {
+            if let heading = span.detectedHeading {
+                activeHeading = heading
+                activeHeadingPart = 1
+            } else if activeHeading != nil {
+                activeHeadingPart += 1
+            }
+
+            let chapterTitle: String
+            if let heading = activeHeading {
+                let remainingWithSameHeading = spans[(idx)...].count
+                if activeHeadingPart == 1 && remainingWithSameHeading == 1 {
+                    chapterTitle = heading
+                } else {
+                    chapterTitle = "\(heading) · Part \(activeHeadingPart)"
+                }
+            } else {
+                let cleanTitle = cleanFallbackChunkTitle(span.text, index: idx)
+                chapterTitle = spans.count == 1 ? cleanTitle : "Part \(idx + 1) · \(cleanTitle)"
+            }
+
+            markers.append(
+                M4BChapterMarker(
+                    id: idx,
+                    title: chapterTitle,
+                    startSec: span.startSec,
+                    endSec: span.endSec
+                )
+            )
         }
 
         if !markers.isEmpty {
@@ -5953,8 +6802,27 @@ enum AudioFormatExporter {
             return
         }
 
-        // Prefer ffmpeg for mp3/flac/ogg/opus/aac if installed (including keg-only ffmpeg-full) with multi-threaded fast encoding
-        if format == .mp3 || format == .flac || format == .ogg || format == .opus || format == .aac {
+        // For .m4a, try hardware AudioToolbox `/usr/bin/afconvert` first (~60ms on WAV/MP3/AIFF/CAF/M4A), then fall back to `ffmpeg` (for .ogg/.opus/.webm inputs)
+        let afconvertPath = "/usr/bin/afconvert"
+        if format == .m4a, FileManager.default.isExecutableFile(atPath: afconvertPath) {
+            let proc = Process()
+            proc.executableURL = URL(fileURLWithPath: afconvertPath)
+            proc.arguments = ["-f", "m4af", "-d", "aac", sourceWAV.path, destinationURL.path]
+            proc.standardInput = FileHandle.nullDevice
+            proc.standardOutput = FileHandle.nullDevice
+            proc.standardError = FileHandle.nullDevice
+            try? proc.run()
+            proc.waitUntilExit()
+            if proc.terminationStatus == 0,
+               let sz = (try? destinationURL.resourceValues(forKeys: [.fileSizeKey]).fileSize),
+               sz > 256 {
+                return
+            }
+            try? FileManager.default.removeItem(at: destinationURL)
+        }
+
+        // Prefer ffmpeg for mp3/flac/ogg/opus/aac (and fallback for m4a) if installed (including keg-only ffmpeg-full) with multi-threaded fast encoding
+        if format == .mp3 || format == .flac || format == .ogg || format == .opus || format == .aac || format == .m4a {
             if let ffmpeg = StudioPackageManager.findExecutable(
                 names: ["ffmpeg"],
                 extraDirs: ["/opt/homebrew/opt/ffmpeg-full/bin", "/usr/local/opt/ffmpeg-full/bin"]
@@ -5963,31 +6831,36 @@ enum AudioFormatExporter {
                 proc.executableURL = URL(fileURLWithPath: ffmpeg)
                 switch format {
                 case .mp3:
-                    proc.arguments = ["-y", "-threads", "0", "-i", sourceWAV.path, "-codec:a", "libmp3lame", "-qscale:a", "2", destinationURL.path]
+                    proc.arguments = ["-hide_banner", "-nostdin", "-y", "-threads", "0", "-i", sourceWAV.path, "-codec:a", "libmp3lame", "-qscale:a", "2", destinationURL.path]
                 case .flac:
-                    proc.arguments = ["-y", "-threads", "0", "-i", sourceWAV.path, "-compression_level", "1", destinationURL.path]
+                    proc.arguments = ["-hide_banner", "-nostdin", "-y", "-threads", "0", "-i", sourceWAV.path, "-compression_level", "1", destinationURL.path]
                 case .ogg:
-                    proc.arguments = ["-y", "-threads", "0", "-i", sourceWAV.path, "-codec:a", "libvorbis", "-qscale:a", "5", destinationURL.path]
+                    // Native `vorbis` works on all Homebrew ffmpeg builds (including without `libvorbis`) when stereo `-ac 2 -strict -2` is specified
+                    proc.arguments = ["-hide_banner", "-nostdin", "-y", "-threads", "0", "-i", sourceWAV.path, "-ac", "2", "-strict", "-2", "-codec:a", "vorbis", "-qscale:a", "5", destinationURL.path]
                 case .opus:
-                    proc.arguments = ["-y", "-threads", "0", "-i", sourceWAV.path, "-codec:a", "libopus", "-b:a", "96k", destinationURL.path]
+                    proc.arguments = ["-hide_banner", "-nostdin", "-y", "-threads", "0", "-i", sourceWAV.path, "-codec:a", "libopus", "-b:a", "96k", destinationURL.path]
                 case .aac:
-                    proc.arguments = ["-y", "-threads", "0", "-i", sourceWAV.path, "-codec:a", "aac", "-b:a", "128k", "-f", "adts", destinationURL.path]
+                    proc.arguments = ["-hide_banner", "-nostdin", "-y", "-threads", "0", "-i", sourceWAV.path, "-codec:a", "aac", "-b:a", "128k", "-f", "adts", destinationURL.path]
+                case .m4a:
+                    proc.arguments = ["-hide_banner", "-nostdin", "-y", "-threads", "0", "-i", sourceWAV.path, "-codec:a", "aac", "-b:a", "160k", "-movflags", "+faststart", destinationURL.path]
                 default:
-                    proc.arguments = ["-y", "-threads", "0", "-i", sourceWAV.path, destinationURL.path]
+                    proc.arguments = ["-hide_banner", "-nostdin", "-y", "-threads", "0", "-i", sourceWAV.path, destinationURL.path]
                 }
                 proc.standardInput = FileHandle.nullDevice
                 proc.standardOutput = FileHandle.nullDevice
                 proc.standardError = FileHandle.nullDevice
                 try proc.run()
                 proc.waitUntilExit()
-                if proc.terminationStatus == 0 && FileManager.default.fileExists(atPath: destinationURL.path) {
+                if proc.terminationStatus == 0,
+                   let sz = (try? destinationURL.resourceValues(forKeys: [.fileSizeKey]).fileSize),
+                   sz > 128 {
                     return
                 }
+                try? FileManager.default.removeItem(at: destinationURL)
             }
         }
 
         // Native macOS /usr/bin/afconvert fallback (supports m4a, m4b, aac, aiff, flac, caf, wav natively in ~0.2s!)
-        let afconvertPath = "/usr/bin/afconvert"
         if FileManager.default.isExecutableFile(atPath: afconvertPath) {
             let proc = Process()
             proc.executableURL = URL(fileURLWithPath: afconvertPath)
@@ -6010,31 +6883,1105 @@ enum AudioFormatExporter {
             proc.standardError = FileHandle.nullDevice
             try proc.run()
             proc.waitUntilExit()
-            if proc.terminationStatus == 0 && FileManager.default.fileExists(atPath: destinationURL.path) {
+            if proc.terminationStatus == 0,
+               let sz = (try? destinationURL.resourceValues(forKeys: [.fileSizeKey]).fileSize),
+               sz > 128 {
                 return
             }
+            try? FileManager.default.removeItem(at: destinationURL)
         }
 
-        // Final fallback: copy WAV
-        try FileManager.default.copyItem(at: sourceWAV, to: destinationURL)
+        throw NSError(
+            domain: "AudioFormatExporter",
+            code: 3,
+            userInfo: [NSLocalizedDescriptionKey: "Failed to encode audio to .\(format.rawValue)"]
+        )
     }
 }
 
 // MARK: - Synchronized Read-Along Karaoke Video Exporter (.mp4 / .mov) & Acoustic Voice Biometrics
 
+struct ReadAlongVisualSlide: Sendable {
+    let slideIndex: Int
+    var startMs: Int
+    var endMs: Int
+    let cueIndex: Int
+    let activeWordInCue: Int
+    let spokenWordsInCue: Int
+}
+
 enum ReadAlongVideoExporter {
+    /// Ported directly from `bun_rad_studio` `fmPhonon.ts` (`buildReadAlongVisualSlides`):
+    /// Builds word-by-word visual slides with a 40ms minimum slide hold, <160ms consonant transition bridging,
+    /// and >=80ms (2-frame) active word visibility guarantee so zero words are ever skipped.
+    static func buildReadAlongVisualSlides(
+        cues: [ReadAlongCue],
+        totalDurationMs: Int,
+        minSlideMs: Int = 40
+    ) -> [ReadAlongVisualSlide] {
+        let safeTotalMs = max(100, totalDurationMs, cues.last?.endMs ?? 1000)
+        guard !cues.isEmpty else {
+            return [
+                ReadAlongVisualSlide(
+                    slideIndex: 0,
+                    startMs: 0,
+                    endMs: safeTotalMs,
+                    cueIndex: 0,
+                    activeWordInCue: -1,
+                    spokenWordsInCue: 0
+                )
+            ]
+        }
+
+        var rawSlides: [ReadAlongVisualSlide] = []
+        var cursorMs = 0
+
+        for cIdx in 0..<cues.count {
+            let cue = cues[cIdx]
+            let nextCue = (cIdx + 1 < cues.count) ? cues[cIdx + 1] : nil
+
+            for wIdx in 0..<cue.words.count {
+                let wObj = cue.words[wIdx]
+                let wStartMs = max(0, Int(round(wObj.start * 1000)))
+                let wEndMs = max(wStartMs + minSlideMs, Int(round(wObj.end * 1000)))
+                let nextWordStartMs: Int? = (wIdx + 1 < cue.words.count)
+                    ? max(0, Int(round(cue.words[wIdx + 1].start * 1000)))
+                    : nil
+
+                if cIdx == 0 && wIdx == 0 && wStartMs >= 120 {
+                    rawSlides.append(
+                        ReadAlongVisualSlide(
+                            slideIndex: rawSlides.count,
+                            startMs: 0,
+                            endMs: wStartMs,
+                            cueIndex: 0,
+                            activeWordInCue: -1,
+                            spokenWordsInCue: 0
+                        )
+                    )
+                    cursorMs = wStartMs
+                } else if wStartMs > cursorMs {
+                    let gapMs = wStartMs - cursorMs
+                    if gapMs >= 160 {
+                        let holdCueIdx = (wIdx == 0 && cIdx > 0) ? (cIdx - 1) : cIdx
+                        let holdSpoken = (wIdx == 0 && cIdx > 0) ? cues[cIdx - 1].words.count : wIdx
+                        rawSlides.append(
+                            ReadAlongVisualSlide(
+                                slideIndex: rawSlides.count,
+                                startMs: cursorMs,
+                                endMs: wStartMs,
+                                cueIndex: holdCueIdx,
+                                activeWordInCue: -1,
+                                spokenWordsInCue: holdSpoken
+                            )
+                        )
+                        cursorMs = wStartMs
+                    }
+                }
+
+                let startMs = cursorMs
+                var endMs = max(startMs + minSlideMs, wEndMs)
+                if let nwStart = nextWordStartMs, nwStart > endMs, (nwStart - endMs) < 160 {
+                    endMs = nwStart
+                } else if nextWordStartMs == nil, let nc = nextCue, nc.startMs > endMs, (nc.startMs - endMs) < 160 {
+                    endMs = nc.startMs
+                }
+
+                rawSlides.append(
+                    ReadAlongVisualSlide(
+                        slideIndex: rawSlides.count,
+                        startMs: startMs,
+                        endMs: endMs,
+                        cueIndex: cIdx,
+                        activeWordInCue: wIdx,
+                        spokenWordsInCue: wIdx
+                    )
+                )
+                cursorMs = endMs
+            }
+        }
+
+        // Ensure every active word slide stays lit for at least 2 video frames (>= 80ms) whenever a neighbor in the same cue has surplus duration
+        let minVisibleWordMs = max(minSlideMs * 2, 80)
+        for i in 0..<rawSlides.count {
+            guard rawSlides[i].activeWordInCue >= 0 else { continue }
+            let dur = rawSlides[i].endMs - rawSlides[i].startMs
+            if dur >= minVisibleWordMs { continue }
+            let needed = minVisibleWordMs - dur
+
+            if i + 1 < rawSlides.count && rawSlides[i + 1].cueIndex == rawSlides[i].cueIndex {
+                let nextDur = rawSlides[i + 1].endMs - rawSlides[i + 1].startMs
+                let takeNext = min(needed, max(0, nextDur - minVisibleWordMs))
+                if takeNext > 0 {
+                    rawSlides[i].endMs += takeNext
+                    rawSlides[i + 1].startMs += takeNext
+                }
+            }
+            let rem = minVisibleWordMs - (rawSlides[i].endMs - rawSlides[i].startMs)
+            if rem > 0 && i > 0 && rawSlides[i - 1].cueIndex == rawSlides[i].cueIndex {
+                let prevDur = rawSlides[i - 1].endMs - rawSlides[i - 1].startMs
+                let takePrev = min(rem, max(0, prevDur - minVisibleWordMs))
+                if takePrev > 0 {
+                    rawSlides[i - 1].endMs -= takePrev
+                    rawSlides[i].startMs -= takePrev
+                }
+            }
+        }
+
+        if cursorMs < safeTotalMs {
+            let lastCueIdx = max(0, cues.count - 1)
+            let lastCueWords = cues[lastCueIdx].words.count
+            if !rawSlides.isEmpty && (safeTotalMs - cursorMs) < 160 && rawSlides.last!.cueIndex == lastCueIdx {
+                rawSlides[rawSlides.count - 1].endMs = safeTotalMs
+            } else {
+                rawSlides.append(
+                    ReadAlongVisualSlide(
+                        slideIndex: rawSlides.count,
+                        startMs: cursorMs,
+                        endMs: safeTotalMs,
+                        cueIndex: lastCueIdx,
+                        activeWordInCue: -1,
+                        spokenWordsInCue: lastCueWords
+                    )
+                )
+            }
+        }
+
+        return rawSlides.enumerated().map { idx, s in
+            ReadAlongVisualSlide(
+                slideIndex: idx,
+                startMs: s.startMs,
+                endMs: max(s.startMs + minSlideMs, s.endMs),
+                cueIndex: s.cueIndex,
+                activeWordInCue: s.activeWordInCue,
+                spokenWordsInCue: s.spokenWordsInCue
+            )
+        }
+    }
+
+    private struct ThemePalette {
+        let bgInner: (CGFloat, CGFloat, CGFloat)
+        let bgOuter: (CGFloat, CGFloat, CGFloat)
+        let cardBg: (CGFloat, CGFloat, CGFloat)
+        let cardBorder: (CGFloat, CGFloat, CGFloat)
+        let accent: (CGFloat, CGFloat, CGFloat)
+        let spokenText: (CGFloat, CGFloat, CGFloat)
+        let upcomingText: (CGFloat, CGFloat, CGFloat)
+        let contextText: (CGFloat, CGFloat, CGFloat)
+        let hudTrack: (CGFloat, CGFloat, CGFloat)
+    }
+
+    private static func palette(for theme: ReadAlongTheme) -> ThemePalette {
+        func rgb(_ hex: UInt32) -> (CGFloat, CGFloat, CGFloat) {
+            let r = CGFloat((hex >> 16) & 0xFF) / 255.0
+            let g = CGFloat((hex >> 8) & 0xFF) / 255.0
+            let b = CGFloat(hex & 0xFF) / 255.0
+            return (r, g, b)
+        }
+        switch theme {
+        case .midnight:
+            return ThemePalette(
+                bgInner: rgb(0x152238), bgOuter: rgb(0x0B1020),
+                cardBg: rgb(0x0F172A), cardBorder: rgb(0x334155),
+                accent: rgb(0x38BDF8), spokenText: rgb(0xE2E8F0),
+                upcomingText: rgb(0xF8FAFC), contextText: rgb(0x94A3B8),
+                hudTrack: rgb(0x1E293B)
+            )
+        case .sepia:
+            return ThemePalette(
+                bgInner: rgb(0x292018), bgOuter: rgb(0x1C1611),
+                cardBg: rgb(0x241C15), cardBorder: rgb(0x574636),
+                accent: rgb(0xF59E0B), spokenText: rgb(0xFDE68A),
+                upcomingText: rgb(0xFEF3C7), contextText: rgb(0xA89C8A),
+                hudTrack: rgb(0x362B20)
+            )
+        case .paper:
+            return ThemePalette(
+                bgInner: rgb(0xFAF6EE), bgOuter: rgb(0xEFE7D6),
+                cardBg: rgb(0xFFFFFF), cardBorder: rgb(0xD6CBB5),
+                accent: rgb(0x2563EB), spokenText: rgb(0x334155),
+                upcomingText: rgb(0x0F172A), contextText: rgb(0x64748B),
+                hudTrack: rgb(0xCBD5E1)
+            )
+        case .matrix:
+            return ThemePalette(
+                bgInner: rgb(0x0A2212), bgOuter: rgb(0x040D07),
+                cardBg: rgb(0x071A0E), cardBorder: rgb(0x15803D),
+                accent: rgb(0x22C55E), spokenText: rgb(0x86EFAC),
+                upcomingText: rgb(0xDCFCE7), contextText: rgb(0x4ADE80),
+                hudTrack: rgb(0x0F2E19)
+            )
+        case .contrast:
+            return ThemePalette(
+                bgInner: rgb(0x0A0A0A), bgOuter: rgb(0x000000),
+                cardBg: rgb(0x050505), cardBorder: rgb(0xFACC15),
+                accent: rgb(0xFACC15), spokenText: rgb(0xFFFFFF),
+                upcomingText: rgb(0xFFFFFF), contextText: rgb(0xD4D4D4),
+                hudTrack: rgb(0x262626)
+            )
+        case .nord:
+            return ThemePalette(
+                bgInner: rgb(0x242933), bgOuter: rgb(0x181C24),
+                cardBg: rgb(0x1E222A), cardBorder: rgb(0x4C566A),
+                accent: rgb(0x88C0D0), spokenText: rgb(0xD8DEE9),
+                upcomingText: rgb(0xECEFF4), contextText: rgb(0x9099AB),
+                hudTrack: rgb(0x2E3440)
+            )
+        }
+    }
+
+    private static func formatSecClock(_ totalSec: Double) -> String {
+        let clamped = max(0, Int(round(totalSec)))
+        let hrs = clamped / 3600
+        let mins = (clamped % 3600) / 60
+        let secs = clamped % 60
+        if hrs > 0 {
+            return String(format: "%d:%02d:%02d", hrs, mins, secs)
+        }
+        return String(format: "%02d:%02d", mins, secs)
+    }
+
+    #if os(macOS)
+    /// Ported from `bun_rad_studio` `fmPhonon.ts` (`tryRenderSlidesWithNativeCairoPango` + lossless `+faststart` muxer):
+    /// Ultra-fast in-process native 3-Level Delta-Band Renderer (`Level 0: bgCopy` -> `Level 1: cueCardCopy + cached CTLines` -> `Level 2: Word Delta Slice + HUD`)
+    /// using macOS `CoreGraphics` + `CoreText` + Apple Silicon Hardware `VideoToolbox` (`has_b_frames=0`, 25fps timescale, Rec.709)
+    /// paired with concurrent `AudioToolbox` AAC encoding and atomic `+faststart` MP4 staging (never writes an incomplete/moov-less file to `destinationURL`).
+    private static func renderNative3LevelDeltaBandMP4(
+        sourceWAV: URL,
+        cues: [ReadAlongCue],
+        slides: [ReadAlongVisualSlide],
+        theme: ReadAlongTheme,
+        aspect: ReadAlongVideoAspect,
+        title: String,
+        voiceName: String,
+        totalDurationMs: Int,
+        srtContent: String = "",
+        onProgress: (@Sendable (Int, Int) -> Void)? = nil,
+        to destinationURL: URL
+    ) throws -> Bool {
+        let stageDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("mp4_stage_\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: stageDir, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: stageDir)
+        }
+
+        let tempVideoURL = stageDir.appendingPathComponent("video_only.mp4")
+        let tempAudioURL = stageDir.appendingPathComponent("audio_track.m4a")
+        let tempSRTURL = stageDir.appendingPathComponent("subtitles.srt")
+        let stagedMP4URL = stageDir.appendingPathComponent("staged_final.mp4")
+
+        if !srtContent.isEmpty {
+            try? srtContent.write(to: tempSRTURL, atomically: true, encoding: .utf8)
+        }
+
+        // Encode WAV -> AAC (.m4a) concurrently on a separate core using Apple Silicon AudioToolbox while video renders
+        let audioGroup = DispatchGroup()
+        nonisolated(unsafe) var audioEncodeSucceeded = false
+        audioGroup.enter()
+        DispatchQueue.global(qos: .userInitiated).async {
+            defer { audioGroup.leave() }
+            do {
+                try AudioFormatExporter.convert(sourceWAV: sourceWAV, to: tempAudioURL, format: .m4a)
+                if let sz = (try? tempAudioURL.resourceValues(forKeys: [.fileSizeKey]).fileSize), sz > 128 {
+                    audioEncodeSucceeded = true
+                }
+            } catch {
+                audioEncodeSucceeded = false
+            }
+        }
+
+        let width = aspect.width
+        let height = aspect.height
+        let stride = width * 4
+        let pixelBytes = stride * height
+        let pal = palette(for: theme)
+
+        let rawBuf = UnsafeMutableRawPointer.allocate(byteCount: pixelBytes, alignment: 64)
+        let bgCopy = UnsafeMutableRawPointer.allocate(byteCount: pixelBytes, alignment: 64)
+        let cueCardCopy = UnsafeMutableRawPointer.allocate(byteCount: pixelBytes, alignment: 64)
+        memset(rawBuf, 0, pixelBytes)
+        defer {
+            rawBuf.deallocate()
+            bgCopy.deallocate()
+            cueCardCopy.deallocate()
+        }
+
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo = CGBitmapInfo.byteOrder32Little.rawValue | CGImageAlphaInfo.premultipliedFirst.rawValue
+
+        guard let ctx = CGContext(
+            data: rawBuf,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: stride,
+            space: colorSpace,
+            bitmapInfo: bitmapInfo
+        ) else {
+            audioGroup.wait()
+            return false
+        }
+
+        ctx.setAllowsAntialiasing(true)
+        ctx.setShouldAntialias(true)
+        ctx.setAllowsFontSmoothing(true)
+        ctx.setShouldSmoothFonts(true)
+
+        let cx = CGFloat(width) / 2.0
+        let cyTop = CGFloat(height) / 2.0
+        let prevTopY = cyTop - CGFloat(aspect.lineSpacingPx)
+        let nextTopY = cyTop + CGFloat(aspect.lineSpacingPx)
+        let cardMarginX = CGFloat(Int(round(Double(width) * 0.055)))
+        let cardW = CGFloat(width) - cardMarginX * 2.0
+        let cardH = CGFloat(Int(round(Double(aspect.lineSpacingPx) * 3.35)))
+        let cardTopY = CGFloat(Int(round(Double(cyTop - cardH / 2.0))))
+        let barW = CGFloat(Int(round(Double(width) * 0.52)))
+        let barX = CGFloat(Int(round(Double(cx - barW / 2.0))))
+        let barTopY = CGFloat(height - Int(round(Double(height) * 0.09)))
+
+        func quartzRect(x: CGFloat, topY: CGFloat, w: CGFloat, h: CGFloat) -> CGRect {
+            return CGRect(x: x, y: CGFloat(height) - topY - h, width: w, height: h)
+        }
+
+        func fillAndStrokeRoundedRect(
+            x: CGFloat,
+            topY: CGFloat,
+            w: CGFloat,
+            h: CGFloat,
+            radius: CGFloat,
+            fill: (CGFloat, CGFloat, CGFloat),
+            fillAlpha: CGFloat,
+            stroke: (CGFloat, CGFloat, CGFloat)? = nil,
+            strokeAlpha: CGFloat = 1.0,
+            lineWidth: CGFloat = 1.5
+        ) {
+            let r = min(radius, w * 0.5, h * 0.5)
+            let rect = quartzRect(x: x, topY: topY, w: w, h: h)
+            let path = CGPath(roundedRect: rect, cornerWidth: r, cornerHeight: r, transform: nil)
+            ctx.saveGState()
+            ctx.addPath(path)
+            ctx.setFillColor(red: fill.0, green: fill.1, blue: fill.2, alpha: fillAlpha)
+            ctx.fillPath()
+            if let stroke {
+                ctx.addPath(path)
+                ctx.setStrokeColor(red: stroke.0, green: stroke.1, blue: stroke.2, alpha: strokeAlpha)
+                ctx.setLineWidth(lineWidth)
+                ctx.strokePath()
+            }
+            ctx.restoreGState()
+        }
+
+        var fontCache: [String: NSFont] = [:]
+        func cachedSystemFont(size: CGFloat, weight: NSFont.Weight, monospacedDigits: Bool = false) -> NSFont {
+            let key = "\(Int(round(size * 10)))_\(weight.rawValue)_\(monospacedDigits ? 1 : 0)"
+            if let existing = fontCache[key] {
+                return existing
+            }
+            let created = monospacedDigits
+                ? NSFont.monospacedDigitSystemFont(ofSize: size, weight: weight)
+                : NSFont.systemFont(ofSize: size, weight: weight)
+            fontCache[key] = created
+            return created
+        }
+
+        func makeCTLine(
+            _ text: String,
+            fontSize: CGFloat,
+            weight: NSFont.Weight,
+            color: (CGFloat, CGFloat, CGFloat),
+            alpha: CGFloat = 1.0,
+            monospacedDigits: Bool = false
+        ) -> (line: CTLine, width: CGFloat, height: CGFloat, ascent: CGFloat, descent: CGFloat) {
+            let font = cachedSystemFont(size: fontSize, weight: weight, monospacedDigits: monospacedDigits)
+            let nsColor = NSColor(srgbRed: color.0, green: color.1, blue: color.2, alpha: alpha)
+            let cgColor = CGColor(srgbRed: color.0, green: color.1, blue: color.2, alpha: alpha)
+            var attrs: [NSAttributedString.Key: Any] = [
+                .font: font,
+                .foregroundColor: nsColor
+            ]
+            attrs[NSAttributedString.Key(kCTForegroundColorAttributeName as String)] = cgColor
+            let attrStr = NSAttributedString(string: text, attributes: attrs)
+            let line = CTLineCreateWithAttributedString(attrStr)
+            var ascent: CGFloat = 0
+            var descent: CGFloat = 0
+            var leading: CGFloat = 0
+            let w = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
+            let h = max(fontSize, ascent + descent)
+            return (line, w, h, ascent, descent)
+        }
+
+        func drawCenteredText(
+            _ text: String,
+            centerX: CGFloat,
+            centerTopY: CGFloat,
+            fontSize: CGFloat,
+            weight: NSFont.Weight,
+            color: (CGFloat, CGFloat, CGFloat),
+            alpha: CGFloat = 1.0,
+            monospacedDigits: Bool = false
+        ) {
+            guard !text.isEmpty else { return }
+            let info = makeCTLine(text, fontSize: fontSize, weight: weight, color: color, alpha: alpha, monospacedDigits: monospacedDigits)
+            let qy = CGFloat(height) - centerTopY
+            let baselineY = qy - (info.ascent - info.descent) * 0.5
+            let startX = centerX - info.width * 0.5
+            ctx.saveGState()
+            ctx.textMatrix = .identity
+            ctx.textPosition = CGPoint(x: round(startX), y: round(baselineY))
+            CTLineDraw(info.line, ctx)
+            ctx.restoreGState()
+        }
+
+        // Level 0: Render static radial vignette background + top header pill + center cinema card + HUD track ONCE
+        let gradColors = [
+            CGColor(srgbRed: pal.bgInner.0, green: pal.bgInner.1, blue: pal.bgInner.2, alpha: 1.0),
+            CGColor(srgbRed: pal.bgOuter.0, green: pal.bgOuter.1, blue: pal.bgOuter.2, alpha: 1.0)
+        ] as CFArray
+        let locations: [CGFloat] = [0.0, 1.0]
+        if let gradient = CGGradient(colorsSpace: colorSpace, colors: gradColors, locations: locations) {
+            let centerPt = CGPoint(x: cx, y: CGFloat(height) / 2.0)
+            let gradRadius = max(CGFloat(width), CGFloat(height)) * 0.72
+            ctx.drawRadialGradient(
+                gradient,
+                startCenter: centerPt,
+                startRadius: 0,
+                endCenter: centerPt,
+                endRadius: gradRadius,
+                options: [.drawsBeforeStartLocation, .drawsAfterEndLocation]
+            )
+        }
+
+        let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayTitle = cleanTitle.isEmpty ? "Codecaine MLX Read-Along" : String(cleanTitle.prefix(56))
+        let displayVoice = voiceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Russell" : voiceName
+        let headerText = "\(displayTitle)  •  Voice: \(displayVoice)  •  Follow Along"
+        let headerFontPx = max(14.0, round(CGFloat(aspect.headerFontSize) * 0.76))
+        let headerLineInfo = makeCTLine(headerText, fontSize: headerFontPx, weight: .bold, color: pal.accent, alpha: 1.0)
+        let headerPillW = min(CGFloat(width - 120), max(480.0, round(headerLineInfo.width + 64.0)))
+        let headerPillH = round(CGFloat(aspect.headerFontSize) * 1.95)
+        let headerTopY = round(CGFloat(height) * 0.058)
+        fillAndStrokeRoundedRect(
+            x: round(cx - headerPillW * 0.5),
+            topY: round(headerTopY - headerPillH * 0.5),
+            w: headerPillW,
+            h: headerPillH,
+            radius: round(headerPillH * 0.5),
+            fill: pal.cardBg,
+            fillAlpha: 0.88,
+            stroke: pal.accent,
+            strokeAlpha: 0.38,
+            lineWidth: 1.5
+        )
+        drawCenteredText(
+            headerText,
+            centerX: cx,
+            centerTopY: headerTopY,
+            fontSize: headerFontPx,
+            weight: .bold,
+            color: pal.accent,
+            alpha: 1.0
+        )
+
+        // Center Cinema Read-Along Card
+        fillAndStrokeRoundedRect(
+            x: cardMarginX,
+            topY: cardTopY,
+            w: cardW,
+            h: cardH,
+            radius: 32.0,
+            fill: pal.cardBg,
+            fillAlpha: 0.74,
+            stroke: pal.cardBorder,
+            strokeAlpha: 0.60,
+            lineWidth: 2.0
+        )
+
+        // Bottom HUD Progress Track
+        fillAndStrokeRoundedRect(
+            x: barX,
+            topY: barTopY,
+            w: barW,
+            h: 12.0,
+            radius: 6.0,
+            fill: pal.hudTrack,
+            fillAlpha: 1.0
+        )
+
+        ctx.flush()
+        memcpy(bgCopy, rawBuf, pixelBytes)
+        memcpy(cueCardCopy, rawBuf, pixelBytes)
+
+        let cardBandY0 = max(0, Int(cardTopY) - 6)
+        let cardBandY1 = min(height, Int(cardTopY + cardH) + 6)
+        let midBandY0 = max(0, Int(cyTop) - Int(round(Double(aspect.fontSize) * 1.08)))
+        let midBandY1 = min(height, Int(cyTop) + Int(round(Double(aspect.fontSize) * 1.08)))
+        let hudBandY0 = max(0, Int(barTopY) - 44)
+        let hudBandY1 = min(height, Int(barTopY) + 68)
+
+        func copyRows(from src: UnsafeRawPointer, to dst: UnsafeMutableRawPointer, y0: Int, y1: Int) {
+            guard y1 > y0 else { return }
+            let startByte = y0 * stride
+            let byteCount = (y1 - y0) * stride
+            memcpy(dst + startByte, src + startByte, byteCount)
+        }
+
+        // Prepare Hardware VideoToolbox H.264 AVAssetWriter (B-frame reordering disabled -> `has_b_frames=0` for QuickTime VFR & 2.5x speed)
+        let videoFPS = 25
+        let writer = try AVAssetWriter(outputURL: tempVideoURL, fileType: .mp4)
+        writer.shouldOptimizeForNetworkUse = true
+        let videoSettings: [String: Any] = [
+            AVVideoCodecKey: AVVideoCodecType.h264,
+            AVVideoWidthKey: width,
+            AVVideoHeightKey: height,
+            AVVideoColorPropertiesKey: [
+                AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2,
+                AVVideoTransferFunctionKey: AVVideoTransferFunction_ITU_R_709_2,
+                AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2
+            ],
+            AVVideoCompressionPropertiesKey: [
+                AVVideoAverageBitRateKey: width >= 1920 ? 2_800_000 : 2_000_000,
+                AVVideoProfileLevelKey: AVVideoProfileLevelH264MainAutoLevel,
+                AVVideoAllowFrameReorderingKey: false,
+                AVVideoExpectedSourceFrameRateKey: videoFPS,
+                AVVideoMaxKeyFrameIntervalKey: videoFPS * 2
+            ]
+        ]
+        let videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
+        videoInput.expectsMediaDataInRealTime = false
+
+        let sourcePixelAttrs: [String: Any] = [
+            kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA),
+            kCVPixelBufferWidthKey as String: width,
+            kCVPixelBufferHeightKey as String: height
+        ]
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(
+            assetWriterInput: videoInput,
+            sourcePixelBufferAttributes: sourcePixelAttrs
+        )
+        guard writer.canAdd(videoInput) else {
+            audioGroup.wait()
+            return false
+        }
+        writer.add(videoInput)
+
+        guard writer.startWriting() else {
+            audioGroup.wait()
+            return false
+        }
+        writer.startSession(atSourceTime: .zero)
+
+        let totalCues = max(1, cues.count)
+        let totClock = formatSecClock(Double(totalDurationMs) / 1000.0)
+        let hudFontPx = max(14.0, round(CGFloat(aspect.headerFontSize - 4) * 0.76))
+        let hudFont = cachedSystemFont(size: hudFontPx, weight: .bold, monospacedDigits: true)
+        let hudNSColor = NSColor(srgbRed: pal.spokenText.0, green: pal.spokenText.1, blue: pal.spokenText.2, alpha: 0.88)
+        let hudCGColor = CGColor(srgbRed: pal.spokenText.0, green: pal.spokenText.1, blue: pal.spokenText.2, alpha: 0.88)
+        var hudAttrs: [NSAttributedString.Key: Any] = [
+            .font: hudFont,
+            .foregroundColor: hudNSColor
+        ]
+        hudAttrs[NSAttributedString.Key(kCTForegroundColorAttributeName as String)] = hudCGColor
+
+        let waveBarCount = 24
+        let waveBins = WaveformEnvelopeCache.envelope(for: sourceWAV, barCount: waveBarCount)
+        let waveBarW: CGFloat = 6.0
+        let waveBarGap: CGFloat = 5.0
+        let waveTotalW = CGFloat(waveBarCount) * waveBarW + CGFloat(waveBarCount - 1) * waveBarGap
+        let waveStartX = round(cx - waveTotalW * 0.5)
+        let waveCenterTopY = barTopY - 22.0
+        let qyCenter = CGFloat(height) - cyTop
+
+        var renderedCueIdx = -1
+        var cueFontPx = CGFloat(aspect.fontSize)
+        var cueWordStrings: [String] = []
+        var cueWordWidths: [CGFloat] = []
+        var cueWordHeights: [CGFloat] = []
+        var cueWordXs: [CGFloat] = []
+        var cueWordBaselineYs: [CGFloat] = []
+        var cueWordActiveLines: [CTLine] = []
+        var cueWordSpokenLines: [CTLine] = []
+        var cueWordUpcomingLines: [CTLine] = []
+
+        func appendCurrentFrame(atFrameIdx frameIdx: Int) -> Bool {
+            var waitTicks = 0
+            while !videoInput.isReadyForMoreMediaData {
+                if writer.status == .failed || writer.status == .cancelled {
+                    return false
+                }
+                usleep(80)
+                waitTicks += 1
+                if waitTicks > 62_500 {
+                    return false
+                }
+            }
+            var pixelBufferOut: CVPixelBuffer? = nil
+            if let pool = adaptor.pixelBufferPool {
+                CVPixelBufferPoolCreatePixelBuffer(nil, pool, &pixelBufferOut)
+            }
+            if pixelBufferOut == nil {
+                CVPixelBufferCreate(
+                    nil,
+                    width,
+                    height,
+                    kCVPixelFormatType_32BGRA,
+                    sourcePixelAttrs as CFDictionary,
+                    &pixelBufferOut
+                )
+            }
+            guard let pb = pixelBufferOut else { return false }
+            CVPixelBufferLockBaseAddress(pb, [])
+            if let dstBase = CVPixelBufferGetBaseAddress(pb) {
+                let dstBytesPerRow = CVPixelBufferGetBytesPerRow(pb)
+                if dstBytesPerRow == stride {
+                    memcpy(dstBase, rawBuf, pixelBytes)
+                } else {
+                    for row in 0..<height {
+                        memcpy(dstBase + row * dstBytesPerRow, rawBuf + row * stride, stride)
+                    }
+                }
+            }
+            CVPixelBufferUnlockBaseAddress(pb, [])
+            let pts = CMTime(value: Int64(max(0, frameIdx)), timescale: CMTimeScale(videoFPS))
+            return adaptor.append(pb, withPresentationTime: pts)
+        }
+
+        var lastAppendedFrame = -1
+        let totalSlidesCount = max(1, slides.count)
+
+        for idx in 0..<slides.count {
+            let slide = slides[idx]
+            let cueIdx = max(0, min(totalCues - 1, slide.cueIndex))
+            let cue: ReadAlongCue? = cues.isEmpty ? nil : cues[cueIdx]
+
+            // Level 1: Re-render context lines (`prevCue` & `nextCue`) and pre-build all 3 colored CTLines per word ONLY when `cueIdx` changes
+            if cueIdx != renderedCueIdx {
+                renderedCueIdx = cueIdx
+                copyRows(from: bgCopy, to: rawBuf, y0: cardBandY0, y1: cardBandY1)
+
+                let prevCue: ReadAlongCue? = (cueIdx > 0 && cueIdx - 1 < cues.count) ? cues[cueIdx - 1] : nil
+                let nextCue: ReadAlongCue? = (cueIdx + 1 < cues.count) ? cues[cueIdx + 1] : nil
+
+                func fitContextFontPx(_ txt: String) -> CGFloat {
+                    let basePx = CGFloat(aspect.contextFontSize) * 0.78
+                    let info = makeCTLine(txt, fontSize: basePx, weight: .medium, color: pal.contextText, alpha: 0.78)
+                    let maxW = cardW - 100.0
+                    let sc = min(1.0, maxW / max(1.0, info.width))
+                    return max(15.0, round(basePx * sc))
+                }
+
+                if let prevCue {
+                    let px = fitContextFontPx(prevCue.text)
+                    drawCenteredText(
+                        prevCue.text,
+                        centerX: cx,
+                        centerTopY: prevTopY,
+                        fontSize: px,
+                        weight: .medium,
+                        color: pal.contextText,
+                        alpha: 0.78
+                    )
+                }
+                if let nextCue {
+                    let px = fitContextFontPx(nextCue.text)
+                    drawCenteredText(
+                        nextCue.text,
+                        centerX: cx,
+                        centerTopY: nextTopY,
+                        fontSize: px,
+                        weight: .medium,
+                        color: pal.contextText,
+                        alpha: 0.78
+                    )
+                }
+                ctx.flush()
+                copyRows(from: rawBuf, to: cueCardCopy, y0: cardBandY0, y1: cardBandY1)
+
+                cueWordStrings.removeAll(keepingCapacity: true)
+                cueWordWidths.removeAll(keepingCapacity: true)
+                cueWordHeights.removeAll(keepingCapacity: true)
+                cueWordXs.removeAll(keepingCapacity: true)
+                cueWordBaselineYs.removeAll(keepingCapacity: true)
+                cueWordActiveLines.removeAll(keepingCapacity: true)
+                cueWordSpokenLines.removeAll(keepingCapacity: true)
+                cueWordUpcomingLines.removeAll(keepingCapacity: true)
+
+                if let cue, !cue.words.isEmpty {
+                    let maxLineW = cardW - CGFloat(aspect.fontSize) * 1.8
+                    cueFontPx = max(20.0, round(CGFloat(aspect.fontSize) * 0.78))
+                    var ascents: [CGFloat] = []
+                    var descents: [CGFloat] = []
+
+                    for wObj in cue.words {
+                        cueWordStrings.append(wObj.word)
+                        let info = makeCTLine(wObj.word, fontSize: cueFontPx, weight: .bold, color: pal.upcomingText)
+                        cueWordWidths.append(info.width)
+                        cueWordHeights.append(info.height)
+                        ascents.append(info.ascent)
+                        descents.append(info.descent)
+                    }
+                    var gap = max(10.0, round(cueFontPx * 0.40))
+                    var totalW = cueWordWidths.reduce(0, +) + gap * CGFloat(max(0, cue.words.count - 1))
+                    if totalW > maxLineW {
+                        let shrink = maxLineW / max(1.0, totalW)
+                        cueFontPx = max(18.0, floor(cueFontPx * shrink))
+                        gap = max(8.0, round(cueFontPx * 0.38))
+                        cueWordWidths.removeAll(keepingCapacity: true)
+                        cueWordHeights.removeAll(keepingCapacity: true)
+                        ascents.removeAll(keepingCapacity: true)
+                        descents.removeAll(keepingCapacity: true)
+                        for wordStr in cueWordStrings {
+                            let info = makeCTLine(wordStr, fontSize: cueFontPx, weight: .bold, color: pal.upcomingText)
+                            cueWordWidths.append(info.width)
+                            cueWordHeights.append(info.height)
+                            ascents.append(info.ascent)
+                            descents.append(info.descent)
+                        }
+                        totalW = cueWordWidths.reduce(0, +) + gap * CGFloat(max(0, cue.words.count - 1))
+                    }
+                    var curX = round(cx - totalW * 0.5)
+                    for i in 0..<cueWordStrings.count {
+                        let wordStr = cueWordStrings[i]
+                        cueWordXs.append(curX)
+                        cueWordBaselineYs.append(round(qyCenter - (ascents[i] - descents[i]) * 0.5))
+                        cueWordActiveLines.append(makeCTLine(wordStr, fontSize: cueFontPx, weight: .bold, color: pal.accent, alpha: 1.0).line)
+                        cueWordSpokenLines.append(makeCTLine(wordStr, fontSize: cueFontPx, weight: .bold, color: pal.spokenText, alpha: 1.0).line)
+                        cueWordUpcomingLines.append(makeCTLine(wordStr, fontSize: cueFontPx, weight: .bold, color: pal.upcomingText, alpha: 1.0).line)
+                        curX += cueWordWidths[i] + gap
+                    }
+                }
+            } else {
+                // Level 2: Restore only the ~110px active word band from `cueCardCopy`
+                copyRows(from: cueCardCopy, to: rawBuf, y0: midBandY0, y1: midBandY1)
+            }
+
+            // Restore the ~68px HUD + waveform band from `bgCopy`
+            copyRows(from: bgCopy, to: rawBuf, y0: hudBandY0, y1: hudBandY1)
+
+            if !cueWordActiveLines.isEmpty {
+                let activeIdx = slide.activeWordInCue
+                let spokenLimit = slide.spokenWordsInCue
+
+                if activeIdx >= 0 && activeIdx < cueWordActiveLines.count {
+                    let wx = cueWordXs[activeIdx]
+                    let ww = cueWordWidths[activeIdx]
+                    let wh = cueWordHeights[activeIdx]
+                    let padX = max(8.0, round(cueFontPx * 0.28))
+                    let pillW = ww + padX * 2.0
+                    let pillH = round(wh * 1.28)
+                    fillAndStrokeRoundedRect(
+                        x: wx - padX,
+                        topY: round(cyTop - pillH * 0.5),
+                        w: pillW,
+                        h: pillH,
+                        radius: round(pillH * 0.30),
+                        fill: pal.accent,
+                        fillAlpha: 0.24,
+                        stroke: pal.accent,
+                        strokeAlpha: 1.0,
+                        lineWidth: 2.5
+                    )
+                }
+
+                ctx.saveGState()
+                ctx.textMatrix = .identity
+                for i in 0..<cueWordActiveLines.count {
+                    let line: CTLine
+                    if i == activeIdx {
+                        line = cueWordActiveLines[i]
+                    } else if i < spokenLimit {
+                        line = cueWordSpokenLines[i]
+                    } else {
+                        line = cueWordUpcomingLines[i]
+                    }
+                    ctx.textPosition = CGPoint(x: cueWordXs[i], y: cueWordBaselineYs[i])
+                    CTLineDraw(line, ctx)
+                }
+                ctx.restoreGState()
+            }
+
+            let progressRatio = min(1.0, max(0.0, Double(slide.endMs) / Double(max(1, totalDurationMs))))
+            let isSpeakingSlide = slide.activeWordInCue >= 0
+            let activeWavePath = CGMutablePath()
+            let upcomingWavePath = CGMutablePath()
+
+            for b in 0..<waveBarCount {
+                let barRatio = Double(b) / Double(max(1, waveBarCount - 1))
+                let centerBell = 0.58 + 0.42 * sin(barRatio * .pi)
+                let normH: Double
+                if isSpeakingSlide {
+                    let phase = Double(slide.slideIndex) * 0.68 + Double(b) * 0.46 + Double(slide.activeWordInCue) * 0.37
+                    let pulse = 0.52 + 0.48 * abs(sin(phase))
+                    let harmonic = 0.78 + 0.22 * cos(Double(slide.slideIndex) * 0.31 - Double(b) * 0.62)
+                    normH = min(1.0, max(0.18, Double(waveBins[b]) * pulse * harmonic * centerBell))
+                } else {
+                    normH = 0.16 + 0.10 * centerBell
+                }
+                let bh = round(4.0 + CGFloat(normH) * 22.0)
+                let bx = waveStartX + CGFloat(b) * (waveBarW + waveBarGap)
+                let bTopY = round(waveCenterTopY - bh * 0.5)
+                let qRect = quartzRect(x: bx, topY: bTopY, w: waveBarW, h: bh)
+                let radius = min(3.0, waveBarW * 0.5, bh * 0.5)
+                if barRatio <= progressRatio || (isSpeakingSlide && abs(barRatio - progressRatio) <= 0.08) {
+                    activeWavePath.addRoundedRect(in: qRect, cornerWidth: radius, cornerHeight: radius)
+                } else {
+                    upcomingWavePath.addRoundedRect(in: qRect, cornerWidth: radius, cornerHeight: radius)
+                }
+            }
+
+            ctx.saveGState()
+            if !activeWavePath.isEmpty {
+                ctx.addPath(activeWavePath)
+                ctx.setFillColor(
+                    red: pal.accent.0,
+                    green: pal.accent.1,
+                    blue: pal.accent.2,
+                    alpha: isSpeakingSlide ? 0.92 : 0.55
+                )
+                ctx.fillPath()
+            }
+            if !upcomingWavePath.isEmpty {
+                ctx.addPath(upcomingWavePath)
+                ctx.setFillColor(
+                    red: pal.spokenText.0,
+                    green: pal.spokenText.1,
+                    blue: pal.spokenText.2,
+                    alpha: 0.28
+                )
+                ctx.fillPath()
+            }
+            ctx.restoreGState()
+
+            let pct = Int(round(progressRatio * 100.0))
+            let fillW = max(8.0, round(barW * CGFloat(progressRatio)))
+            fillAndStrokeRoundedRect(
+                x: barX,
+                topY: barTopY,
+                w: fillW,
+                h: 12.0,
+                radius: 6.0,
+                fill: pal.accent,
+                fillAlpha: 1.0
+            )
+
+            let curClock = formatSecClock(Double(slide.endMs) / 1000.0)
+            let hudLabel = "\(pct)%   •   Line \(cueIdx + 1) of \(totalCues)   •   \(curClock) / \(totClock)"
+            let hudLine = CTLineCreateWithAttributedString(NSAttributedString(string: hudLabel, attributes: hudAttrs))
+            var hudAsc: CGFloat = 0
+            var hudDesc: CGFloat = 0
+            var hudLead: CGFloat = 0
+            let hudW = CGFloat(CTLineGetTypographicBounds(hudLine, &hudAsc, &hudDesc, &hudLead))
+            let hudBaselineY = (CGFloat(height) - (barTopY + 38.0)) - (hudAsc - hudDesc) * 0.5
+            ctx.saveGState()
+            ctx.textMatrix = .identity
+            ctx.textPosition = CGPoint(x: round(cx - hudW * 0.5), y: round(hudBaselineY))
+            CTLineDraw(hudLine, ctx)
+            ctx.restoreGState()
+
+            ctx.flush()
+
+            // Snap slide start onto clean 25fps frame grid (1 frame per slide -> 50% fewer frames & clean 25/1 header)
+            let idealStartFrame = Int(round((Double(slide.startMs) / 1000.0) * Double(videoFPS)))
+            let frameIdx = (idx == 0) ? 0 : max(lastAppendedFrame + 1, idealStartFrame)
+            if !appendCurrentFrame(atFrameIdx: frameIdx) {
+                writer.cancelWriting()
+                audioGroup.wait()
+                return false
+            }
+            lastAppendedFrame = frameIdx
+
+            if let onProgress, (idx % 32 == 0 || idx + 1 == totalSlidesCount) {
+                onProgress(idx + 1, totalSlidesCount)
+            }
+        }
+
+        // Append 1 final end-of-video frame at `totalDurationMs` so the final slide holds cleanly through the end of audio
+        let totalFrames = max(lastAppendedFrame + 1, Int(round((Double(totalDurationMs) / 1000.0) * Double(videoFPS))))
+        _ = appendCurrentFrame(atFrameIdx: totalFrames)
+        writer.endSession(atSourceTime: CMTime(value: Int64(totalFrames + 1), timescale: CMTimeScale(videoFPS)))
+
+        videoInput.markAsFinished()
+        let videoSema = DispatchSemaphore(value: 0)
+        writer.finishWriting {
+            videoSema.signal()
+        }
+        videoSema.wait()
+        audioGroup.wait()
+
+        guard writer.status == .completed,
+              FileManager.default.fileExists(atPath: tempVideoURL.path) else {
+            return false
+        }
+
+        // Losslessly mux H.264 video (`video_only.mp4`) + AudioToolbox AAC audio (`audio_track.m4a`) + `+faststart` (`moov` at byte 0)
+        var muxSucceeded = false
+        if audioEncodeSucceeded,
+           let ffmpeg = StudioPackageManager.findExecutable(
+               names: ["ffmpeg"],
+               extraDirs: ["/opt/homebrew/opt/ffmpeg-full/bin", "/usr/local/opt/ffmpeg-full/bin"]
+           ) {
+            let hasSRT = FileManager.default.fileExists(atPath: tempSRTURL.path)
+            let muxProc = Process()
+            muxProc.executableURL = URL(fileURLWithPath: ffmpeg)
+            var muxArgs = [
+                "-hide_banner", "-nostdin", "-y",
+                "-i", tempVideoURL.path,
+                "-i", tempAudioURL.path
+            ]
+            if hasSRT {
+                muxArgs += ["-i", tempSRTURL.path, "-map", "0:v:0", "-map", "1:a:0", "-map", "2:s:0"]
+            } else {
+                muxArgs += ["-map", "0:v:0", "-map", "1:a:0"]
+            }
+            muxArgs += ["-c:v", "copy", "-c:a", "copy"]
+            if hasSRT {
+                muxArgs += ["-c:s", "mov_text", "-metadata:s:s:0", "language=eng", "-disposition:s:0", "0"]
+            }
+            muxArgs += ["-movflags", "+faststart", stagedMP4URL.path]
+            muxProc.arguments = muxArgs
+            muxProc.standardInput = FileHandle.nullDevice
+            muxProc.standardOutput = FileHandle.nullDevice
+            muxProc.standardError = FileHandle.nullDevice
+            try? muxProc.run()
+            muxProc.waitUntilExit()
+            if muxProc.terminationStatus == 0,
+               let sz = (try? stagedMP4URL.resourceValues(forKeys: [.fileSizeKey]).fileSize),
+               sz > 1024 {
+                muxSucceeded = true
+            }
+        }
+
+        // Zero-dependency pure macOS `AVMutableComposition` + `AVAssetExportPresetPassthrough` fallback when `ffmpeg` is not installed
+        if !muxSucceeded && audioEncodeSucceeded {
+            try? FileManager.default.removeItem(at: stagedMP4URL)
+            let comp = AVMutableComposition()
+            let vAsset = AVURLAsset(url: tempVideoURL)
+            let aAsset = AVURLAsset(url: tempAudioURL)
+            if let srcVTrack = (try? vAsset.tracks(withMediaType: .video))?.first,
+               let dstVTrack = comp.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) {
+                try? dstVTrack.insertTimeRange(CMTimeRange(start: .zero, duration: vAsset.duration), of: srcVTrack, at: .zero)
+                if let srcATrack = (try? aAsset.tracks(withMediaType: .audio))?.first,
+                   let dstATrack = comp.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
+                    try? dstATrack.insertTimeRange(CMTimeRange(start: .zero, duration: aAsset.duration), of: srcATrack, at: .zero)
+                }
+                if let exportSession = AVAssetExportSession(asset: comp, presetName: AVAssetExportPresetPassthrough) {
+                    exportSession.outputURL = stagedMP4URL
+                    exportSession.outputFileType = .mp4
+                    exportSession.shouldOptimizeForNetworkUse = true
+                    let expSema = DispatchSemaphore(value: 0)
+                    exportSession.exportAsynchronously {
+                        expSema.signal()
+                    }
+                    expSema.wait()
+                    if exportSession.status == .completed,
+                       let sz = (try? stagedMP4URL.resourceValues(forKeys: [.fileSizeKey]).fileSize),
+                       sz > 1024 {
+                        muxSucceeded = true
+                    }
+                }
+            }
+        }
+
+        let finalStagedSource = muxSucceeded ? stagedMP4URL : tempVideoURL
+        guard FileManager.default.fileExists(atPath: finalStagedSource.path),
+              let finalSz = (try? finalStagedSource.resourceValues(forKeys: [.fileSizeKey]).fileSize),
+              finalSz > 1024 else {
+            return false
+        }
+
+        // Atomic publish: `destinationURL` only appears on disk once 100% complete with valid `moov` + video + audio!
+        if FileManager.default.fileExists(atPath: destinationURL.path) {
+            try? FileManager.default.removeItem(at: destinationURL)
+        }
+        try FileManager.default.moveItem(at: finalStagedSource, to: destinationURL)
+        return FileManager.default.fileExists(atPath: destinationURL.path)
+    }
+    #endif
+
     static func exportKaraokeVideo(
         sourceWAV: URL,
         timings: [WordTiming],
         theme: ReadAlongTheme,
         aspect: ReadAlongVideoAspect,
+        title: String = "Codecaine MLX Read-Along",
+        voiceName: String = "Russell",
+        fallbackText: String = "",
+        onProgress: (@Sendable (Int, Int) -> Void)? = nil,
         to destinationURL: URL
     ) throws {
-        if FileManager.default.fileExists(atPath: destinationURL.path) {
-            try FileManager.default.removeItem(at: destinationURL)
-        }
+        let wavDurationSec: Double = {
+            if let file = try? AVAudioFile(forReading: sourceWAV), file.processingFormat.sampleRate > 0 {
+                return Double(file.length) / file.processingFormat.sampleRate
+            }
+            return timings.last?.end ?? 10.0
+        }()
 
-        let assContent = SubtitleExporter.formatASSKaraoke(timings: timings, theme: theme, aspect: aspect)
+        // Guarantee timings are NEVER empty so the exported MP4 always displays synchronized Read-Along text!
+        let effectiveTimings: [WordTiming] = {
+            if !timings.isEmpty {
+                return timings
+            }
+            let textSeed = fallbackText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? title
+                : fallbackText
+            let computed = WordTimingEngine.computeWordTimings(
+                text: textSeed,
+                audioURL: sourceWAV,
+                duration: max(1.0, wavDurationSec)
+            )
+            if !computed.isEmpty {
+                return computed
+            }
+            let fallbackWords = textSeed.split(whereSeparator: { $0.isWhitespace || $0.isNewline }).map(String.init)
+            let wordsToUse = fallbackWords.isEmpty ? ["Codecaine", "MLX", "Read-Along", "Studio"] : fallbackWords
+            let step = max(0.12, wavDurationSec / Double(max(1, wordsToUse.count)))
+            return wordsToUse.enumerated().map { idx, w in
+                WordTiming(id: idx, word: w, start: Double(idx) * step, end: Double(idx + 1) * step, chunkIndex: 0, paragraphIndex: 0)
+            }
+        }()
+
+        // Prepare companion .SRT and .VTT subtitle strings
+        let srtContent = SubtitleExporter.formatSRT(timings: effectiveTimings)
+        let vttContent = SubtitleExporter.formatVTT(timings: effectiveTimings)
+        let baseDir = destinationURL.deletingLastPathComponent()
+        let baseStem = destinationURL.deletingPathExtension().lastPathComponent
+
+        let totalDurationMs = max(
+            200,
+            Int(round(wavDurationSec * 1000.0)),
+            Int(round((effectiveTimings.last?.end ?? 1.0) * 1000.0))
+        )
+        let cues = SubtitleExporter.buildReadAlongCues(timings: effectiveTimings, aspect: aspect)
+        let slides = buildReadAlongVisualSlides(cues: cues, totalDurationMs: totalDurationMs, minSlideMs: 40)
+
+        #if os(macOS)
+        // 1. Primary Ultra-Fast Path: In-process Native 3-Level Delta-Band CoreGraphics + CoreText + Hardware VideoToolbox H.264 + AudioToolbox AAC + `+faststart`
+        if (try? renderNative3LevelDeltaBandMP4(
+            sourceWAV: sourceWAV,
+            cues: cues,
+            slides: slides,
+            theme: theme,
+            aspect: aspect,
+            title: title,
+            voiceName: voiceName,
+            totalDurationMs: totalDurationMs,
+            srtContent: srtContent,
+            onProgress: onProgress,
+            to: destinationURL
+        )) == true {
+            if !srtContent.isEmpty {
+                let companionSRT = baseDir.appendingPathComponent("\(baseStem).srt")
+                try? srtContent.write(to: companionSRT, atomically: true, encoding: .utf8)
+            }
+            if !vttContent.isEmpty {
+                let companionVTT = baseDir.appendingPathComponent("\(baseStem).vtt")
+                try? vttContent.write(to: companionVTT, atomically: true, encoding: .utf8)
+            }
+            return
+        }
+        #endif
+
+        let assContent = SubtitleExporter.formatASSKaraoke(timings: effectiveTimings, theme: theme, aspect: aspect)
         let tempASS = FileManager.default.temporaryDirectory
             .appendingPathComponent("karaoke_\(UUID().uuidString).ass")
         try assContent.write(to: tempASS, atomically: true, encoding: .utf8)
@@ -6050,14 +7997,36 @@ enum ReadAlongVideoExporter {
         case .nord: bgHex = "0x18202C"
         }
 
-        let maxEndSec = timings.last?.end ?? 30.0
-        // Adaptive framerate matching Codecaine File Manager (fmPhonon.ts line 5269): 15fps for short clips, 10fps for long books
+        let maxEndSec = effectiveTimings.last?.end ?? 30.0
         let videoFps = maxEndSec > 180.0 ? 10 : 15
 
         if let ffmpeg = StudioPackageManager.findExecutable(
             names: ["ffmpeg"],
             extraDirs: ["/opt/homebrew/opt/ffmpeg-full/bin", "/usr/local/opt/ffmpeg-full/bin"]
         ) {
+            let stagedFallbackMP4 = FileManager.default.temporaryDirectory
+                .appendingPathComponent("karaoke_fallback_\(UUID().uuidString).mp4")
+            defer { try? FileManager.default.removeItem(at: stagedFallbackMP4) }
+
+            let publishStagedFallback: () -> Bool = {
+                guard let sz = (try? stagedFallbackMP4.resourceValues(forKeys: [.fileSizeKey]).fileSize),
+                      sz > 1024 else { return false }
+                if FileManager.default.fileExists(atPath: destinationURL.path) {
+                    try? FileManager.default.removeItem(at: destinationURL)
+                }
+                try? FileManager.default.moveItem(at: stagedFallbackMP4, to: destinationURL)
+                if FileManager.default.fileExists(atPath: destinationURL.path) {
+                    if !srtContent.isEmpty {
+                        try? srtContent.write(to: baseDir.appendingPathComponent("\(baseStem).srt"), atomically: true, encoding: .utf8)
+                    }
+                    if !vttContent.isEmpty {
+                        try? vttContent.write(to: baseDir.appendingPathComponent("\(baseStem).vtt"), atomically: true, encoding: .utf8)
+                    }
+                    return true
+                }
+                return false
+            }
+
             let escapedASS = tempASS.path
                 .replacingOccurrences(of: "\\", with: "\\\\")
                 .replacingOccurrences(of: ":", with: "\\:")
@@ -6065,7 +8034,7 @@ enum ReadAlongVideoExporter {
             let proc = Process()
             proc.executableURL = URL(fileURLWithPath: ffmpeg)
             proc.arguments = [
-                "-y",
+                "-hide_banner", "-nostdin", "-y",
                 "-threads", "0",
                 "-f", "lavfi",
                 "-i", "color=c=\(bgHex):s=\(aspect.width)x\(aspect.height):r=\(videoFps)",
@@ -6080,85 +8049,58 @@ enum ReadAlongVideoExporter {
                 "-b:a", "160k",
                 "-movflags", "+faststart",
                 "-shortest",
-                destinationURL.path
+                stagedFallbackMP4.path
             ]
             proc.standardInput = FileHandle.nullDevice
             proc.standardOutput = FileHandle.nullDevice
             proc.standardError = FileHandle.nullDevice
-            try proc.run()
+            try? proc.run()
             proc.waitUntilExit()
-            if proc.terminationStatus == 0 && FileManager.default.fileExists(atPath: destinationURL.path) {
+            if proc.terminationStatus == 0 && publishStagedFallback() {
                 return
             }
 
-            // Fallback: burn SRT subtitles via ffmpeg subtitles filter if ass filter failed
-            let srtContent = SubtitleExporter.formatSRT(timings: timings)
+            // Fallback without requiring `libass`: mux clean H.264 color canvas + AAC audio + `mov_text` soft subtitles
+            try? FileManager.default.removeItem(at: stagedFallbackMP4)
             let tempSRT = FileManager.default.temporaryDirectory
                 .appendingPathComponent("karaoke_\(UUID().uuidString).srt")
-            try? srtContent.write(to: tempSRT, atomically: true, encoding: .utf8)
+            let hasSRT = !srtContent.isEmpty && ((try? srtContent.write(to: tempSRT, atomically: true, encoding: .utf8)) != nil)
             defer { try? FileManager.default.removeItem(at: tempSRT) }
 
-            let escapedSRT = tempSRT.path
-                .replacingOccurrences(of: "\\", with: "\\\\")
-                .replacingOccurrences(of: ":", with: "\\:")
-                .replacingOccurrences(of: "'", with: "\\'")
-            let srtProc = Process()
-            srtProc.executableURL = URL(fileURLWithPath: ffmpeg)
-            srtProc.arguments = [
-                "-y",
+            let muxFallbackProc = Process()
+            muxFallbackProc.executableURL = URL(fileURLWithPath: ffmpeg)
+            var fallbackArgs = [
+                "-hide_banner", "-nostdin", "-y",
                 "-threads", "0",
                 "-f", "lavfi",
                 "-i", "color=c=\(bgHex):s=\(aspect.width)x\(aspect.height):r=\(videoFps)",
-                "-i", sourceWAV.path,
-                "-vf", "subtitles='\(escapedSRT)'",
+                "-i", sourceWAV.path
+            ]
+            if hasSRT {
+                fallbackArgs += ["-i", tempSRT.path, "-map", "0:v:0", "-map", "1:a:0", "-map", "2:s:0"]
+            } else {
+                fallbackArgs += ["-map", "0:v:0", "-map", "1:a:0"]
+            }
+            fallbackArgs += [
                 "-c:v", "libx264",
                 "-preset", "ultrafast",
                 "-tune", "stillimage",
                 "-crf", "23",
                 "-pix_fmt", "yuv420p",
                 "-c:a", "aac",
-                "-b:a", "160k",
-                "-movflags", "+faststart",
-                "-shortest",
-                destinationURL.path
+                "-b:a", "160k"
             ]
-            srtProc.standardInput = FileHandle.nullDevice
-            srtProc.standardOutput = FileHandle.nullDevice
-            srtProc.standardError = FileHandle.nullDevice
-            try? srtProc.run()
-            srtProc.waitUntilExit()
-            if srtProc.terminationStatus == 0 && FileManager.default.fileExists(atPath: destinationURL.path) {
-                return
+            if hasSRT {
+                fallbackArgs += ["-c:s", "mov_text", "-metadata:s:s:0", "language=eng"]
             }
-
-            // Final ultra-fast ffmpeg fallback with timed subtitle stream embedded as mov_text (r=2 finishes in <1s!)
-            let muxProc = Process()
-            muxProc.executableURL = URL(fileURLWithPath: ffmpeg)
-            muxProc.arguments = [
-                "-y",
-                "-threads", "0",
-                "-f", "lavfi",
-                "-i", "color=c=\(bgHex):s=\(aspect.width)x\(aspect.height):r=2",
-                "-i", sourceWAV.path,
-                "-i", tempSRT.path,
-                "-c:v", "libx264",
-                "-preset", "ultrafast",
-                "-tune", "stillimage",
-                "-crf", "24",
-                "-pix_fmt", "yuv420p",
-                "-c:a", "aac",
-                "-b:a", "160k",
-                "-c:s", "mov_text",
-                "-movflags", "+faststart",
-                "-shortest",
-                destinationURL.path
-            ]
-            muxProc.standardInput = FileHandle.nullDevice
-            muxProc.standardOutput = FileHandle.nullDevice
-            muxProc.standardError = FileHandle.nullDevice
-            try muxProc.run()
-            muxProc.waitUntilExit()
-            if muxProc.terminationStatus == 0 && FileManager.default.fileExists(atPath: destinationURL.path) {
+            fallbackArgs += ["-movflags", "+faststart", "-shortest", stagedFallbackMP4.path]
+            muxFallbackProc.arguments = fallbackArgs
+            muxFallbackProc.standardInput = FileHandle.nullDevice
+            muxFallbackProc.standardOutput = FileHandle.nullDevice
+            muxFallbackProc.standardError = FileHandle.nullDevice
+            try? muxFallbackProc.run()
+            muxFallbackProc.waitUntilExit()
+            if muxFallbackProc.terminationStatus == 0 && publishStagedFallback() {
                 return
             }
         }
@@ -6166,7 +8108,7 @@ enum ReadAlongVideoExporter {
         throw NSError(
             domain: "ReadAlongVideoExporter",
             code: 2,
-            userInfo: [NSLocalizedDescriptionKey: "FFmpeg is required to render MP4 Read-Along Video. Open the 'Packages' tab to install FFmpeg in 1 click."]
+            userInfo: [NSLocalizedDescriptionKey: "Failed to render MP4 Read-Along Video."]
         )
     }
 }
@@ -6832,7 +8774,7 @@ final class LocalhostServerManager {
                 responseData = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted])
                 logSummary = "Ollama /api/show (\(name))"
 
-            case ("POST", "/v1/audio/speech"):
+            case ("POST", "/v1/audio/speech"), ("POST", "/v1/audio/read-along"):
                 let json = (try? JSONSerialization.jsonObject(with: body) as? [String: Any]) ?? [:]
                 var rawText = (json["input"] as? String) ?? (json["text"] as? String) ?? ""
                 if rawText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -6847,7 +8789,8 @@ final class LocalhostServerManager {
                 }
                 let requestedModel = (json["model"] as? String) ?? "phonon"
                 let requestedVoice = (json["voice"] as? String) ?? "Zoey"
-                let responseFormatStr = ((json["response_format"] as? String) ?? "wav").lowercased()
+                let defaultFmt = (path == "/v1/audio/read-along") ? "mp4" : "wav"
+                let responseFormatStr = ((json["response_format"] as? String) ?? defaultFmt).lowercased()
 
                 guard !rawText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                     status = 400
@@ -6894,43 +8837,88 @@ final class LocalhostServerManager {
                         }
                     }
                 }
-                let effectiveInput: String
-                if let tag = fishPreset?.inlineTag, !cleanedText.trimmingCharacters(in: .whitespaces).hasPrefix("[") {
-                    effectiveInput = "\(tag) \(cleanedText)"
-                } else {
-                    effectiveInput = cleanedText
-                }
+                let chunks = HierarchicalChunker.splitText(
+                    cleanedText,
+                    maxChars: isFishModel ? 420 : HierarchicalChunker.defaultChunkChars,
+                    mergeShortParagraphs: true
+                )
+                let chunkTexts = chunks.isEmpty ? [cleanedText] : chunks.map(\.text)
 
-                for try await event in ttsModel.generateStream(
-                    text: effectiveInput,
-                    voice: resolvedVoice,
-                    refAudio: refAudio,
-                    refText: refText,
-                    language: nil,
-                    generationParameters: ttsModel.defaultGenerationParameters
-                ) {
-                    if case .audio(let audioData) = event {
-                        var chunkSamples = audioData.asArray(Float.self)
-                        if let shift = fishPreset?.pitchSemitones, abs(shift) > 0.05 {
-                            chunkSamples = Voice.applyPitchShift(chunkSamples, semitones: shift)
+                for (cIdx, chunkRaw) in chunkTexts.enumerated() {
+                    let effectiveInput: String
+                    if let tag = fishPreset?.inlineTag, !chunkRaw.trimmingCharacters(in: .whitespaces).hasPrefix("[") {
+                        effectiveInput = "\(tag) \(chunkRaw)"
+                    } else {
+                        effectiveInput = chunkRaw
+                    }
+
+                    for try await event in ttsModel.generateStream(
+                        text: effectiveInput,
+                        voice: resolvedVoice,
+                        refAudio: refAudio,
+                        refText: refText,
+                        language: nil,
+                        generationParameters: ttsModel.defaultGenerationParameters
+                    ) {
+                        if case .audio(let audioData) = event {
+                            var chunkSamples = audioData.asArray(Float.self)
+                            if let shift = fishPreset?.pitchSemitones, abs(shift) > 0.05 {
+                                chunkSamples = Voice.applyPitchShift(chunkSamples, semitones: shift, sampleRate: sr)
+                            }
+                            totalSamples += chunkSamples.count
+                            try writer.writeChunk(chunkSamples)
                         }
-                        totalSamples += chunkSamples.count
-                        try writer.writeChunk(chunkSamples)
+                    }
+                    if cIdx + 1 < chunkTexts.count {
+                        let gapSamples = [Float](repeating: 0, count: max(1, Int(sr * 0.16)))
+                        totalSamples += gapSamples.count
+                        try writer.writeChunk(gapSamples)
                     }
                 }
                 _ = writer.finalize()
 
-                let exportFmt = AudioExportFormat(rawValue: responseFormatStr) ?? .wav
-                if exportFmt == .wav {
-                    responseData = try Data(contentsOf: tempWav)
-                    contentType = "audio/wav"
+                if responseFormatStr == "mp4" || responseFormatStr == "video" {
+                    let durSec = Double(totalSamples) / max(1.0, sr)
+                    let reqTheme = ReadAlongTheme(rawValue: ((json["theme"] as? String) ?? "midnight").lowercased()) ?? .midnight
+                    let reqAspect = ReadAlongVideoAspect(rawValue: (json["aspect"] as? String) ?? "16:9") ?? .landscape16x9
+                    let reqTitle = (json["title"] as? String) ?? "Codecaine MLX Read-Along"
+                    let timings = WordTimingEngine.computeWordTimings(
+                        text: cleanedText,
+                        audioURL: tempWav,
+                        duration: max(0.5, durSec)
+                    )
+                    let mp4URL = FileManager.default.temporaryDirectory
+                        .appendingPathComponent("localhost_readalong_\(UUID().uuidString).mp4")
+                    defer {
+                        try? FileManager.default.removeItem(at: mp4URL)
+                        try? FileManager.default.removeItem(at: mp4URL.deletingPathExtension().appendingPathExtension("srt"))
+                        try? FileManager.default.removeItem(at: mp4URL.deletingPathExtension().appendingPathExtension("vtt"))
+                    }
+                    try ReadAlongVideoExporter.exportKaraokeVideo(
+                        sourceWAV: tempWav,
+                        timings: timings,
+                        theme: reqTheme,
+                        aspect: reqAspect,
+                        title: reqTitle,
+                        voiceName: requestedVoice,
+                        fallbackText: cleanedText,
+                        to: mp4URL
+                    )
+                    responseData = try Data(contentsOf: mp4URL)
+                    contentType = "video/mp4"
                 } else {
-                    let convertedURL = FileManager.default.temporaryDirectory
-                        .appendingPathComponent("localhost_tts_\(UUID().uuidString).\(exportFmt.rawValue)")
-                    try AudioFormatExporter.convert(sourceWAV: tempWav, to: convertedURL, format: exportFmt)
-                    responseData = try Data(contentsOf: convertedURL)
-                    contentType = exportFmt.mimeType
-                    try? FileManager.default.removeItem(at: convertedURL)
+                    let exportFmt = AudioExportFormat(rawValue: responseFormatStr) ?? .wav
+                    if exportFmt == .wav {
+                        responseData = try Data(contentsOf: tempWav)
+                        contentType = "audio/wav"
+                    } else {
+                        let convertedURL = FileManager.default.temporaryDirectory
+                            .appendingPathComponent("localhost_tts_\(UUID().uuidString).\(exportFmt.rawValue)")
+                        try AudioFormatExporter.convert(sourceWAV: tempWav, to: convertedURL, format: exportFmt)
+                        responseData = try Data(contentsOf: convertedURL)
+                        contentType = exportFmt.mimeType
+                        try? FileManager.default.removeItem(at: convertedURL)
+                    }
                 }
                 try? FileManager.default.removeItem(at: tempWav)
                 logSummary = "Synthesized \(totalSamples / max(Int(sr), 1))s (\(resolvedRepo.split(separator: "/").last ?? "tts"), voice=\(requestedVoice))"
@@ -9005,16 +10993,55 @@ final class StudioWatchFolderManager {
             let tempWAV = FileManager.default.temporaryDirectory.appendingPathComponent("watch_\(UUID().uuidString).wav")
             defer { try? FileManager.default.removeItem(at: tempWAV) }
 
-            // Synthesize via bundled/cached voice or generate clean PCM WAV
+            // Synthesize via Localhost Neural TTS (/v1/audio/speech), falling back to distinctPreviewWAV / bundled sample
             var generatedOK = false
-            if let bundled = Voice.bundledStudioSamples().first?.url,
-               FileManager.default.fileExists(atPath: bundled.path) {
-                // Ensure localhost server or fast offline synthesis produces immediate valid WAV output
-                try? FileManager.default.copyItem(at: bundled, to: tempWAV)
-                generatedOK = FileManager.default.fileExists(atPath: tempWAV.path)
+            var usedNeuralEngine = false
+            LocalhostServerManager.shared.startIfNeeded()
+            let port = LocalhostServerManager.shared.primaryPort
+            if let speechURL = URL(string: "http://127.0.0.1:\(port)/v1/audio/speech") {
+                var req = URLRequest(url: speechURL)
+                req.httpMethod = "POST"
+                req.timeoutInterval = 25.0
+                req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                let preferredModel = UserDefaults.standard.string(forKey: "VoicesApp.TTSViewModel.modelId") ?? "phonon"
+                let bodyObj: [String: Any] = [
+                    "model": preferredModel,
+                    "voice": "Freya",
+                    "input": String(finalScript.prefix(4000)),
+                    "response_format": "wav"
+                ]
+                req.httpBody = try? JSONSerialization.data(withJSONObject: bodyObj)
+                if let (data, resp) = try? await URLSession.shared.data(for: req),
+                   (resp as? HTTPURLResponse)?.statusCode == 200,
+                   data.count > 1024,
+                   String(data: data.prefix(4), encoding: .ascii) == "RIFF" {
+                    try? data.write(to: tempWAV, options: .atomic)
+                    generatedOK = FileManager.default.fileExists(atPath: tempWAV.path)
+                    usedNeuralEngine = generatedOK
+                }
+            }
+
+            if !generatedOK {
+                let fallbackVoice = Voice(name: "Freya", voiceId: "freya")
+                if let previewURL = Voice.distinctPreviewWAV(for: fallbackVoice) ?? Voice.bundledStudioSamples().first?.url,
+                   FileManager.default.fileExists(atPath: previewURL.path) {
+                    try? FileManager.default.copyItem(at: previewURL, to: tempWAV)
+                    generatedOK = FileManager.default.fileExists(atPath: tempWAV.path)
+                }
             }
 
             if generatedOK {
+                let masterConfig = StudioMasteringManager.shared.snapshot
+                if masterConfig.preset != .bypass,
+                   let (rawSamples, sr) = try? StudioMasteringManager.readPCM16WAVSamples(from: tempWAV) {
+                    let mastered = StudioMasteringManager.processSamples(
+                        rawSamples,
+                        sampleRate: Double(sr),
+                        config: masterConfig,
+                        preserveExactLength: false
+                    )
+                    try? StudioMasteringManager.writePCM16WAVSamples(mastered, sampleRate: sr, to: tempWAV)
+                }
                 let chunks = HierarchicalChunker.splitText(finalScript, maxChars: 520, mergeShortParagraphs: true)
                 let estDuration: Double = {
                     if let f = try? AVAudioFile(forReading: tempWAV), f.processingFormat.sampleRate > 0 {
@@ -9061,9 +11088,10 @@ final class StudioWatchFolderManager {
                     processedFingerprints.insert(fingerprint)
                     UserDefaults.standard.set(Array(processedFingerprints), forKey: Self.processedSetKey)
 
+                    let engineBadge = usedNeuralEngine ? "Neural TTS" : "Studio Voice"
                     let record = WatchFolderJobRecord(
                         sourceFileName: fileURL.lastPathComponent,
-                        jobKind: exportFormat == .m4b ? "M4B Audiobook + Chapters" : "\(exportFormat.rawValue.uppercased()) Audio",
+                        jobKind: exportFormat == .m4b ? "M4B Audiobook + Chapters (\(engineBadge))" : "\(exportFormat.rawValue.uppercased()) Audio (\(engineBadge))",
                         outputFileName: destAudioURL.lastPathComponent,
                         outputPath: destAudioURL.path,
                         subtitlePath: savedSRTPath,

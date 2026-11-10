@@ -748,6 +748,8 @@ struct STSView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 6) {
                         ForEach(Array(viewModel.diarizationSegments.enumerated()), id: \.offset) { _, seg in
+                            let spkColors: [Color] = [.blue, .purple, .orange, .teal, .pink, .green, .indigo]
+                            let spkColor = spkColors[abs(seg.speaker.hashValue) % spkColors.count]
                             Button {
                                 viewModel.seek(to: Double(seg.start))
                                 if !viewModel.isPlaying {
@@ -757,13 +759,13 @@ struct STSView: View {
                                 HStack(spacing: 10) {
                                     Image(systemName: "play.circle.fill")
                                         .font(.system(size: 12))
-                                        .foregroundStyle(.blue)
+                                        .foregroundStyle(spkColor)
                                     Text("Speaker \(seg.speaker)")
                                         .font(.system(size: 11.5, weight: .semibold))
-                                        .foregroundStyle(.blue)
+                                        .foregroundStyle(spkColor)
                                         .padding(.horizontal, 8)
                                         .padding(.vertical, 3)
-                                        .background(Color.blue.opacity(0.16), in: Capsule())
+                                        .background(spkColor.opacity(0.16), in: Capsule())
 
                                     Text(String(format: "%.2fs → %.2fs", seg.start, seg.end))
                                         .font(.system(size: 12, design: .monospaced))

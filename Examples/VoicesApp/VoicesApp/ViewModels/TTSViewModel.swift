@@ -115,6 +115,7 @@ final class LivePlayableWAVWriter: @unchecked Sendable {
 enum PhononChunkCache {
     private static let lock = NSLock()
     nonisolated(unsafe) private static var memoryCache: [String: [Float]] = [:]
+    nonisolated(unsafe) private static var timingOffsetsCache: [String: [(start: Double, end: Double)]] = [:]
     nonisolated(unsafe) private static var lruKeys: [String] = []
     private static let maxMemoryEntries = 256
     private static let diskWriteQueue = DispatchQueue(label: "VoicesApp.PhononChunkCache.DiskWrite", qos: .utility)
@@ -131,6 +132,23 @@ enum PhononChunkCache {
         let raw = "v3|\(modelId)|\(voiceParam ?? "default")|\(refText ?? "")|\(String(format: "%.2f", pitch))|\(text)"
         let digest = SHA256.hash(data: Data(raw.utf8))
         return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    static func getRelativeTimings(key: String, expectedWordCount: Int) -> [(start: Double, end: Double)]? {
+        guard expectedWordCount > 0 else { return nil }
+        lock.lock()
+        defer { lock.unlock() }
+        if let hit = timingOffsetsCache[key], hit.count == expectedWordCount {
+            return hit
+        }
+        return nil
+    }
+
+    static func putRelativeTimings(key: String, offsets: [(start: Double, end: Double)]) {
+        guard !offsets.isEmpty else { return }
+        lock.lock()
+        timingOffsetsCache[key] = offsets
+        lock.unlock()
     }
 
     static func get(key: String) -> [Float]? {
@@ -170,6 +188,7 @@ enum PhononChunkCache {
         while lruKeys.count > maxMemoryEntries {
             let oldest = lruKeys.removeFirst()
             memoryCache.removeValue(forKey: oldest)
+            timingOffsetsCache.removeValue(forKey: oldest)
         }
         lock.unlock()
 
@@ -378,6 +397,8 @@ class TTSViewModel {
     var errorMessage: String?
     var audioURL: URL?
     var tokensPerSecond: Double = 0
+    var lastExportedFileURL: URL? = nil
+    var lastExportedSummary: String = ""
 
     // Generation parameters: model defaults + optional UI overrides
     private var defaultGenerationParameters = GenerateParameters(
@@ -572,9 +593,17 @@ class TTSViewModel {
     var totalChunkCount: Int = 0
     var synthesizedStartChunkIndex: Int = 0
     var synthesizedEndChunkIndex: Int? = nil
+    var completedChunkIndex: Int = -1
     var synthesizedWordTimings: [WordTiming] = []
     var synthesizedChunkFrameRanges: [Int: Range<Int>] = [:]
     var lastSynthesizedText: String = ""
+    var lastSynthesizedVoiceKey: String = ""
+
+    // Voice Sample / Audition state (real neural voice preview per selected voice)
+    var isAuditioningVoice: Bool = false
+    var auditioningVoiceKey: String? = nil
+    private var auditionPlayer: AVAudioPlayer? = nil
+    private var auditionTask: Task<Void, Never>? = nil
 
     // Audio player state (manually synced from AudioPlayerManager)
     var isPlaying: Bool = false
@@ -1023,7 +1052,9 @@ class TTSViewModel {
             synthesizingChunkIndex = safeStart
             synthesizedStartChunkIndex = safeStart
             synthesizedEndChunkIndex = plannedEndChunk
+            completedChunkIndex = safeStart - 1
             lastSynthesizedText = cleanedInput
+            lastSynthesizedVoiceKey = (voice ?? selectedVoice)?.voiceKey ?? ""
             let sampleRate = Double(model.sampleRate)
 
             // Create LivePlayableWAVWriter — updates WAV header in place after every chunk so `audioURL` is ready after Chunk #1 (~1.0s)
@@ -1051,7 +1082,9 @@ class TTSViewModel {
             var workingTimings = masterWords.map {
                 WordTiming(id: $0.id, word: $0.word, start: 0, end: 0, chunkIndex: $0.chunkIndex, paragraphIndex: $0.paragraphIndex)
             }
-            synthesizedWordTimings = workingTimings
+            if playAudio {
+                synthesizedWordTimings = workingTimings
+            }
             synthesizedChunkFrameRanges = [:]
             var cumulativeFramesWritten = 0
             let masteringSnapshot = StudioMasteringManager.shared.snapshot
@@ -1120,65 +1153,68 @@ class TTSViewModel {
 
                 if allChunks.count > 1 {
                     let castBadge = castResolved.characterName.map { " [\($0)]" } ?? ""
-                    if offset == 0 {
+                    if !playAudio {
+                        let pct = Int((Double(offset + 1) / Double(max(1, chunks.count))) * 100.0)
+                        generationProgress = "Synthesizing section \(offset + 1) of \(chunks.count)\(castBadge) (\(pct)%)..."
+                    } else if offset == 0 {
                         generationProgress = "Synthesizing §\(globalIndex + 1) of \(allChunks.count)\(castBadge) (instant 1s start & export)..."
                     } else {
                         generationProgress = "Speaking §\(activeChunkIndex + 1) · Prefetching §\(globalIndex + 1)/\(plannedEndChunk + 1)\(castBadge) (gapless)..."
                     }
                 }
 
-                // Yield to keep @MainActor (AudioPlayer callbacks, timers, 120Hz Teleprompter UI) responsive
-                await Task.yield()
+                if playAudio {
+                    // Yield to keep @MainActor (AudioPlayer callbacks, timers, 120Hz Teleprompter UI) responsive
+                    await Task.yield()
+                }
 
                 var rawSamples: [Float] = []
                 if let cachedSamples = PhononChunkCache.get(key: cacheKey) {
                     rawSamples = cachedSamples
                 } else {
-                    var tokenTick = 0
-                    for try await event in model.generateStream(
-                        text: effectiveChunk,
-                        voice: chunkVoiceParam,
-                        refAudio: referenceAudio,
-                        refText: refText,
-                        language: nil,
-                        generationParameters: generationParameters,
-                        streamingInterval: 60.0
-                    ) {
-                        try Task.checkCancellation()
-                        switch event {
-                        case .token:
-                            tokenTick += 1
-                            if tokenTick % 20 == 0 {
-                                await Task.yield()
-                            }
-                        case .progress:
-                            break
-                        case .info(let info):
-                            tokensPerSecond = info.tokensPerSecond
-                        case .audio(let audioData):
-                            autoreleasepool {
-                                let samples = audioData.asArray(Float.self)
-                                rawSamples.append(contentsOf: samples)
+                    nonisolated(unsafe) let genModel = model
+                    nonisolated(unsafe) let refAudioBox = referenceAudio
+                    let streamResult: (samples: [Float], tps: Double) = try await Task.detached(priority: .userInitiated) {
+                        var collected: [Float] = []
+                        var latestTPS: Double = 0
+                        for try await event in genModel.generateStream(
+                            text: effectiveChunk,
+                            voice: chunkVoiceParam,
+                            refAudio: refAudioBox,
+                            refText: refText,
+                            language: nil,
+                            generationParameters: generationParameters,
+                            streamingInterval: 60.0
+                        ) {
+                            try Task.checkCancellation()
+                            switch event {
+                            case .token, .progress:
+                                break
+                            case .info(let info):
+                                latestTPS = info.tokensPerSecond
+                            case .audio(let audioData):
+                                autoreleasepool {
+                                    let samples = audioData.asArray(Float.self)
+                                    collected.append(contentsOf: samples)
+                                }
                             }
                         }
-                    }
-
-                    // Offload pitch shift, silence trimming, and cache write to a background thread
-                    if !rawSamples.isEmpty {
-                        let unshifted = rawSamples
-                        rawSamples = await Task.detached(priority: .userInitiated) {
-                            var processed = unshifted
+                        if !collected.isEmpty {
                             if abs(chunkPitchShift) > 0.05 {
-                                processed = Voice.applyPitchShift(processed, semitones: chunkPitchShift, sampleRate: sampleRate)
+                                collected = Voice.applyPitchShift(collected, semitones: chunkPitchShift, sampleRate: sampleRate)
                             }
-                            processed = SpeechAudioTrimmer.trimSilence(processed, sampleRate: sampleRate)
-                            PhononChunkCache.put(key: cacheKey, samples: processed)
-                            return processed
-                        }.value
+                            collected = SpeechAudioTrimmer.trimSilence(collected, sampleRate: sampleRate)
+                            PhononChunkCache.put(key: cacheKey, samples: collected)
+                        }
+                        return (collected, latestTPS)
+                    }.value
+                    rawSamples = streamResult.samples
+                    if streamResult.tps > 0 {
+                        tokensPerSecond = streamResult.tps
                     }
                 }
 
-                // Offload waveform DP word alignment, Master Bus DSP, and WAV file writing off @MainActor
+                // Offload waveform DP word alignment (with 0ms relative-timing cache hit), Master Bus DSP, and WAV file writing off @MainActor
                 let finalChunkSamples = rawSamples
                 let chunkResult: (samplesToWrite: [Float], alignedTimings: [WordTiming]) = await Task.detached(priority: .userInitiated) {
                     guard !finalChunkSamples.isEmpty else {
@@ -1186,12 +1222,30 @@ class TTSViewModel {
                     }
                     let aligned: [WordTiming]
                     if !chunkWords.isEmpty {
-                        aligned = WordTimingEngine.alignWordsToPCM(
-                            words: chunkWords,
-                            samples: finalChunkSamples,
-                            sampleRate: sampleRate,
-                            startOffsetSec: chunkStartSec
-                        )
+                        if let cachedOffsets = PhononChunkCache.getRelativeTimings(key: cacheKey, expectedWordCount: chunkWords.count) {
+                            aligned = zip(chunkWords, cachedOffsets).map { w, rel in
+                                WordTiming(
+                                    id: w.id,
+                                    word: w.word,
+                                    start: chunkStartSec + rel.start,
+                                    end: chunkStartSec + rel.end,
+                                    chunkIndex: w.chunkIndex,
+                                    paragraphIndex: w.paragraphIndex
+                                )
+                            }
+                        } else {
+                            let computed = WordTimingEngine.alignWordsToPCM(
+                                words: chunkWords,
+                                samples: finalChunkSamples,
+                                sampleRate: sampleRate,
+                                startOffsetSec: chunkStartSec
+                            )
+                            if computed.count == chunkWords.count {
+                                let relOffsets = computed.map { (start: max(0, $0.start - chunkStartSec), end: max(0, $0.end - chunkStartSec)) }
+                                PhononChunkCache.putRelativeTimings(key: cacheKey, offsets: relOffsets)
+                            }
+                            aligned = computed
+                        }
                     } else {
                         aligned = []
                     }
@@ -1213,18 +1267,22 @@ class TTSViewModel {
                     for t in chunkResult.alignedTimings where t.id >= 0 && t.id < workingTimings.count {
                         workingTimings[t.id] = t
                     }
-                    self.synthesizedWordTimings = workingTimings
+                    // During silent batch export (`!playAudio`), avoid mutating 25k-element @Observable `synthesizedWordTimings` on every chunk!
+                    if playAudio {
+                        self.synthesizedWordTimings = workingTimings
+                    }
                     let chunkStartFrame = cumulativeFramesWritten
                     cumulativeFramesWritten += chunkResult.samplesToWrite.count
                     self.synthesizedChunkFrameRanges[globalIndex] = chunkStartFrame..<cumulativeFramesWritten
                     self.synthesizedEndChunkIndex = globalIndex
+                    self.completedChunkIndex = globalIndex
 
                     // Publish playable & exportable WAV URL immediately after Chunk #1 (~1.0s!)
                     let liveDuration = Double(wavWriter.framesWritten) / sampleRate
                     if self.audioURL != tempURL {
                         self.audioURL = tempURL
                     }
-                    if self.duration < liveDuration {
+                    if playAudio && self.duration < liveDuration {
                         self.duration = liveDuration
                     }
 
@@ -1234,9 +1292,13 @@ class TTSViewModel {
                 }
 
                 // Only clear GPU cache periodically so Metal buffers stay warm for instant chunk-to-chunk synthesis
-                if (offset + 1) % 10 == 0 {
+                if (offset + 1) % 16 == 0 {
                     Memory.clearCache()
                 }
+            }
+
+            if !playAudio {
+                self.synthesizedWordTimings = workingTimings
             }
 
             // Finalize the WAV file
@@ -1663,6 +1725,246 @@ class TTSViewModel {
         }
     }
 
+    /// Checks whether `audioURL` already contains a complete, finished synthesis on disk for the requested text, voice, and scope.
+    /// Note: `completedChunkIndex` is incremented only AFTER each chunk's PCM + live WAV header are flushed to disk, so if background prefetching (`isGenerating == true`) has already passed `reqEnd`, the requested scope is already 100% ready!
+    func hasCompleteAudio(
+        for text: String,
+        voice: Voice? = nil,
+        requiredScope: SynthesisScope = .fullDocument,
+        targetChunkIndex: Int = 0
+    ) -> Bool {
+        guard let currentURL = audioURL,
+              FileManager.default.fileExists(atPath: currentURL.path),
+              completedChunkIndex >= synthesizedStartChunkIndex else {
+            return false
+        }
+        let cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cleaned.isEmpty && lastSynthesizedText != cleaned {
+            return false
+        }
+        let reqVoiceKey = (voice ?? selectedVoice)?.voiceKey ?? ""
+        if !reqVoiceKey.isEmpty && !lastSynthesizedVoiceKey.isEmpty && reqVoiceKey != lastSynthesizedVoiceKey {
+            return false
+        }
+        let refText = cleaned.isEmpty ? lastSynthesizedText : cleaned
+        guard !refText.isEmpty else { return true }
+        let allChunks = chunkTextWithMetadata(refText)
+        guard !allChunks.isEmpty else { return true }
+        let lastIdx = max(0, allChunks.count - 1)
+        let safeTarget = min(max(0, targetChunkIndex), lastIdx)
+
+        switch requiredScope {
+        case .fullDocument:
+            return synthesizedStartChunkIndex == 0 && completedChunkIndex >= lastIdx
+        case .fastSection:
+            let reqEnd = min(lastIdx, safeTarget + 3)
+            return synthesizedStartChunkIndex <= safeTarget && completedChunkIndex >= reqEnd
+        case .activeChunk:
+            return synthesizedStartChunkIndex <= safeTarget && completedChunkIndex >= safeTarget
+        }
+    }
+
+    func stopVoiceAudition() {
+        auditionTask?.cancel()
+        auditionTask = nil
+        auditionPlayer?.stop()
+        auditionPlayer = nil
+        isAuditioningVoice = false
+        auditioningVoiceKey = nil
+    }
+
+    private func playAuditionWAV(at url: URL, voiceKey: String) {
+        do {
+            let player = try AVAudioPlayer(contentsOf: url)
+            player.prepareToPlay()
+            player.play()
+            self.auditionPlayer = player
+            self.isAuditioningVoice = true
+            self.auditioningVoiceKey = voiceKey
+            let dur = max(0.4, player.duration)
+            self.auditionTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .milliseconds(Int(dur * 1000) + 120))
+                guard !Task.isCancelled, let self else { return }
+                if self.auditioningVoiceKey == voiceKey && (self.auditionPlayer?.isPlaying != true) {
+                    self.isAuditioningVoice = false
+                    self.auditioningVoiceKey = nil
+                }
+            }
+        } catch {
+            self.isAuditioningVoice = false
+            self.auditioningVoiceKey = nil
+        }
+    }
+
+    /// Synthesizes or plays a cached real neural voice sample for the specified voice (or `selectedVoice`).
+    /// Fixes the issue where pressing the "Sample" button played the same static bundled WAV for every voice.
+    func toggleVoiceAudition(_ voice: Voice? = nil, customPhrase: String? = nil) {
+        guard let targetVoice = voice ?? selectedVoice else { return }
+        let vKey = targetVoice.voiceKey
+        if isAuditioningVoice && auditioningVoiceKey == vKey {
+            stopVoiceAudition()
+            return
+        }
+        stopVoiceAudition()
+
+        let trimmedCustom = customPhrase?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let hasCustomPhrase = !trimmedCustom.isEmpty
+
+        // 1. If custom cloned voice has its own user-supplied audio file (not a shared bundled seed on a non-canonical custom voice) and no custom phrase is requested, play that directly
+        let rawVoiceId = (targetVoice.voiceId ?? targetVoice.name).lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        let isCanonicalBundleClone = ["lily", "james", "sophie"].contains(rawVoiceId)
+        if !hasCustomPhrase, let customURL = targetVoice.audioFileURL, FileManager.default.fileExists(atPath: customURL.path) {
+            let isBundledSeed = customURL.path.contains(".app/Contents/Resources/")
+                && ["lily.wav", "james.wav", "sophie.wav"].contains(customURL.lastPathComponent.lowercased())
+            if !isBundledSeed || isCanonicalBundleClone {
+                playAuditionWAV(at: customURL, voiceKey: vKey)
+                return
+            }
+        }
+
+        let safeModel = modelId.lowercased().replacingOccurrences(of: "[^a-z0-9_-]", with: "_", options: .regularExpression)
+        let safeVoice = rawVoiceId.replacingOccurrences(of: "[^a-z0-9_-]", with: "_", options: .regularExpression)
+        let phraseHashSuffix: String = {
+            guard hasCustomPhrase else { return "" }
+            var h: UInt64 = 5381
+            for b in trimmedCustom.utf8 {
+                h = ((h << 5) &+ h) &+ UInt64(b)
+            }
+            return "_\(String(h, radix: 16))"
+        }()
+        let cacheDir = FileManager.default.temporaryDirectory.appendingPathComponent("CodecaineVoicePreviews", isDirectory: true)
+        try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+        let neuralURL = cacheDir.appendingPathComponent("neural_\(safeModel)_\(safeVoice)\(phraseHashSuffix).wav")
+
+        // 2. Instant playback if this neural voice sample is already cached on disk
+        if FileManager.default.fileExists(atPath: neuralURL.path),
+           let fSize = (try? neuralURL.resourceValues(forKeys: [.fileSizeKey]).fileSize),
+           fSize > 1024 {
+            playAuditionWAV(at: neuralURL, voiceKey: vKey)
+            return
+        }
+
+        // 3. Synthesize a real ~2.5s neural sample in the selected voice using the active TTS model
+        isAuditioningVoice = true
+        auditioningVoiceKey = vKey
+        let cleanDisplay = targetVoice.name
+            .replacingOccurrences(of: " (Default)", with: "")
+            .replacingOccurrences(of: "\\s*\\([^)]*\\)", with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let samplePhrase: String
+        if hasCustomPhrase {
+            samplePhrase = String(trimmedCustom.prefix(240))
+        } else {
+            let lowerLang = targetVoice.language.lowercased()
+            if lowerLang.contains("french") {
+                samplePhrase = "Bonjour, je suis \(cleanDisplay). Prêt pour la narration dans Codecaine Studio."
+            } else if lowerLang.contains("german") {
+                samplePhrase = "Hallo, ich bin \(cleanDisplay). Bereit für Ihre Sprachaufnahme im Studio."
+            } else if lowerLang.contains("spanish") {
+                samplePhrase = "Hola, soy \(cleanDisplay). Lista para narrar en Codecaine Studio."
+            } else if lowerLang.contains("portuguese") {
+                samplePhrase = "Olá, eu sou \(cleanDisplay). Pronto para narrar no Codecaine Studio."
+            } else {
+                samplePhrase = "Hello, I'm \(cleanDisplay). Ready to narrate in Codecaine Studio."
+            }
+        }
+
+        auditionTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            if !self.isModelLoaded && !self.isGenerating {
+                await self.loadModel()
+            }
+            guard !Task.isCancelled else { return }
+
+            if let ttsModel = self.model, !self.isGenerating {
+                do {
+                    let sr = Double(ttsModel.sampleRate)
+                    let isFishModel = self.modelId.lowercased().contains("fish-audio")
+                        || self.modelId.lowercased().contains("fish_speech")
+                        || self.modelId.lowercased().contains("fishspeech")
+                    var refAudio: MaterializedArray? = nil
+                    var refText: String? = nil
+                    var fishPreset: Voice.FishS2VoicePreset? = nil
+                    if isFishModel, let preset = Voice.fishS2Preset(for: targetVoice.voiceId ?? targetVoice.name) {
+                        fishPreset = preset
+                        if let resName = preset.resourceName,
+                           let refURL = Bundle.main.url(forResource: resName, withExtension: "wav"),
+                           let (_, audioData) = try? loadAudioArray(from: refURL, sampleRate: ttsModel.sampleRate) {
+                            refAudio = audioData
+                            refText = preset.refText
+                        }
+                    }
+
+                    let voiceParam: String? = {
+                        guard let raw = (targetVoice.voiceId ?? targetVoice.name).trimmingCharacters(in: .whitespacesAndNewlines) as String?,
+                              !raw.isEmpty else { return nil }
+                        let lowerModel = self.modelId.lowercased()
+                        if lowerModel.contains("nativ-community/phonon") {
+                            let nativeSet: Set<String> = ["freya", "harper", "sterling", "toby"]
+                            let lowerRaw = raw.lowercased()
+                            if nativeSet.contains(lowerRaw) { return lowerRaw }
+                            return lowerRaw
+                        }
+                        return raw
+                    }()
+
+                    var rawSamples: [Float] = []
+                    for try await event in ttsModel.generateStream(
+                        text: samplePhrase,
+                        voice: voiceParam,
+                        refAudio: refAudio,
+                        refText: refText,
+                        language: nil,
+                        generationParameters: ttsModel.defaultGenerationParameters
+                    ) {
+                        if Task.isCancelled { break }
+                        if case .audio(let audioData) = event {
+                            rawSamples.append(contentsOf: audioData.asArray(Float.self))
+                        }
+                    }
+
+                    guard !Task.isCancelled, !rawSamples.isEmpty else {
+                        if let fallbackURL = Voice.distinctPreviewWAV(for: targetVoice) {
+                            self.playAuditionWAV(at: fallbackURL, voiceKey: vKey)
+                        } else {
+                            self.isAuditioningVoice = false
+                            self.auditioningVoiceKey = nil
+                        }
+                        return
+                    }
+
+                    let totalShift = self.pitchSemitones + (fishPreset?.pitchSemitones ?? 0)
+                    let processed: [Float] = await Task.detached(priority: .userInitiated) {
+                        var s = rawSamples
+                        if abs(totalShift) > 0.05 {
+                            s = Voice.applyPitchShift(s, semitones: totalShift, sampleRate: sr)
+                        }
+                        return SpeechAudioTrimmer.trimSilence(s, sampleRate: sr)
+                    }.value
+
+                    if let writer = try? StreamingWAVWriter(url: neuralURL, sampleRate: sr) {
+                        try? writer.writeChunk(processed)
+                        _ = writer.finalize()
+                        if !Task.isCancelled && FileManager.default.fileExists(atPath: neuralURL.path) {
+                            self.playAuditionWAV(at: neuralURL, voiceKey: vKey)
+                            return
+                        }
+                    }
+                } catch {
+                    // Fall through to distinct offline preview WAV
+                }
+            }
+
+            guard !Task.isCancelled else { return }
+            if let fallbackURL = Voice.distinctPreviewWAV(for: targetVoice) {
+                self.playAuditionWAV(at: fallbackURL, voiceKey: vKey)
+            } else {
+                self.isAuditioningVoice = false
+                self.auditioningVoiceKey = nil
+            }
+        }
+    }
+
     func saveAudioInFormat(
         _ format: AudioExportFormat,
         from sourceURL: URL? = nil,
@@ -1673,18 +1975,23 @@ class TTSViewModel {
         scopeOverride: SynthesisScope? = nil
     ) {
         let cleanedFallback = fallbackText.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Reuse already-synthesized audio immediately (~0.2s export!) whenever `sourceURL` is passed
-        // or when `audioURL` already exists for the current session and no explicit sub-chunk scope override was requested
+        // Default to `.fullDocument` (all chapters/chunks from 0..end) unless the caller explicitly requested a quick section!
+        let effectiveExportScope = scopeOverride ?? .fullDocument
+        let effectiveStartChunk = (effectiveExportScope == .fullDocument) ? 0 : (chunkIndex ?? self.activeChunkIndex)
+
+        // Reuse already-synthesized audio immediately (~0.2s export!) ONLY when `sourceURL` is explicitly passed
+        // or when `hasCompleteAudio` confirms that the entire requested scope (e.g. all chapters for `.fullDocument`) is complete on disk!
         let canReuseExistingAudio: Bool = {
             if sourceURL != nil { return true }
-            guard let currentURL = audioURL, FileManager.default.fileExists(atPath: currentURL.path) else { return false }
-            if !cleanedFallback.isEmpty && !lastSynthesizedText.isEmpty && lastSynthesizedText != cleanedFallback {
-                return false
+            if cleanedFallback.isEmpty {
+                return !isGenerating && audioURL != nil && FileManager.default.fileExists(atPath: audioURL!.path)
             }
-            if scopeOverride == nil { return true }
-            if cleanedFallback.isEmpty { return true }
-            if lastSynthesizedText == cleanedFallback && scopeOverride == synthesisScope { return true }
-            return false
+            return hasCompleteAudio(
+                for: cleanedFallback,
+                voice: voice,
+                requiredScope: effectiveExportScope,
+                targetChunkIndex: effectiveStartChunk
+            )
         }()
         let existingURL = sourceURL ?? (canReuseExistingAudio ? audioURL : nil)
         guard existingURL != nil || !cleanedFallback.isEmpty else {
@@ -1695,17 +2002,18 @@ class TTSViewModel {
         let savePanel = NSSavePanel()
         savePanel.canCreateDirectories = true
         savePanel.isExtensionHidden = false
+        let scopeDesc = effectiveExportScope == .fullDocument ? "All Chapters / Full Document" : effectiveExportScope.shortBadge
         savePanel.title = existingURL != nil
-            ? "Instant Export Audio as \(format.label) (<1s)"
-            : "Export Audio as \(format.label) (Silent Synthesis — No Playback Needed)"
+            ? "Instant Export Audio as \(format.label) (\(scopeDesc))"
+            : "Export Audio as \(format.label) (\(scopeDesc) — Full Silent Synthesis)"
         savePanel.nameFieldStringValue = "\(baseName).\(format.rawValue)"
 
         savePanel.begin { [weak self] response in
             guard let self, response == .OK, let dest = savePanel.url else { return }
 
-            // Fast path: if audio is already on disk, snapshot-copy and convert in ~0.2s without stopping live playback!
+            // Fast path: if complete audio for the requested scope is already on disk, snapshot-copy and convert in ~0.2s!
             if let readyWAV = existingURL, FileManager.default.fileExists(atPath: readyWAV.path) {
-                self.generationProgress = "Instant exporting \(format.label)..."
+                self.generationProgress = "Instant exporting \(format.label) (\(scopeDesc))..."
                 let snapshotWAV = FileManager.default.temporaryDirectory
                     .appendingPathComponent("export_snap_\(UUID().uuidString).wav")
                 try? FileManager.default.copyItem(at: readyWAV, to: snapshotWAV)
@@ -1719,6 +2027,8 @@ class TTSViewModel {
                     do {
                         try AudioFormatExporter.convert(sourceWAV: srcForConvert, to: dest, format: format)
                         await MainActor.run {
+                            self.lastExportedFileURL = dest
+                            self.lastExportedSummary = "\(dest.lastPathComponent) • \(format.label)"
                             self.generationProgress = "Exported \(dest.lastPathComponent) (<1s instant export)"
                             Task { @MainActor in
                                 try? await Task.sleep(for: .seconds(2.2))
@@ -1737,32 +2047,42 @@ class TTSViewModel {
                 return
             }
 
-            // Silent synthesis path when no audio has been generated yet:
-            // Default to fastSection (or explicit scopeOverride) so un-synthesized exports finish in a couple of seconds!
-            let effectiveExportScope = scopeOverride ?? .fastSection
+            // Full synthesis path when complete audio for `effectiveExportScope` has not been generated yet:
             self.generationTask?.cancel()
             self.generationTask = Task { @MainActor in
                 if !self.isModelLoaded {
                     await self.loadModel()
                 }
-                self.generationProgress = "Synthesizing silently for \(format.label) export..."
+                let allChunks = self.chunkTextWithMetadata(cleanedFallback)
+                self.generationProgress = "Synthesizing \(effectiveExportScope == .fullDocument ? "all \(max(1, allChunks.count)) sections" : scopeDesc) for \(format.label) export..."
                 await self.synthesize(
                     text: cleanedFallback,
                     voice: voice ?? self.selectedVoice,
-                    startChunkIndex: chunkIndex ?? self.activeChunkIndex,
+                    startChunkIndex: effectiveStartChunk,
                     playAudio: false,
                     recordHistory: true,
                     scopeOverride: effectiveExportScope
                 )
-                guard let finalWAV = self.audioURL else { return }
-                self.generationProgress = "Exporting \(format.label)..."
+                guard !Task.isCancelled, let finalWAV = self.audioURL else { return }
+                let snapshotWAV = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("export_final_\(UUID().uuidString).wav")
+                try? FileManager.default.copyItem(at: finalWAV, to: snapshotWAV)
+                let srcForConvert = FileManager.default.fileExists(atPath: snapshotWAV.path) ? snapshotWAV : finalWAV
+                self.generationProgress = "Encoding \(format.label) (\(dest.lastPathComponent))..."
                 Task.detached(priority: .userInitiated) {
+                    defer {
+                        if srcForConvert == snapshotWAV {
+                            try? FileManager.default.removeItem(at: snapshotWAV)
+                        }
+                    }
                     do {
-                        try AudioFormatExporter.convert(sourceWAV: finalWAV, to: dest, format: format)
+                        try AudioFormatExporter.convert(sourceWAV: srcForConvert, to: dest, format: format)
                         await MainActor.run {
-                            self.generationProgress = "Exported \(dest.lastPathComponent) (silent export complete)"
+                            self.lastExportedFileURL = dest
+                            self.lastExportedSummary = "\(dest.lastPathComponent) • \(max(1, allChunks.count)) sections"
+                            self.generationProgress = "Exported \(dest.lastPathComponent) (\(max(1, allChunks.count)) sections complete)"
                             Task { @MainActor in
-                                try? await Task.sleep(for: .seconds(2.2))
+                                try? await Task.sleep(for: .seconds(2.5))
                                 if self.generationProgress.hasPrefix("Exported \(dest.lastPathComponent)") {
                                     self.generationProgress = ""
                                 }
@@ -1808,13 +2128,20 @@ class TTSViewModel {
         savePanel.begin { [weak self] response in
             guard let self, response == .OK, let dest = savePanel.url else { return }
 
-            Task { @MainActor in
-                if self.audioURL == nil && !cleaned.isEmpty {
-                    self.generationTask?.cancel()
+            self.generationTask?.cancel()
+            self.generationTask = Task { @MainActor in
+                let needsSynthesis = !cleaned.isEmpty && !self.hasCompleteAudio(
+                    for: cleaned,
+                    voice: voice ?? self.selectedVoice,
+                    requiredScope: scope,
+                    targetChunkIndex: 0
+                )
+                if needsSynthesis {
                     if !self.isModelLoaded {
                         await self.loadModel()
                     }
-                    self.generationProgress = "Synthesizing chapters for .M4B Audiobook export..."
+                    let totalSections = max(1, self.chunkTextWithMetadata(cleaned).count)
+                    self.generationProgress = "Synthesizing all \(totalSections) chapters for .M4B Audiobook export..."
                     await self.synthesize(
                         text: cleaned,
                         voice: voice ?? self.selectedVoice,
@@ -1824,13 +2151,13 @@ class TTSViewModel {
                         scopeOverride: scope
                     )
                 }
-                guard let urlToSave = self.audioURL else { return }
+                guard !Task.isCancelled, let urlToSave = self.audioURL else { return }
                 let snapshotWAV = FileManager.default.temporaryDirectory
                     .appendingPathComponent("m4b_snap_\(UUID().uuidString).wav")
                 try? FileManager.default.copyItem(at: urlToSave, to: snapshotWAV)
                 let wavForM4B = FileManager.default.fileExists(atPath: snapshotWAV.path) ? snapshotWAV : urlToSave
 
-                let allChunks = self.chunkTextWithMetadata(cleaned)
+                let allChunks = self.chunkTextWithMetadata(cleaned.isEmpty ? self.lastSynthesizedText : cleaned)
                 let estDuration = self.duration > 0 ? self.duration : max(2.0, Double(cleaned.count) / 14.0)
                 let timings = self.synthesizedWordTimings.filter { $0.end > $0.start }
                 let chapters = M4BAudiobookExporter.buildChapters(
@@ -1858,6 +2185,8 @@ class TTSViewModel {
                             customCoverURL: customCoverURL
                         )
                         await MainActor.run {
+                            self.lastExportedFileURL = dest
+                            self.lastExportedSummary = "\(dest.lastPathComponent) • \(chapters.count) chapters"
                             self.generationProgress = "Exported M4B Audiobook: \(dest.lastPathComponent) (\(chapters.count) chapters)"
                             Task { @MainActor in
                                 try? await Task.sleep(for: .seconds(2.8))
@@ -1878,7 +2207,120 @@ class TTSViewModel {
         #endif
     }
 
-    func exportReadAlongVideo(text: String, theme: ReadAlongTheme, aspect: ReadAlongVideoAspect) {
+    /// Instantly exports whatever synchronized Read-Along audio (`audioURL` + `synthesizedWordTimings`) is already generated in `<1s`
+    /// without cancelling live background playback/prefetching or forcing synthesis of remaining chapters.
+    func exportCurrentSyncedAudioAsMP4(
+        text: String,
+        theme: ReadAlongTheme,
+        aspect: ReadAlongVideoAspect
+    ) {
+        guard let currentURL = audioURL, FileManager.default.fileExists(atPath: currentURL.path) else {
+            exportReadAlongVideo(text: text, theme: theme, aspect: aspect, scope: .fastSection)
+            return
+        }
+
+        #if os(macOS)
+        let savePanel = NSSavePanel()
+        savePanel.canCreateDirectories = true
+        savePanel.isExtensionHidden = false
+        savePanel.title = "Instant Export Synced Audio as Read-Along MP4 (\(aspect.label) · \(theme.label))"
+        savePanel.nameFieldStringValue = "read_along_\(theme.rawValue)_\(aspect.rawValue.replacingOccurrences(of: ":", with: "x")).mp4"
+        savePanel.begin { [weak self] response in
+            guard let self, response == .OK, let dest = savePanel.url else { return }
+            guard let urlToSave = self.audioURL, FileManager.default.fileExists(atPath: urlToSave.path) else { return }
+
+            let snapshotWAV = FileManager.default.temporaryDirectory
+                .appendingPathComponent("video_instant_snap_\(UUID().uuidString).wav")
+            try? FileManager.default.copyItem(at: urlToSave, to: snapshotWAV)
+            let wavForVideo = FileManager.default.fileExists(atPath: snapshotWAV.path) ? snapshotWAV : urlToSave
+
+            let cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let effectiveText = cleaned.isEmpty ? self.lastSynthesizedText : cleaned
+            let estDuration: Double = {
+                if let f = try? AVAudioFile(forReading: wavForVideo), f.processingFormat.sampleRate > 0 {
+                    return Double(f.length) / f.processingFormat.sampleRate
+                }
+                return max(1.0, self.duration)
+            }()
+            let activeDirect = self.synthesizedWordTimings.filter { $0.end > $0.start && $0.start < estDuration + 0.25 }
+            let rawTimings: [WordTiming]
+            if !activeDirect.isEmpty {
+                rawTimings = activeDirect
+            } else {
+                rawTimings = WordTimingEngine.computeWordTimings(
+                    text: effectiveText,
+                    audioURL: wavForVideo,
+                    duration: estDuration,
+                    maxChunkChars: max(180, self.maxChunkLength),
+                    enableChunking: self.enableChunking,
+                    startChunkIndex: self.synthesizedStartChunkIndex,
+                    endChunkIndex: max(self.synthesizedStartChunkIndex, self.completedChunkIndex),
+                    paragraphPauseMs: self.paragraphPauseMs
+                ).filter { $0.end > $0.start }
+            }
+            let timings = WordTimingEngine.shiftedTimings(rawTimings, offsetMs: self.wordSyncOffsetMs)
+            let docTitle = StudioDocumentSessionManager.shared.currentDocumentTitle.isEmpty
+                ? "Codecaine Read-Along"
+                : StudioDocumentSessionManager.shared.currentDocumentTitle
+            let voiceLabel = self.selectedVoice?.name ?? "Russell"
+            self.generationProgress = "Rendering Instant Read-Along MP4 (\(aspect.rawValue))..."
+
+            Task.detached(priority: .userInitiated) {
+                defer {
+                    if wavForVideo == snapshotWAV {
+                        try? FileManager.default.removeItem(at: snapshotWAV)
+                    }
+                }
+                do {
+                    let t0 = CFAbsoluteTimeGetCurrent()
+                    try ReadAlongVideoExporter.exportKaraokeVideo(
+                        sourceWAV: wavForVideo,
+                        timings: timings,
+                        theme: theme,
+                        aspect: aspect,
+                        title: docTitle,
+                        voiceName: voiceLabel,
+                        fallbackText: effectiveText,
+                        onProgress: { done, total in
+                            let pct = Int((Double(done) / Double(max(1, total))) * 100.0)
+                            Task { @MainActor in
+                                self.generationProgress = "Rendering 1080p Read-Along MP4 (\(aspect.rawValue)): \(pct)%..."
+                            }
+                        },
+                        to: dest
+                    )
+                    let elapsed = max(0.02, CFAbsoluteTimeGetCurrent() - t0)
+                    let audioSec = max(1.0, estDuration)
+                    let rtFactor = max(1, Int((audioSec / elapsed).rounded()))
+                    let elapsedStr = String(format: "%.2fs", elapsed)
+                    await MainActor.run {
+                        self.lastExportedFileURL = dest
+                        self.lastExportedSummary = "\(dest.lastPathComponent) • \(aspect.rawValue) Read-Along MP4 + SRT/VTT"
+                        self.generationProgress = "Exported Read-Along MP4 + SRT/VTT in \(elapsedStr) (\(rtFactor)× real-time): \(dest.lastPathComponent)"
+                        Task { @MainActor in
+                            try? await Task.sleep(for: .seconds(3.5))
+                            if self.generationProgress.hasPrefix("Exported Read-Along MP4") {
+                                self.generationProgress = ""
+                            }
+                        }
+                    }
+                } catch {
+                    await MainActor.run {
+                        self.generationProgress = ""
+                        self.errorMessage = "Read-Along Video export failed: \(error.localizedDescription)"
+                    }
+                }
+            }
+        }
+        #endif
+    }
+
+    func exportReadAlongVideo(
+        text: String,
+        theme: ReadAlongTheme,
+        aspect: ReadAlongVideoAspect,
+        scope: SynthesisScope = .fullDocument
+    ) {
         let cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard audioURL != nil || !cleaned.isEmpty else {
             errorMessage = "Enter or import text before exporting Read-Along Video"
@@ -1889,71 +2331,117 @@ class TTSViewModel {
         let savePanel = NSSavePanel()
         savePanel.canCreateDirectories = true
         savePanel.isExtensionHidden = false
-        savePanel.title = "Export Read-Along Karaoke Video (\(aspect.label) · \(theme.label))"
+        let scopeTag = scope == .fullDocument ? "All Chapters" : scope.shortBadge
+        savePanel.title = "Export Read-Along Karaoke Video (\(aspect.label) · \(theme.label) · \(scopeTag))"
         savePanel.nameFieldStringValue = "read_along_\(theme.rawValue)_\(aspect.rawValue.replacingOccurrences(of: ":", with: "x")).mp4"
         savePanel.begin { [weak self] response in
             guard let self, response == .OK, let dest = savePanel.url else { return }
 
-            Task { @MainActor in
-                if self.audioURL == nil && !cleaned.isEmpty {
-                    self.generationTask?.cancel()
+            let startChunk = (scope == .fullDocument) ? 0 : self.activeChunkIndex
+            let needsSynthesis = !cleaned.isEmpty && !self.hasCompleteAudio(
+                for: cleaned,
+                voice: self.selectedVoice,
+                requiredScope: scope,
+                targetChunkIndex: startChunk
+            )
+            if needsSynthesis {
+                self.generationTask?.cancel()
+            }
+            self.generationTask = Task { @MainActor in
+                if needsSynthesis {
                     if !self.isModelLoaded {
                         await self.loadModel()
                     }
-                    self.generationProgress = "Synthesizing speech silently for Read-Along MP4 export..."
+                    let totalSections = max(1, self.chunkTextWithMetadata(cleaned).count)
+                    self.generationProgress = "Synthesizing \(scope == .fullDocument ? "all \(totalSections) sections" : scopeTag) for Read-Along MP4 export..."
                     await self.synthesize(
                         text: cleaned,
                         voice: self.selectedVoice,
-                        startChunkIndex: self.activeChunkIndex,
+                        startChunkIndex: startChunk,
                         playAudio: false,
                         recordHistory: true,
-                        scopeOverride: .fastSection
+                        scopeOverride: scope
                     )
                 }
-                guard let urlToSave = self.audioURL else { return }
+                guard !Task.isCancelled, let urlToSave = self.audioURL else { return }
                 let snapshotWAV = FileManager.default.temporaryDirectory
                     .appendingPathComponent("video_snap_\(UUID().uuidString).wav")
                 try? FileManager.default.copyItem(at: urlToSave, to: snapshotWAV)
                 let wavForVideo = FileManager.default.fileExists(atPath: snapshotWAV.path) ? snapshotWAV : urlToSave
 
-                let estDuration = self.duration > 0 ? self.duration : max(1.5, Double(cleaned.count) / 14.0)
-                let activeDirect = self.synthesizedWordTimings.filter { $0.end > $0.start }
-                let rawTimings: [WordTiming]
+                let effectiveText = cleaned.isEmpty ? self.lastSynthesizedText : cleaned
+                let estDuration: Double = {
+                    if let f = try? AVAudioFile(forReading: wavForVideo), f.processingFormat.sampleRate > 0 {
+                        return Double(f.length) / f.processingFormat.sampleRate
+                    }
+                    return self.duration > 0 ? self.duration : max(1.5, Double(effectiveText.count) / 14.0)
+                }()
+                let activeDirect = self.synthesizedWordTimings.filter { $0.end > $0.start && $0.start < estDuration + 0.25 }
+                var rawTimings: [WordTiming]
                 if !activeDirect.isEmpty {
                     rawTimings = activeDirect
                 } else {
                     rawTimings = WordTimingEngine.computeWordTimings(
-                        text: cleaned,
+                        text: effectiveText,
                         audioURL: wavForVideo,
                         duration: estDuration,
                         maxChunkChars: max(180, self.maxChunkLength),
                         enableChunking: self.enableChunking,
                         startChunkIndex: self.synthesizedStartChunkIndex,
-                        endChunkIndex: self.synthesizedEndChunkIndex,
+                        endChunkIndex: self.completedChunkIndex >= self.synthesizedStartChunkIndex ? self.completedChunkIndex : self.synthesizedEndChunkIndex,
                         paragraphPauseMs: self.paragraphPauseMs
                     ).filter { $0.end > $0.start }
                 }
+                if rawTimings.isEmpty && !effectiveText.isEmpty {
+                    rawTimings = WordTimingEngine.computeWordTimings(
+                        text: effectiveText,
+                        audioURL: wavForVideo,
+                        duration: estDuration,
+                        maxChunkChars: max(180, self.maxChunkLength),
+                        enableChunking: self.enableChunking
+                    ).filter { $0.end > $0.start }
+                }
                 let timings = WordTimingEngine.shiftedTimings(rawTimings, offsetMs: self.wordSyncOffsetMs)
-                self.generationProgress = "Rendering Read-Along MP4 Video (\(aspect.rawValue))..."
-                Task.detached(priority: .userInitiated) {
+                let docTitle = StudioDocumentSessionManager.shared.currentDocumentTitle.isEmpty
+                    ? "Codecaine Read-Along"
+                    : StudioDocumentSessionManager.shared.currentDocumentTitle
+                let voiceLabel = self.selectedVoice?.name ?? "Russell"
+                self.generationProgress = "Rendering 3-Level Delta-Band Read-Along MP4 (\(aspect.rawValue))..."
+                await Task.detached(priority: .userInitiated) {
                     defer {
                         if wavForVideo == snapshotWAV {
                             try? FileManager.default.removeItem(at: snapshotWAV)
                         }
                     }
                     do {
+                        let t0 = CFAbsoluteTimeGetCurrent()
                         try ReadAlongVideoExporter.exportKaraokeVideo(
                             sourceWAV: wavForVideo,
                             timings: timings,
                             theme: theme,
                             aspect: aspect,
+                            title: docTitle,
+                            voiceName: voiceLabel,
+                            fallbackText: effectiveText,
+                            onProgress: { done, total in
+                                let pct = Int((Double(done) / Double(max(1, total))) * 100.0)
+                                Task { @MainActor in
+                                    self.generationProgress = "Rendering 1080p Read-Along MP4 (\(aspect.rawValue)): \(pct)%..."
+                                }
+                            },
                             to: dest
                         )
+                        let elapsed = max(0.02, CFAbsoluteTimeGetCurrent() - t0)
+                        let audioSec = max(1.0, timings.last?.end ?? estDuration)
+                        let rtFactor = max(1, Int((audioSec / elapsed).rounded()))
+                        let elapsedStr = String(format: "%.2fs", elapsed)
                         await MainActor.run {
-                            self.generationProgress = "Exported Read-Along Video: \(dest.lastPathComponent)"
+                            self.lastExportedFileURL = dest
+                            self.lastExportedSummary = "\(dest.lastPathComponent) • \(aspect.rawValue) Read-Along MP4 + SRT/VTT"
+                            self.generationProgress = "Exported Read-Along MP4 + SRT/VTT in \(elapsedStr) (\(rtFactor)× real-time): \(dest.lastPathComponent)"
                             Task { @MainActor in
-                                try? await Task.sleep(for: .seconds(2.2))
-                                if self.generationProgress.hasPrefix("Exported Read-Along Video:") {
+                                try? await Task.sleep(for: .seconds(3.5))
+                                if self.generationProgress.hasPrefix("Exported Read-Along MP4") {
                                     self.generationProgress = ""
                                 }
                             }
@@ -1964,7 +2452,7 @@ class TTSViewModel {
                             self.errorMessage = "Read-Along Video export failed: \(error.localizedDescription)"
                         }
                     }
-                }
+                }.value
             }
         }
         #endif
@@ -2050,6 +2538,8 @@ class TTSViewModel {
             guard let self, response == .OK, let dest = savePanel.url else { return }
             do {
                 try content.write(to: dest, atomically: true, encoding: .utf8)
+                self.lastExportedFileURL = dest
+                self.lastExportedSummary = "\(dest.lastPathComponent) • Subtitle / Transcript"
                 self.generationProgress = "Exported \(dest.lastPathComponent)"
                 Task { @MainActor in
                     try? await Task.sleep(for: .seconds(2.0))
@@ -2077,16 +2567,18 @@ class TTSViewModel {
         savePanel.title = "Save Audio File"
         savePanel.nameFieldStringValue = suggestedName
 
-        savePanel.begin { response in
+        savePanel.begin { [weak self] response in
             if response == .OK, let destinationURL = savePanel.url {
                 do {
                     if FileManager.default.fileExists(atPath: destinationURL.path) {
                         try FileManager.default.removeItem(at: destinationURL)
                     }
                     try FileManager.default.copyItem(at: urlToSave, to: destinationURL)
+                    self?.lastExportedFileURL = destinationURL
+                    self?.lastExportedSummary = "\(destinationURL.lastPathComponent) • WAV Audio"
                 } catch {
                     DispatchQueue.main.async {
-                        self.errorMessage = "Failed to save file: \(error.localizedDescription)"
+                        self?.errorMessage = "Failed to save file: \(error.localizedDescription)"
                     }
                 }
             }

@@ -229,6 +229,41 @@ struct STTView: View {
                             }
                             .buttonStyle(.plain)
                             .help("Send the entire transcribed text (\(cleanWordCount) words) to Voice Studio for editing, Read-Along Karaoke, or re-synthesis")
+
+                            // 1-Click Export Synchronized Read-Along Karaoke Video (.MP4)
+                            Menu {
+                                Section("3-Level Delta-Band Read-Along Video (.MP4 + .SRT/.VTT)") {
+                                    Button {
+                                        viewModel.exportReadAlongVideo(aspect: .landscape16x9, theme: activeTheme)
+                                    } label: {
+                                        Label("Export 16:9 Widescreen Video (.MP4 — 1920×1080)", systemImage: "film.fill")
+                                    }
+                                    Button {
+                                        viewModel.exportReadAlongVideo(aspect: .portrait9x16, theme: activeTheme)
+                                    } label: {
+                                        Label("Export 9:16 Vertical Short (.MP4 — 1080×1920)", systemImage: "rectangle.portrait.on.rectangle.portrait.angled.fill")
+                                    }
+                                    Button {
+                                        viewModel.exportReadAlongVideo(aspect: .square1x1, theme: activeTheme)
+                                    } label: {
+                                        Label("Export 1:1 Square Social (.MP4 — 1080×1080)", systemImage: "square.fill.text.grid.1x2")
+                                    }
+                                }
+                            } label: {
+                                HStack(spacing: 5) {
+                                    Image(systemName: "film.stack.fill")
+                                        .font(.system(size: 10.5))
+                                    Text("Export Karaoke .MP4")
+                                        .font(.system(size: 11, weight: .semibold))
+                                }
+                                .foregroundStyle(.indigo)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5.5)
+                                .background(Color.indigo.opacity(0.14), in: Capsule())
+                            }
+                            .menuStyle(.borderlessButton)
+                            .fixedSize()
+                            .help("Export synchronized Read-Along Karaoke Video (.MP4 + .SRT/.VTT) directly from this transcription")
                         }
 
                         // 1-Click Clone Voice from Audio & Transcript into Voice Studio
@@ -996,17 +1031,77 @@ struct STTView: View {
                             .help("Copy transcription to clipboard")
 
                             Menu {
-                                Button("Export Plain Text (.TXT)") { viewModel.exportTranscription(format: "txt") }
-                                Button("Export Markdown (.MD)") { viewModel.exportTranscription(format: "md") }
+                                Section("Read-Along Karaoke Video (.MP4 + .SRT/.VTT)") {
+                                    Button {
+                                        viewModel.exportReadAlongVideo(aspect: .landscape16x9, theme: activeTheme)
+                                    } label: {
+                                        Label("Export 16:9 Widescreen Video (.MP4 — 1920×1080)", systemImage: "film.fill")
+                                    }
+                                    Button {
+                                        viewModel.exportReadAlongVideo(aspect: .portrait9x16, theme: activeTheme)
+                                    } label: {
+                                        Label("Export 9:16 Vertical Short (.MP4 — 1080×1920)", systemImage: "rectangle.portrait.on.rectangle.portrait.angled.fill")
+                                    }
+                                    Button {
+                                        viewModel.exportReadAlongVideo(aspect: .square1x1, theme: activeTheme)
+                                    } label: {
+                                        Label("Export 1:1 Square Social (.MP4 — 1080×1080)", systemImage: "square.fill.text.grid.1x2")
+                                    }
+                                }
                                 Divider()
-                                Button("Export Subtitles (.SRT)") { viewModel.exportTranscription(format: "srt") }
-                                Button("Export WebVTT (.VTT)") { viewModel.exportTranscription(format: "vtt") }
-                                Button("Export Karaoke (.ASS)") { viewModel.exportTranscription(format: "ass") }
-                                Button("Export Synchronized Lyrics (.LRC)") { viewModel.exportTranscription(format: "lrc") }
-                                Button("Export Timed Text (.TTML)") { viewModel.exportTranscription(format: "ttml") }
-                                Button("Export YouTube Captions (.SBV)") { viewModel.exportTranscription(format: "sbv") }
+                                Section("Documents & Transcripts") {
+                                    Button {
+                                        viewModel.exportTranscription(format: "txt")
+                                    } label: {
+                                        Label("Export Plain Text (.TXT)", systemImage: "doc.plaintext")
+                                    }
+                                    Button {
+                                        viewModel.exportTranscription(format: "md")
+                                    } label: {
+                                        Label("Export Markdown (.MD)", systemImage: "doc.richtext")
+                                    }
+                                }
                                 Divider()
-                                Button("Export JSON with Timings (.JSON)") { viewModel.exportTranscription(format: "json") }
+                                Section("Synchronized Subtitles & Lyrics") {
+                                    Button {
+                                        viewModel.exportTranscription(format: "srt")
+                                    } label: {
+                                        Label("Export Subtitles (.SRT)", systemImage: "captions.bubble")
+                                    }
+                                    Button {
+                                        viewModel.exportTranscription(format: "vtt")
+                                    } label: {
+                                        Label("Export WebVTT (.VTT)", systemImage: "captions.bubble.fill")
+                                    }
+                                    Button {
+                                        viewModel.exportTranscription(format: "ass")
+                                    } label: {
+                                        Label("Export Karaoke (.ASS)", systemImage: "music.mic")
+                                    }
+                                    Button {
+                                        viewModel.exportTranscription(format: "lrc")
+                                    } label: {
+                                        Label("Export Synchronized Lyrics (.LRC)", systemImage: "music.note.list")
+                                    }
+                                    Button {
+                                        viewModel.exportTranscription(format: "ttml")
+                                    } label: {
+                                        Label("Export Timed Text (.TTML)", systemImage: "chevron.left.forwardslash.chevron.right")
+                                    }
+                                    Button {
+                                        viewModel.exportTranscription(format: "sbv")
+                                    } label: {
+                                        Label("Export YouTube Captions (.SBV)", systemImage: "play.rectangle")
+                                    }
+                                }
+                                Divider()
+                                Section("Developer Word Timings") {
+                                    Button {
+                                        viewModel.exportTranscription(format: "json")
+                                    } label: {
+                                        Label("Export JSON with Timings (.JSON)", systemImage: "curlybraces")
+                                    }
+                                }
                             } label: {
                                 HStack(spacing: 5) {
                                     Image(systemName: "square.and.arrow.down")
