@@ -55,27 +55,39 @@ final class LivePlayableWAVWriter: @unchecked Sendable {
         self.fileHandle = try FileHandle(forUpdating: url)
     }
 
-    func writeChunk(_ samples: [Float]) throws {
+    func writeChunk(_ samples: [Float], updateHeader: Bool = true) throws {
         guard !samples.isEmpty else { return }
         lock.lock()
         defer { lock.unlock() }
         guard let fh = fileHandle else { return }
-        try fh.seekToEnd()
+        if updateHeader {
+            try fh.seekToEnd()
+        }
         let pcmData = samples.withUnsafeBytes { Data($0) }
         try fh.write(contentsOf: pcmData)
         framesWritten += samples.count
-        let dataBytes = UInt32(clamping: framesWritten * MemoryLayout<Float>.size)
-        let header = Self.makeWAVHeader(sampleRate: sampleRate, dataBytes: dataBytes)
-        try fh.seek(toOffset: 0)
-        try fh.write(contentsOf: header)
+        if updateHeader {
+            let dataBytes = UInt32(clamping: framesWritten * MemoryLayout<Float>.size)
+            let header = Self.makeWAVHeader(sampleRate: sampleRate, dataBytes: dataBytes)
+            try fh.seek(toOffset: 0)
+            try fh.write(contentsOf: header)
+        }
     }
 
     @discardableResult
-    func finalize() -> URL {
+    func finalize(syncToDisk: Bool = false) -> URL {
         lock.lock()
         defer { lock.unlock() }
-        try? fileHandle?.synchronize()
-        try? fileHandle?.close()
+        if let fh = fileHandle {
+            let dataBytes = UInt32(clamping: framesWritten * MemoryLayout<Float>.size)
+            let header = Self.makeWAVHeader(sampleRate: sampleRate, dataBytes: dataBytes)
+            try? fh.seek(toOffset: 0)
+            try? fh.write(contentsOf: header)
+            if syncToDisk {
+                try? fh.synchronize()
+            }
+            try? fh.close()
+        }
         fileHandle = nil
         return url
     }
@@ -117,7 +129,7 @@ enum PhononChunkCache {
     nonisolated(unsafe) private static var memoryCache: [String: [Float]] = [:]
     nonisolated(unsafe) private static var timingOffsetsCache: [String: [(start: Double, end: Double)]] = [:]
     nonisolated(unsafe) private static var lruKeys: [String] = []
-    private static let maxMemoryEntries = 256
+    private static let maxMemoryEntries = 512
     private static let diskWriteQueue = DispatchQueue(label: "VoicesApp.PhononChunkCache.DiskWrite", qos: .utility)
 
     private static var cacheDirectory: URL {
@@ -196,6 +208,17 @@ enum PhononChunkCache {
         diskWriteQueue.async {
             let data = samples.withUnsafeBytes { Data($0) }
             try? data.write(to: fileURL, options: .atomic)
+        }
+    }
+
+    static func clearAll() {
+        lock.lock()
+        memoryCache.removeAll()
+        timingOffsetsCache.removeAll()
+        lruKeys.removeAll()
+        lock.unlock()
+        diskWriteQueue.sync {
+            try? FileManager.default.removeItem(at: cacheDirectory)
         }
     }
 }
@@ -1119,8 +1142,234 @@ class TTSViewModel {
             let inlineTag = fishPreset?.inlineTag
             let voiceCacheId = voiceParam ?? voice?.name
 
-            Memory.cacheLimit = 512 * 1024 * 1024 // 512MB cache limit
+            Memory.cacheLimit = 1536 * 1024 * 1024 // 1.5GB Metal buffer pool for zero-thrash batch Mimi decode
 
+            if !playAudio && chunks.count > 1, let pocketModel = model as? PocketTTSModel {
+                // ULTRA-FAST FULL-BOOK BATCH GPU SYNTHESIS + 14-CORE PARALLEL DSP & ALIGNMENT PATH
+                struct BatchChunkSpec: @unchecked Sendable {
+                    let offset: Int
+                    let globalIndex: Int
+                    let chunkWords: [WordTimingEngine.IndexedWordSpec]
+                    let interChunkPauseFrames: Int
+                    let chunkVoiceParam: String?
+                    let chunkPitchShift: Float
+                    let spokenChunk: String
+                    let effectiveChunk: String
+                    let cacheKey: String
+                    let hasSpeakableChars: Bool
+                }
+
+                var specs: [BatchChunkSpec] = []
+                specs.reserveCapacity(chunks.count)
+                var rawSamplesByOffset = Array(repeating: [Float](), count: chunks.count)
+                var uncachedOffsetsByGroup: [String: [Int]] = [:]
+                var groupMeta: [String: (voiceParam: String?, pitch: Float)] = [:]
+
+                for (offset, chunkMeta) in chunks.enumerated() {
+                    let globalIndex = safeStart + offset
+                    let chunkWords = masterWordsByChunk[globalIndex] ?? []
+                    let isParagraphChangeToNext = (offset + 1 < chunks.count) && (chunks[offset + 1].paragraphIndex != chunkMeta.paragraphIndex)
+                    let interPause = isParagraphChangeToNext ? pauseFrames : 0
+                    let castResolved = CharacterCastingManager.shared.resolveChunkCast(
+                        chunkMeta.text,
+                        defaultVoiceParam: voiceParam,
+                        defaultPitch: totalPitchShift
+                    )
+                    let spokenChunk = SpeechPronunciationLexicon.shared.apply(to: castResolved.spokenText)
+                    let effectiveChunk: String
+                    if let tag = inlineTag, !spokenChunk.trimmingCharacters(in: .whitespaces).hasPrefix("[") {
+                        effectiveChunk = "\(tag) \(spokenChunk)"
+                    } else {
+                        effectiveChunk = spokenChunk
+                    }
+                    let cKey = PhononChunkCache.cacheKey(
+                        modelId: activeModelId,
+                        voiceParam: castResolved.voiceParam ?? voiceCacheId,
+                        refText: refText,
+                        pitch: castResolved.pitch,
+                        text: effectiveChunk
+                    )
+                    let speakable = spokenChunk.unicodeScalars.contains { CharacterSet.alphanumerics.contains($0) }
+                    specs.append(BatchChunkSpec(
+                        offset: offset,
+                        globalIndex: globalIndex,
+                        chunkWords: chunkWords,
+                        interChunkPauseFrames: interPause,
+                        chunkVoiceParam: castResolved.voiceParam,
+                        chunkPitchShift: castResolved.pitch,
+                        spokenChunk: spokenChunk,
+                        effectiveChunk: effectiveChunk,
+                        cacheKey: cKey,
+                        hasSpeakableChars: speakable
+                    ))
+
+                    if !speakable {
+                        rawSamplesByOffset[offset] = Array(repeating: Float(0), count: max(1, Int(sampleRate * 0.30)))
+                    } else if let cached = PhononChunkCache.get(key: cKey) {
+                        rawSamplesByOffset[offset] = cached
+                    } else {
+                        let gKey = "\(castResolved.voiceParam ?? "")|\(Int(round(castResolved.pitch * 100)))"
+                        uncachedOffsetsByGroup[gKey, default: []].append(offset)
+                        groupMeta[gKey] = (castResolved.voiceParam, castResolved.pitch)
+                    }
+                }
+
+                let totalUncachedCount = uncachedOffsetsByGroup.values.reduce(0) { $0 + $1.count }
+                if totalUncachedCount > 0 {
+                    let cachedAlreadyCount = chunks.count - totalUncachedCount
+                    var finishedPriorGroups = 0
+                    nonisolated(unsafe) let pocketModelBox = pocketModel
+                    nonisolated(unsafe) let refAudioBox = referenceAudio
+                    let specsSnapshot = specs
+
+                    for gKey in uncachedOffsetsByGroup.keys.sorted() {
+                        try Task.checkCancellation()
+                        guard let offsets = uncachedOffsetsByGroup[gKey],
+                              let gInfo = groupMeta[gKey] else { continue }
+                        let prompts = offsets.map { specsSnapshot[$0].effectiveChunk }
+                        let baseDone = cachedAlreadyCount + finishedPriorGroups
+                        let totalCount = chunks.count
+
+                        generationProgress = "Batch GPU synthesizing \(baseDone)/\(totalCount) sections (\(Int((Double(baseDone) / Double(max(1, totalCount))) * 100.0))%)..."
+
+                        let synthStart = CFAbsoluteTimeGetCurrent()
+                        let groupWaveforms: [[Float]] = try await Task.detached(priority: .userInitiated) {
+                            let batchOut = try await pocketModelBox.generateBatch(
+                                texts: prompts,
+                                voice: gInfo.voiceParam,
+                                refAudio: refAudioBox,
+                                generationParameters: generationParameters,
+                                batchSize: 48,
+                                onProgress: { doneInGroup, _ in
+                                    let doneTotal = min(totalCount, baseDone + doneInGroup)
+                                    let pct = Int((Double(doneTotal) / Double(max(1, totalCount))) * 100.0)
+                                    Task { @MainActor in
+                                        if self.activeSynthesisRunID == runID {
+                                            self.generationProgress = "Batch GPU synthesizing \(doneTotal)/\(totalCount) sections (\(pct)%)..."
+                                        }
+                                    }
+                                }
+                            )
+
+                            // Pitch-shift (if needed) & trim silence in parallel across all CPU cores
+                            let processedLock = NSLock()
+                            nonisolated(unsafe) var processed = Array(repeating: [Float](), count: batchOut.count)
+                            let pitchShift = gInfo.pitch
+                            DispatchQueue.concurrentPerform(iterations: batchOut.count) { idx in
+                                var w = batchOut[idx]
+                                if !w.isEmpty {
+                                    if abs(pitchShift) > 0.05 {
+                                        w = Voice.applyPitchShift(w, semitones: pitchShift, sampleRate: sampleRate)
+                                    }
+                                    w = SpeechAudioTrimmer.trimSilence(w, sampleRate: sampleRate)
+                                }
+                                processedLock.lock()
+                                processed[idx] = w
+                                processedLock.unlock()
+                            }
+                            return processed
+                        }.value
+
+                        let synthElapsed = max(0.01, CFAbsoluteTimeGetCurrent() - synthStart)
+                        var generatedFramesInGroup = 0
+                        for (localIdx, chunkOffset) in offsets.enumerated() {
+                            var wave = localIdx < groupWaveforms.count ? groupWaveforms[localIdx] : []
+                            if wave.isEmpty {
+                                wave = Array(repeating: Float(0), count: max(1, Int(sampleRate * 0.25)))
+                            } else {
+                                PhononChunkCache.put(key: specs[chunkOffset].cacheKey, samples: wave)
+                            }
+                            rawSamplesByOffset[chunkOffset] = wave
+                            generatedFramesInGroup += wave.count
+                        }
+                        if generatedFramesInGroup > 0 {
+                            tokensPerSecond = (Double(generatedFramesInGroup) / sampleRate * 12.5) / synthElapsed
+                        }
+                        finishedPriorGroups += offsets.count
+                    }
+                }
+
+                try Task.checkCancellation()
+                generationProgress = "Aligning words & mastering \(chunks.count) sections across all CPU cores..."
+
+                let specsForDSP = specs
+                let rawWavesSnapshot = rawSamplesByOffset
+                let parallelResults: [(mastered: [Float], relOffsets: [(start: Double, end: Double)])] = await Task.detached(priority: .userInitiated) {
+                    let resLock = NSLock()
+                    nonisolated(unsafe) var results = Array(
+                        repeating: (mastered: [Float](), relOffsets: [(start: Double, end: Double)]()),
+                        count: specsForDSP.count
+                    )
+                    DispatchQueue.concurrentPerform(iterations: specsForDSP.count) { i in
+                        autoreleasepool {
+                            let spec = specsForDSP[i]
+                            var samples = rawWavesSnapshot[i]
+                            if samples.isEmpty {
+                                samples = Array(repeating: Float(0), count: max(1, Int(sampleRate * 0.20)))
+                            }
+                            let relOffsets: [(start: Double, end: Double)]
+                            if !spec.chunkWords.isEmpty {
+                                if let cachedRel = PhononChunkCache.getRelativeTimings(key: spec.cacheKey, expectedWordCount: spec.chunkWords.count) {
+                                    relOffsets = cachedRel
+                                } else {
+                                    let computed = WordTimingEngine.alignWordsToPCM(
+                                        words: spec.chunkWords,
+                                        samples: samples,
+                                        sampleRate: sampleRate,
+                                        startOffsetSec: 0.0
+                                    )
+                                    let rel = computed.map { (start: max(0, $0.start), end: max(0, $0.end)) }
+                                    if rel.count == spec.chunkWords.count {
+                                        PhononChunkCache.putRelativeTimings(key: spec.cacheKey, offsets: rel)
+                                    }
+                                    relOffsets = rel
+                                }
+                            } else {
+                                relOffsets = []
+                            }
+
+                            var mastered = StudioMasteringManager.processSamples(
+                                samples,
+                                sampleRate: sampleRate,
+                                config: masteringSnapshot,
+                                preserveExactLength: true
+                            )
+                            if spec.interChunkPauseFrames > 0 {
+                                mastered.append(contentsOf: repeatElement(Float(0), count: spec.interChunkPauseFrames))
+                            }
+                            resLock.lock()
+                            results[i] = (mastered, relOffsets)
+                            resLock.unlock()
+                        }
+                    }
+                    return results
+                }.value
+
+                try Task.checkCancellation()
+                for i in 0..<specs.count {
+                    let spec = specs[i]
+                    let res = parallelResults[i]
+                    guard !res.mastered.isEmpty else { continue }
+                    let chunkStartSec = Double(cumulativeFramesWritten) / sampleRate
+                    for (w, rel) in zip(spec.chunkWords, res.relOffsets) where w.id >= 0 && w.id < workingTimings.count {
+                        workingTimings[w.id] = WordTiming(
+                            id: w.id,
+                            word: w.word,
+                            start: chunkStartSec + rel.start,
+                            end: chunkStartSec + rel.end,
+                            chunkIndex: w.chunkIndex,
+                            paragraphIndex: w.paragraphIndex
+                        )
+                    }
+                    let startFrame = cumulativeFramesWritten
+                    cumulativeFramesWritten += res.mastered.count
+                    self.synthesizedChunkFrameRanges[spec.globalIndex] = startFrame..<cumulativeFramesWritten
+                    self.synthesizedEndChunkIndex = spec.globalIndex
+                    self.completedChunkIndex = spec.globalIndex
+                    try? wavWriter.writeChunk(res.mastered, updateHeader: false)
+                }
+                self.synthesizingChunkIndex = plannedEndChunk
+            } else {
             for (offset, chunkMeta) in chunks.enumerated() {
                 let chunk = chunkMeta.text
                 let globalIndex = safeStart + offset
@@ -1308,7 +1557,7 @@ class TTSViewModel {
                     if interChunkPauseFrames > 0 {
                         samplesToWrite.append(contentsOf: repeatElement(Float(0), count: interChunkPauseFrames))
                     }
-                    try? wavWriter.writeChunk(samplesToWrite)
+                        try? wavWriter.writeChunk(samplesToWrite, updateHeader: playAudio)
                     return (samplesToWrite, aligned)
                 }.value
 
@@ -1345,6 +1594,7 @@ class TTSViewModel {
                     Memory.clearCache()
                 }
             }
+            } // end sequential fallback branch
 
             if !playAudio {
                 self.synthesizedWordTimings = workingTimings
@@ -1368,37 +1618,69 @@ class TTSViewModel {
             duration = clipDuration
             generationProgress = "" // Clear progress
 
-            Task.detached(priority: .utility) {
-                if let report = StudioMasteringManager.analyzeWAVFile(at: finalURL) {
-                    await MainActor.run {
-                        StudioMasteringManager.shared.lastReport = report
+            if playAudio {
+                Task.detached(priority: .utility) {
+                    if let report = StudioMasteringManager.analyzeWAVFile(at: finalURL) {
+                        await MainActor.run {
+                            StudioMasteringManager.shared.lastReport = report
+                        }
                     }
                 }
             }
 
-            // Record in session take history (and persist to Application Support so takes survive app restarts)
+            // Record in session take history (persist asynchronously in background when `!playAudio` so file exports start in 0ms!)
             if recordHistory {
                 let takeId = UUID()
                 let takeText = chunks.map(\.text).joined(separator: "\n\n")
-                let persistedURL = StudioDocumentSessionManager.shared.persistTake(
-                    id: takeId,
-                    textSnippet: String(takeText.prefix(600)),
-                    voiceName: voice?.name ?? "Default",
-                    modelName: modelId,
-                    duration: clipDuration,
-                    rtf: tokensPerSecond,
-                    sourceAudioURL: finalURL
-                )
-                let take = GeneratedTake(
-                    id: takeId,
-                    text: takeText,
-                    modelId: modelId,
-                    voiceName: voice?.name ?? "Default",
-                    audioURL: persistedURL,
-                    duration: clipDuration,
-                    tokensPerSecond: tokensPerSecond
-                )
-                history.insert(take, at: 0)
+                let voiceLabel = voice?.name ?? "Default"
+                let modelLabel = modelId
+                let rtfSnap = tokensPerSecond
+                if playAudio {
+                    let persistedURL = StudioDocumentSessionManager.shared.persistTake(
+                        id: takeId,
+                        textSnippet: String(takeText.prefix(600)),
+                        voiceName: voiceLabel,
+                        modelName: modelLabel,
+                        duration: clipDuration,
+                        rtf: rtfSnap,
+                        sourceAudioURL: finalURL
+                    )
+                    let take = GeneratedTake(
+                        id: takeId,
+                        text: takeText,
+                        modelId: modelLabel,
+                        voiceName: voiceLabel,
+                        audioURL: persistedURL,
+                        duration: clipDuration,
+                        tokensPerSecond: rtfSnap
+                    )
+                    history.insert(take, at: 0)
+                } else {
+                    Task.detached(priority: .background) { [weak self] in
+                        let persistedURL = await StudioDocumentSessionManager.shared.persistTake(
+                            id: takeId,
+                            textSnippet: String(takeText.prefix(600)),
+                            voiceName: voiceLabel,
+                            modelName: modelLabel,
+                            duration: clipDuration,
+                            rtf: rtfSnap,
+                            sourceAudioURL: finalURL
+                        )
+                        await MainActor.run { [weak self] in
+                            guard let self else { return }
+                            let take = GeneratedTake(
+                                id: takeId,
+                                text: takeText,
+                                modelId: modelLabel,
+                                voiceName: voiceLabel,
+                                audioURL: persistedURL,
+                                duration: clipDuration,
+                                tokensPerSecond: rtfSnap
+                            )
+                            self.history.insert(take, at: 0)
+                        }
+                    }
+                }
             }
 
             // Finalize playback state once generation completes.
@@ -2447,6 +2729,7 @@ class TTSViewModel {
                 previousTask?.cancel()
             }
             self.generationTask = Task { @MainActor in
+                let exportWallStart = CFAbsoluteTimeGetCurrent()
                 if needsSynthesis {
                     _ = await previousTask?.value
                     guard !Task.isCancelled else { return }
@@ -2553,7 +2836,7 @@ class TTSViewModel {
                             },
                             to: dest
                         )
-                        let elapsed = max(0.02, CFAbsoluteTimeGetCurrent() - t0)
+                        let elapsed = max(0.02, CFAbsoluteTimeGetCurrent() - exportWallStart)
                         let audioSec = max(1.0, timings.last?.end ?? estDuration)
                         let rtFactor = max(1, Int((audioSec / elapsed).rounded()))
                         let elapsedStr = String(format: "%.2fs", elapsed)

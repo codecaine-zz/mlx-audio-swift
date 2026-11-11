@@ -11,15 +11,10 @@ private func pocketLsdDecode(
     numSteps: Int
 ) -> MLXArray {
     var current = x0
-    let batch = x0.shape[0]
+    let invSteps = MLXArray(Float(1.0 / Double(numSteps)))
     for i in 0..<numSteps {
-        if Task.isCancelled { break }
-        let s = Float(i) / Float(numSteps)
-        let t = Float(i + 1) / Float(numSteps)
-        let sT = MLXArray.zeros([batch, 1]) + MLXArray(s)
-        let tT = MLXArray.zeros([batch, 1]) + MLXArray(t)
-        let flowDir = flowNet(condition, sT, tT, current)
-        current = current + flowDir / MLXArray(Float(numSteps))
+        let flowDir = flowNet(condition, stepIndex: i, numSteps: numSteps, current)
+        current = current + flowDir * invSteps
     }
     return current
 }
@@ -66,9 +61,10 @@ public final class FlowLMModel: Module {
         super.init()
     }
 
-    public func makeCache() -> [KVCacheSimple] { transformer.makeCache() }
+    public func makeCache(step: Int = 256) -> [KVCacheSimple] { transformer.makeCache(step: step) }
 
     public func cacheConditioning() {
+        flow_net.clearTimeCache()
         var embedding = num_speakers?(MLXArray([Int32(1)]))
         if let duration = duration_delta?(MLXArray([Float(0)])) {
             embedding = embedding.map { $0 + duration } ?? duration
@@ -83,6 +79,44 @@ public final class FlowLMModel: Module {
         guard num_speakers != nil || duration_delta != nil else { return input }
         if _conditioningEmbedding == nil { cacheConditioning() }
         return input + _conditioningEmbedding!
+    }
+
+    /// Fast single-step or batched `[B, 1, ldim]` decode without NaN masking or empty-prefix concatenation overhead.
+    public func stepDecode(
+        batchSize: Int,
+        previousLatents: MLXArray?,
+        cache: [KVCacheSimple],
+        positions: MLXArray? = nil,
+        ropeOffsetVec: MLXArray? = nil,
+        maskOverride: MLXFast.ScaledDotProductAttentionMaskMode? = nil,
+        lsdDecodeSteps: Int,
+        temperature: Float,
+        noiseClamp: Float?,
+        eosThreshold: Float
+    ) -> (MLXArray, MLXArray) {
+        let seq: MLXArray
+        if let previousLatents {
+            seq = previousLatents
+        } else if batchSize == 1 {
+            seq = bos_emb.reshaped([1, 1, ldim])
+        } else {
+            seq = MLX.broadcast(bos_emb.reshaped([1, 1, ldim]), to: [batchSize, 1, ldim])
+        }
+
+        let input = conditionAudioInput(input_linear(seq))
+        let h = transformer(input, cache: cache, positions: positions, ropeOffsetVec: ropeOffsetVec, maskOverride: maskOverride)
+        let lastToken = out_norm(h).asType(.float32).squeezed(axis: 1)
+
+        let eosLogits = out_eos(lastToken)
+        let isEos = eosLogits .> MLXArray(eosThreshold)
+
+        var noise = MLXRandom.normal([batchSize, ldim]) * MLXArray(Float(sqrt(temperature)))
+        if let noiseClamp {
+            noise = MLX.clip(noise, min: MLXArray(-noiseClamp), max: MLXArray(noiseClamp))
+        }
+
+        let nextLatent = pocketLsdDecode(flowNet: flow_net, condition: lastToken, x0: noise, numSteps: lsdDecodeSteps)
+        return (nextLatent, isEos)
     }
 
     private func backbone(input: MLXArray, textEmbeddings: MLXArray, sequence: MLXArray, cache: [KVCacheSimple]) -> MLXArray {

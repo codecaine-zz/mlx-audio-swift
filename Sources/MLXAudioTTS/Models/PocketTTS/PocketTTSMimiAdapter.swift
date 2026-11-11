@@ -143,12 +143,18 @@ public final class MimiAdapter: Module {
 
     public func decodeFromLatent(_ latent: MLXArray) -> MLXArray {
         decoder.resetState()
-        for c in decoderCache { c.trim(c.offset) }
         upsample?.resetState()
+        let localCache = decoder_transformer.makeCache()
 
-        var emb = toEncoderFrameRate(latent)
-        emb = decoder_transformer(emb, cache: decoderCache)[0]
-        return decoder(emb)
+        var embNLC: MLXArray
+        if let upsample {
+            embNLC = upsample.callToNLC(latent)
+        } else {
+            embNLC = swappedAxes(latent, 1, 2)
+        }
+        embNLC = decoder_transformer.callNLC(embNLC, cache: localCache)
+        let audioNLC = decoder.callNLC(embNLC)
+        return swappedAxes(audioNLC, 1, 2)
     }
 
     public func decodeStep(_ latent: MLXArray) -> MLXArray {

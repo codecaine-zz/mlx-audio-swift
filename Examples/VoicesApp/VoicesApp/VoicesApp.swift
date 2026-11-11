@@ -556,6 +556,130 @@ struct VoicesApp: App {
             print(report)
             exit(0)
         }
+        if let benchIdx = args.firstIndex(of: "--benchmark-book-mp4"), benchIdx + 2 < args.count {
+            let bookPath = (args[benchIdx + 1] as NSString).expandingTildeInPath
+            let outDir = URL(fileURLWithPath: (args[benchIdx + 2] as NSString).expandingTildeInPath, isDirectory: true)
+            try? FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
+            Task { @MainActor in
+                do {
+                    let rawDoc = try SpeechTextCleaner.extractDocumentText(from: URL(fileURLWithPath: bookPath))
+                    let cleaned = rawDoc.trimmingCharacters(in: .whitespacesAndNewlines)
+                    PhononChunkCache.clearAll()
+
+                    let vm = TTSViewModel()
+                    vm.modelId = "nativ-community/phonon"
+                    await vm.loadModel()
+                    let russellVoice = Voice.builtInVoices(for: vm.modelId).first(where: { $0.name.lowercased() == "russell" || $0.name.lowercased() == "freya" })
+                        ?? Voice.builtInVoices(for: vm.modelId).first
+                    vm.selectedVoice = russellVoice
+
+                    // 1. TRUE COLD-CACHE FULL-BOOK SYNTHESIS + 8-SHARD PARALLEL MP4 EXPORT
+                    let coldT0 = CFAbsoluteTimeGetCurrent()
+                    await vm.synthesize(
+                        text: cleaned,
+                        voice: russellVoice,
+                        startChunkIndex: 0,
+                        playAudio: false,
+                        recordHistory: false,
+                        scopeOverride: .fullDocument
+                    )
+                    let coldSynthDone = CFAbsoluteTimeGetCurrent()
+                    guard let wavURL = vm.audioURL else {
+                        print("BENCH_ERROR: audioURL nil")
+                        exit(2)
+                    }
+                    let allChunks = vm.chunkTextWithMetadata(cleaned)
+                    let timings = vm.synthesizedWordTimings.filter { $0.end > $0.start }
+                    let chapters = M4BAudiobookExporter.buildChapters(
+                        chunks: allChunks,
+                        timings: timings,
+                        totalDurationSec: vm.duration
+                    )
+                    let coldMP4 = outDir.appendingPathComponent("bench_cold_9x16.mp4")
+                    try? FileManager.default.removeItem(at: coldMP4)
+                    try ReadAlongVideoExporter.exportKaraokeVideo(
+                        sourceWAV: wavURL,
+                        timings: timings,
+                        theme: .midnight,
+                        aspect: .portrait9x16,
+                        title: URL(fileURLWithPath: bookPath).deletingPathExtension().lastPathComponent,
+                        voiceName: russellVoice?.name ?? "Russell",
+                        fallbackText: cleaned,
+                        chapters: chapters,
+                        to: coldMP4
+                    )
+                    let coldMP4Done = CFAbsoluteTimeGetCurrent()
+
+                    // 2. WARM-CACHE FULL-BOOK SYNTHESIS + 8-SHARD PARALLEL 16:9 MP4 EXPORT
+                    let warmT0 = CFAbsoluteTimeGetCurrent()
+                    await vm.synthesize(
+                        text: cleaned,
+                        voice: russellVoice,
+                        startChunkIndex: 0,
+                        playAudio: false,
+                        recordHistory: false,
+                        scopeOverride: .fullDocument
+                    )
+                    let warmSynthDone = CFAbsoluteTimeGetCurrent()
+                    let warmMP4 = outDir.appendingPathComponent("bench_warm_16x9.mp4")
+                    try? FileManager.default.removeItem(at: warmMP4)
+                    if let warmWAV = vm.audioURL {
+                        let warmTimings = vm.synthesizedWordTimings.filter { $0.end > $0.start }
+                        try ReadAlongVideoExporter.exportKaraokeVideo(
+                            sourceWAV: warmWAV,
+                            timings: warmTimings,
+                            theme: .midnight,
+                            aspect: .landscape16x9,
+                            title: URL(fileURLWithPath: bookPath).deletingPathExtension().lastPathComponent,
+                            voiceName: russellVoice?.name ?? "Russell",
+                            fallbackText: cleaned,
+                            chapters: chapters,
+                            to: warmMP4
+                        )
+                    }
+                    let warmMP4Done = CFAbsoluteTimeGetCurrent()
+
+                    let coldSynthSec = coldSynthDone - coldT0
+                    let coldVideoSec = coldMP4Done - coldSynthDone
+                    let coldTotalSec = coldMP4Done - coldT0
+                    let warmSynthSec = warmSynthDone - warmT0
+                    let warmVideoSec = warmMP4Done - warmSynthDone
+                    let warmTotalSec = warmMP4Done - warmT0
+                    let audioDur = vm.duration
+                    let coldSpeedupVs660 = 660.0 / max(0.01, coldTotalSec)
+                    let coldRT = audioDur / max(0.01, coldTotalSec)
+                    let warmRT = audioDur / max(0.01, warmTotalSec)
+
+                    let summary = """
+                    === FULL-BOOK MP4 BENCHMARK RESULTS ===
+                    book=\(bookPath)
+                    chars=\(cleaned.count)
+                    chunks=\(allChunks.count)
+                    chapters=\(chapters.count)
+                    words_aligned=\(timings.count)
+                    audio_duration_sec=\(String(format: "%.2f", audioDur))
+                    cold_synth_sec=\(String(format: "%.2f", coldSynthSec))
+                    cold_video_mp4_sec=\(String(format: "%.2f", coldVideoSec))
+                    cold_total_sec=\(String(format: "%.2f", coldTotalSec))
+                    cold_realtime_factor=\(String(format: "%.1f", coldRT))x
+                    speedup_vs_660s_baseline=\(String(format: "%.1f", coldSpeedupVs660))x
+                    warm_synth_sec=\(String(format: "%.2f", warmSynthSec))
+                    warm_video_mp4_sec=\(String(format: "%.2f", warmVideoSec))
+                    warm_total_sec=\(String(format: "%.2f", warmTotalSec))
+                    warm_realtime_factor=\(String(format: "%.1f", warmRT))x
+                    cold_mp4=\(coldMP4.path)
+                    warm_mp4=\(warmMP4.path)
+                    """
+                    try? summary.write(to: outDir.appendingPathComponent("benchmark_summary.txt"), atomically: true, encoding: .utf8)
+                    print(summary)
+                    exit(0)
+                } catch {
+                    print("BENCH_ERROR: \(error)")
+                    exit(1)
+                }
+            }
+            RunLoop.main.run()
+        }
         if let qaIdx = args.firstIndex(of: "--qa-test-everything"), qaIdx + 1 < args.count {
             let outDir = URL(fileURLWithPath: (args[qaIdx + 1] as NSString).expandingTildeInPath, isDirectory: true)
             try? FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)

@@ -191,6 +191,7 @@ public final class SimpleMLPAdaLN: Module {
     @ModuleInfo(key: "input_proj") public var input_proj: Linear
     @ModuleInfo(key: "res_blocks") public var res_blocks: [PocketResBlock]
     @ModuleInfo(key: "final_layer") public var final_layer: PocketFinalLayer
+    private var _cachedTimeCombined: [String: MLXArray] = [:]
 
     public init(
         inChannels: Int,
@@ -219,6 +220,37 @@ public final class SimpleMLPAdaLN: Module {
         })
         self._final_layer = ModuleInfo(wrappedValue: PocketFinalLayer(modelChannels: modelChannels, outChannels: outChannels))
         super.init()
+    }
+
+    public func clearTimeCache() {
+        _cachedTimeCombined.removeAll()
+    }
+
+    public func callAsFunction(_ c: MLXArray, stepIndex: Int, numSteps: Int, _ x: MLXArray) -> MLXArray {
+        let key = "\(stepIndex)/\(numSteps)"
+        let tCombined: MLXArray
+        if let cached = _cachedTimeCombined[key] {
+            tCombined = cached
+        } else {
+            let s = MLXArray([Float(stepIndex) / Float(numSteps)]).reshaped([1, 1])
+            let t = MLXArray([Float(stepIndex + 1) / Float(numSteps)]).reshaped([1, 1])
+            let ts = [s, t]
+            var acc = MLXArray.zeros([1, model_channels])
+            for (idx, embed) in time_embed.enumerated() {
+                acc = acc + embed(ts[idx])
+            }
+            acc = acc / MLXArray(Float(num_time_conds))
+            eval(acc)
+            _cachedTimeCombined[key] = acc
+            tCombined = acc
+        }
+        var xx = input_proj(x)
+        let cc = cond_embed(c)
+        let y = tCombined + cc
+        for block in res_blocks {
+            xx = block(xx, y)
+        }
+        return final_layer(xx, y)
     }
 
     public func callAsFunction(_ c: MLXArray, _ s: MLXArray, _ t: MLXArray, _ x: MLXArray) -> MLXArray {

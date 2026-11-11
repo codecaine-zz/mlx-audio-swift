@@ -155,6 +155,53 @@ public final class Attention: Module {
             k = rope(k, offset: cache.offset)
         }
 
+        // Fast O(T * context) blockwise sliding-window attention for full-sequence parallel decode (`decodeFromLatent`)
+        // Avoids O(T^2) attention and multi-million-element mask allocation on 200Hz upsampled audio sequences.
+        if cache.offset == 0, mask == nil, cfg.causal, cfg.context > 0, t > cfg.context * 2 {
+            let blockSize = 512
+            let windowBack = cfg.context - 1
+            let steadyKLen = blockSize + windowBack
+            let steadyQRel = MLXArray(Int32(windowBack) ..< Int32(steadyKLen))[0..., .newAxis]
+            let steadyKRel = MLXArray(Int32(0) ..< Int32(steadyKLen))[.newAxis]
+            let steadyMaskArr = (steadyQRel .>= steadyKRel) .&& (steadyQRel .< steadyKRel + Int32(cfg.context))
+
+            var blocks: [MLXArray] = []
+            blocks.reserveCapacity((t + blockSize - 1) / blockSize)
+            var qStart = 0
+            while qStart < t {
+                let qEnd = min(t, qStart + blockSize)
+                let kStart = max(0, qStart - windowBack)
+                let kEnd = qEnd
+                let kWinLen = kEnd - kStart
+                let qSlice = q[0..., 0..., qStart..<qEnd, 0...]
+                let kSlice = k[0..., 0..., kStart..<kEnd, 0...]
+                let vSlice = v[0..., 0..., kStart..<kEnd, 0...]
+
+                let blkMask: MLXFast.ScaledDotProductAttentionMaskMode
+                if kWinLen <= cfg.context && qStart == 0 {
+                    blkMask = .causal
+                } else if qStart >= windowBack && (qEnd - qStart) == blockSize && kWinLen == steadyKLen {
+                    blkMask = .array(steadyMaskArr)
+                } else {
+                    let qRel = MLXArray(Int32(qStart - kStart) ..< Int32(qEnd - kStart))[0..., .newAxis]
+                    let kRel = MLXArray(Int32(0) ..< Int32(kWinLen))[.newAxis]
+                    blkMask = .array((qRel .>= kRel) .&& (qRel .< kRel + Int32(cfg.context)))
+                }
+                let blkOut = MLXFast.scaledDotProductAttention(
+                    queries: qSlice,
+                    keys: kSlice,
+                    values: vSlice,
+                    scale: scale,
+                    mask: blkMask
+                )
+                blocks.append(blkOut)
+                qStart = qEnd
+            }
+            var out = blocks.count == 1 ? blocks[0] : concatenated(blocks, axis: 2)
+            out = swappedAxes(out, 1, 2).reshaped([b, t, hd])
+            return out_proj(out)
+        }
+
         (k, v) = cache.update(keys: k, values: v)
 
         let kLen = k.shape[2]
@@ -375,6 +422,20 @@ public final class ProjectedTransformer: Module {
             }
             return outs
         }
+    }
+
+    /// Zero-transpose NLC `[B, T, C]` path for `decodeFromLatent`.
+    public func callNLC(
+        _ xsNLC: MLXArray,
+        cache: [KVCache]
+    ) -> MLXArray {
+        var xs = xsNLC
+        if let ip = input_proj { xs = ip(xs) }
+        xs = transformer(xs, cache: cache)
+        if let firstOp = output_projs.compactMap({ $0 }).first {
+            return firstOp(xs)
+        }
+        return xs
     }
 
     public func makeCache() -> [KVCacheSimple] { transformer.makeCache() }

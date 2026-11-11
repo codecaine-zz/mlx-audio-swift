@@ -27,64 +27,63 @@ public final class PocketLayerScale: Module {
 
 public final class PocketRotaryEmbedding: Module {
     public let maxPeriod: Double
+    private var cachedFreqsByDim: [Int: MLXArray] = [:]
 
     public init(maxPeriod: Double = 10000.0) {
         self.maxPeriod = maxPeriod
         super.init()
     }
 
-    public func callAsFunction(_ q: MLXArray, _ k: MLXArray, offset: Int) -> (MLXArray, MLXArray) {
-        return pocketApplyRoPE(q: q, k: k, offset: offset, maxPeriod: maxPeriod)
+    private func freqs4D(headDim d: Int) -> MLXArray {
+        if let cached = cachedFreqsByDim[d] {
+            return cached
+        }
+        let half = d / 2
+        let indices = MLXArray(stride(from: 0, to: half, by: 1)).asType(.float32)
+        let freqScale = -Float(log(maxPeriod)) * 2.0 / Float(d)
+        let f = MLX.exp(indices * MLXArray(freqScale)).reshaped([1, 1, 1, half])
+        eval(f)
+        cachedFreqsByDim[d] = f
+        return f
     }
-}
 
-@inline(__always)
-private func pocketApplyRoPE(q: MLXArray, k: MLXArray, offset: Int, maxPeriod: Double) -> (MLXArray, MLXArray) {
-    let b = q.shape[0]
-    let t = q.shape[1]
-    let h = q.shape[2]
-    let d = q.shape[3]
-    precondition(d % 2 == 0, "RoPE requires an even head dimension")
-    let half = d / 2
+    public func callAsFunction(_ q: MLXArray, _ k: MLXArray, offset: Int) -> (MLXArray, MLXArray) {
+        let qSwapped = swappedAxes(q, 1, 2)
+        let kSwapped = swappedAxes(k, 1, 2)
+        let d = q.shape[3]
+        let qR = MLXFast.RoPE(qSwapped, dimensions: d, traditional: true, base: Float(maxPeriod), scale: 1.0, offset: offset)
+        let kR = MLXFast.RoPE(kSwapped, dimensions: d, traditional: true, base: Float(maxPeriod), scale: 1.0, offset: offset)
+        return (swappedAxes(qR, 1, 2), swappedAxes(kR, 1, 2))
+    }
 
-    let indices = MLXArray(stride(from: 0, to: half, by: 1)).asType(.float32)
-    let freqScale = -Float(log(maxPeriod)) * 2.0 / Float(d)
-    let freqs = MLX.exp(indices * MLXArray(freqScale))
+    /// Applies traditional RoPE to swapped `[B, H, T, D]` tensors with per-batch-item `positions` of shape `[B, 1, T, 1]`.
+    public func applySwapped(_ q: MLXArray, _ k: MLXArray, positions: MLXArray) -> (MLXArray, MLXArray) {
+        let b = q.shape[0]
+        let h = q.shape[1]
+        let t = q.shape[2]
+        let d = q.shape[3]
+        let half = d / 2
+        let freq4d = freqs4D(headDim: d)
+        let angles = positions * freq4d
+        let rotr = MLX.cos(angles)
+        let roti = MLX.sin(angles)
 
-    let ts = (MLXArray(stride(from: 0, to: t, by: 1)).asType(.float32) + MLXArray(Float(offset)))
-        .reshaped([1, t, 1, 1])
-    let freq4d = freqs.reshaped([1, 1, 1, half])
+        let q2 = q.reshaped([b, h, t, half, 2])
+        let k2 = k.reshaped([b, h, t, half, 2])
+        let qr = q2[.ellipsis, 0].asType(.float32)
+        let qi = q2[.ellipsis, 1].asType(.float32)
+        let kr = k2[.ellipsis, 0].asType(.float32)
+        let ki = k2[.ellipsis, 1].asType(.float32)
 
-    let q2 = q.reshaped([b, t, h, half, 2])
-    let k2 = k.reshaped([b, t, h, half, 2])
+        let qor = (qr * rotr - qi * roti).asType(q.dtype)
+        let qoi = (qr * roti + qi * rotr).asType(q.dtype)
+        let kor = (kr * rotr - ki * roti).asType(k.dtype)
+        let koi = (kr * roti + ki * rotr).asType(k.dtype)
 
-    let qParts = split(q2, indices: [1], axis: 4)
-    let kParts = split(k2, indices: [1], axis: 4)
-
-    let qr = qParts[0].squeezed(axis: 4).asType(.float32)
-    let qi = qParts[1].squeezed(axis: 4).asType(.float32)
-    let kr = kParts[0].squeezed(axis: 4).asType(.float32)
-    let ki = kParts[1].squeezed(axis: 4).asType(.float32)
-
-    let rotr = MLX.cos(freq4d * ts)
-    let roti = MLX.sin(freq4d * ts)
-
-    let qor = qr * rotr - qi * roti
-    let qoi = qr * roti + qi * rotr
-    let kor = kr * rotr - ki * roti
-    let koi = kr * roti + ki * rotr
-
-    let qOut = concatenated([
-        qor.asType(q.dtype).expandedDimensions(axis: 4),
-        qoi.asType(q.dtype).expandedDimensions(axis: 4)
-    ], axis: 4).reshaped([b, t, h, d])
-
-    let kOut = concatenated([
-        kor.asType(k.dtype).expandedDimensions(axis: 4),
-        koi.asType(k.dtype).expandedDimensions(axis: 4)
-    ], axis: 4).reshaped([b, t, h, d])
-
-    return (qOut, kOut)
+        let qOut = stacked([qor, qoi], axis: -1).reshaped([b, h, t, d])
+        let kOut = stacked([kor, koi], axis: -1).reshaped([b, h, t, d])
+        return (qOut, kOut)
+    }
 }
 
 public final class PocketStreamingMultiheadAttention: Module {
@@ -109,25 +108,41 @@ public final class PocketStreamingMultiheadAttention: Module {
         super.init()
     }
 
-    public func callAsFunction(_ query: MLXArray, cache: KVCacheSimple?) -> MLXArray {
+    public func callAsFunction(
+        _ query: MLXArray,
+        cache: KVCacheSimple?,
+        positions: MLXArray? = nil,
+        ropeOffsetVec: MLXArray? = nil,
+        maskOverride: MLXFast.ScaledDotProductAttentionMaskMode? = nil
+    ) -> MLXArray {
         let b = query.shape[0]
         let t = query.shape[1]
 
-        var projected = in_proj(query)
-        projected = projected.reshaped([b, t, 3, numHeads, headDim])
+        let projected = in_proj(query).reshaped([b, t, 3, numHeads, headDim])
 
-        var q = projected[0..<b, 0..<t, 0, 0..<numHeads, 0..<headDim]
-        var k = projected[0..<b, 0..<t, 1, 0..<numHeads, 0..<headDim]
-        var v = projected[0..<b, 0..<t, 2, 0..<numHeads, 0..<headDim]
+        var q: MLXArray
+        var k: MLXArray
+        let v: MLXArray
+        if t == 1 {
+            q = projected[0..<b, 0..<1, 0, 0..<numHeads, 0..<headDim].reshaped([b, numHeads, 1, headDim])
+            k = projected[0..<b, 0..<1, 1, 0..<numHeads, 0..<headDim].reshaped([b, numHeads, 1, headDim])
+            v = projected[0..<b, 0..<1, 2, 0..<numHeads, 0..<headDim].reshaped([b, numHeads, 1, headDim])
+        } else {
+            q = swappedAxes(projected[0..<b, 0..<t, 0, 0..<numHeads, 0..<headDim], 1, 2)
+            k = swappedAxes(projected[0..<b, 0..<t, 1, 0..<numHeads, 0..<headDim], 1, 2)
+            v = swappedAxes(projected[0..<b, 0..<t, 2, 0..<numHeads, 0..<headDim], 1, 2)
+        }
 
         let offset = cache?.offset ?? 0
-        let (qR, kR) = rope(q, k, offset: offset)
-        q = qR
-        k = kR
-
-        q = swappedAxes(q, 1, 2)
-        k = swappedAxes(k, 1, 2)
-        v = swappedAxes(v, 1, 2)
+        if let ropeOffsetVec {
+            q = MLXFast.RoPE(q, dimensions: headDim, traditional: true, base: Float(rope.maxPeriod), scale: 1.0, offset: ropeOffsetVec)
+            k = MLXFast.RoPE(k, dimensions: headDim, traditional: true, base: Float(rope.maxPeriod), scale: 1.0, offset: ropeOffsetVec)
+        } else if let positions {
+            (q, k) = rope.applySwapped(q, k, positions: positions)
+        } else {
+            q = MLXFast.RoPE(q, dimensions: headDim, traditional: true, base: Float(rope.maxPeriod), scale: 1.0, offset: offset)
+            k = MLXFast.RoPE(k, dimensions: headDim, traditional: true, base: Float(rope.maxPeriod), scale: 1.0, offset: offset)
+        }
 
         let kFull: MLXArray
         let vFull: MLXArray
@@ -138,13 +153,21 @@ public final class PocketStreamingMultiheadAttention: Module {
             vFull = v
         }
 
-        let mask = pocketCreateAdditiveCausalMask(t, offset: offset).asType(query.dtype)
+        let maskMode: MLXFast.ScaledDotProductAttentionMaskMode
+        if let maskOverride {
+            maskMode = maskOverride
+        } else if t == 1 {
+            maskMode = .none
+        } else {
+            maskMode = .causal
+        }
+
         let out = MLXFast.scaledDotProductAttention(
             queries: q,
             keys: kFull,
             values: vFull,
             scale: scale,
-            mask: mask
+            mask: maskMode
         )
         let merged = swappedAxes(out, 1, 2).reshaped([b, t, embedDim])
         return out_proj(merged)
@@ -184,8 +207,14 @@ public final class PocketStreamingTransformerLayer: Module {
         return scale(x)
     }
 
-    public func callAsFunction(_ x: MLXArray, cache: KVCacheSimple?) -> MLXArray {
-        let attnOut = self_attn(norm1(x), cache: cache)
+    public func callAsFunction(
+        _ x: MLXArray,
+        cache: KVCacheSimple?,
+        positions: MLXArray? = nil,
+        ropeOffsetVec: MLXArray? = nil,
+        maskOverride: MLXFast.ScaledDotProductAttentionMaskMode? = nil
+    ) -> MLXArray {
+        let attnOut = self_attn(norm1(x), cache: cache, positions: positions, ropeOffsetVec: ropeOffsetVec, maskOverride: maskOverride)
         var h = x + applyScale(attnOut, layer_scale_1)
         let hidden = linear1(norm2(h))
         let ff = linear2(_useExactGELU ? gelu(hidden) : geluApproximate(hidden))
@@ -223,16 +252,26 @@ public final class PocketStreamingTransformer: Module {
         super.init()
     }
 
-    public func callAsFunction(_ x: MLXArray, cache: [KVCacheSimple]?) -> MLXArray {
+    public func callAsFunction(
+        _ x: MLXArray,
+        cache: [KVCacheSimple]?,
+        positions: MLXArray? = nil,
+        ropeOffsetVec: MLXArray? = nil,
+        maskOverride: MLXFast.ScaledDotProductAttentionMaskMode? = nil
+    ) -> MLXArray {
         var h = x
         let caches = cache ?? (0..<layers.count).map { _ in KVCacheSimple() }
         for (layer, layerCache) in zip(layers, caches) {
-            h = layer(h, cache: layerCache)
+            h = layer(h, cache: layerCache, positions: positions, ropeOffsetVec: ropeOffsetVec, maskOverride: maskOverride)
         }
         return h
     }
 
-    public func makeCache() -> [KVCacheSimple] {
-        return (0..<layers.count).map { _ in KVCacheSimple() }
+    public func makeCache(step: Int = 256) -> [KVCacheSimple] {
+        return (0..<layers.count).map { _ in
+            let c = KVCacheSimple()
+            c.step = max(64, step)
+            return c
+        }
     }
 }

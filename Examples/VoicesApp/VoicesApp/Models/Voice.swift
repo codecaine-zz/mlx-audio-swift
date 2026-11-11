@@ -11,6 +11,7 @@ import Network
 import SwiftUI
 #if os(macOS)
 import AppKit
+import CoreMedia
 import CoreText
 import CoreVideo
 import PDFKit
@@ -7193,71 +7194,142 @@ enum ReadAlongVideoExporter {
     }
 
     #if os(macOS)
-    /// Ported from `bun_rad_studio` `fmPhonon.ts` (`tryRenderSlidesWithNativeCairoPango` + lossless `+faststart` muxer):
-    /// Ultra-fast in-process native 3-Level Delta-Band Renderer (`Level 0: bgCopy` -> `Level 1: cueCardCopy + cached CTLines` -> `Level 2: Word Delta Slice + HUD`)
-    /// using macOS `CoreGraphics` + `CoreText` + Apple Silicon Hardware `VideoToolbox` (`has_b_frames=0`, 25fps timescale, Rec.709)
-    /// paired with concurrent `AudioToolbox` AAC encoding and atomic `+faststart` MP4 staging (never writes an incomplete/moov-less file to `destinationURL`).
-    private static func renderNative3LevelDeltaBandMP4(
-        sourceWAV: URL,
+    private struct VideoRenderShardSpec {
+        let shardIndex: Int
+        let startSlideIdx: Int
+        let endSlideIdx: Int
+        let shardStartFrame: Int
+        let shardEndFrame: Int
+        let isLastShard: Bool
+        let outputURL: URL
+    }
+
+    /// Zero-re-encode passthrough VFR restamper: reads compressed H.264 NAL sample buffers from `rawCFRURL` (`bframes=0`)
+    /// and writes exact variable-frame-rate presentation timestamps + durations (`movieTimeScale = 1000`, `mediaTimeScale = 1000`)
+    /// so multi-hour 12+ chapter audiobooks never overflow 32-bit QuickTime `stts` deltas.
+    private static func restampCFRShardToVFR(
+        rawCFRURL: URL,
+        localStartFrames: [Int],
+        shardSpanFrames: Int,
+        videoFPS: Int,
+        to outputURL: URL
+    ) -> Bool {
+        guard !localStartFrames.isEmpty else { return false }
+        let asset = AVURLAsset(url: rawCFRURL)
+        guard let vTrack = (try? asset.tracks(withMediaType: .video))?.first,
+              let reader = try? AVAssetReader(asset: asset) else {
+            return false
+        }
+        let readerOutput = AVAssetReaderTrackOutput(track: vTrack, outputSettings: nil)
+        readerOutput.alwaysCopiesSampleData = false
+        guard reader.canAdd(readerOutput) else { return false }
+        reader.add(readerOutput)
+
+        try? FileManager.default.removeItem(at: outputURL)
+        guard let writer = try? AVAssetWriter(outputURL: outputURL, fileType: .mp4) else {
+            return false
+        }
+        let timescale: CMTimeScale = (1000 % max(1, videoFPS) == 0) ? 1000 : CMTimeScale(videoFPS * 100)
+        let mult: Int64 = (1000 % max(1, videoFPS) == 0) ? Int64(1000 / max(1, videoFPS)) : 100
+        writer.movieTimeScale = timescale
+        writer.shouldOptimizeForNetworkUse = false
+
+        let fmtHint: CMFormatDescription? = vTrack.formatDescriptions.first.map { ($0 as! CMFormatDescription) }
+        let writerInput = AVAssetWriterInput(mediaType: .video, outputSettings: nil, sourceFormatHint: fmtHint)
+        writerInput.expectsMediaDataInRealTime = false
+        writerInput.mediaTimeScale = timescale
+        guard writer.canAdd(writerInput) else { return false }
+        writer.add(writerInput)
+
+        guard reader.startReading(), writer.startWriting() else {
+            return false
+        }
+        writer.startSession(atSourceTime: .zero)
+
+        var frameIdx = 0
+        var appendFailed = false
+        let safeSpan = max(localStartFrames.last.map { $0 + 1 } ?? 1, shardSpanFrames)
+
+        while let sbuf = readerOutput.copyNextSampleBuffer() {
+            guard CMSampleBufferGetNumSamples(sbuf) > 0,
+                  CMSampleBufferGetTotalSampleSize(sbuf) > 0 else {
+                continue
+            }
+            let sFrame = frameIdx < localStartFrames.count ? localStartFrames[frameIdx] : max(0, safeSpan - 1)
+            let eFrame = (frameIdx + 1 < localStartFrames.count) ? localStartFrames[frameIdx + 1] : safeSpan
+            let durFrames = max(1, eFrame - sFrame)
+
+            var timing = CMSampleTimingInfo(
+                duration: CMTime(value: Int64(durFrames) * mult, timescale: timescale),
+                presentationTimeStamp: CMTime(value: Int64(max(0, sFrame)) * mult, timescale: timescale),
+                decodeTimeStamp: .invalid
+            )
+            var retimed: CMSampleBuffer? = nil
+            let status = CMSampleBufferCreateCopyWithNewTiming(
+                allocator: kCFAllocatorDefault,
+                sampleBuffer: sbuf,
+                sampleTimingEntryCount: 1,
+                sampleTimingArray: &timing,
+                sampleBufferOut: &retimed
+            )
+            guard status == noErr, let outSample = retimed else {
+                appendFailed = true
+                break
+            }
+            var waits = 0
+            while !writerInput.isReadyForMoreMediaData {
+                if writer.status == .failed || writer.status == .cancelled {
+                    appendFailed = true
+                    break
+                }
+                usleep(50)
+                waits += 1
+                if waits > 40_000 {
+                    appendFailed = true
+                    break
+                }
+            }
+            if appendFailed || !writerInput.append(outSample) {
+                appendFailed = true
+                break
+            }
+            frameIdx += 1
+        }
+
+        if appendFailed || frameIdx != localStartFrames.count {
+            reader.cancelReading()
+            writer.cancelWriting()
+            return false
+        }
+
+        writerInput.markAsFinished()
+        writer.endSession(atSourceTime: CMTime(value: Int64(safeSpan) * mult, timescale: timescale))
+        let sema = DispatchSemaphore(value: 0)
+        writer.finishWriting {
+            sema.signal()
+        }
+        sema.wait()
+        return writer.status == .completed && FileManager.default.fileExists(atPath: outputURL.path)
+    }
+
+    private static func renderSingleVideoShard(
+        spec: VideoRenderShardSpec,
         cues: [ReadAlongCue],
         slides: [ReadAlongVisualSlide],
-        chapters: [M4BChapterMarker] = [],
+        globalSlideStartFrames: [Int],
+        normalizedChapters: [M4BChapterMarker],
+        waveBins: [Float],
         theme: ReadAlongTheme,
         aspect: ReadAlongVideoAspect,
         title: String,
         voiceName: String,
         totalDurationMs: Int,
-        srtContent: String = "",
-        onProgress: (@Sendable (Int, Int) -> Void)? = nil,
-        to destinationURL: URL
-    ) throws -> Bool {
-        let stageDir = FileManager.default.temporaryDirectory
-            .appendingPathComponent("mp4_stage_\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: stageDir, withIntermediateDirectories: true)
-        defer {
-            try? FileManager.default.removeItem(at: stageDir)
-        }
-
-        let tempVideoURL = stageDir.appendingPathComponent("video_only.mp4")
-        let tempAudioURL = stageDir.appendingPathComponent("audio_track.m4a")
-        let tempSRTURL = stageDir.appendingPathComponent("subtitles.srt")
-        let tempMetaURL = stageDir.appendingPathComponent("chapters.ffmetadata")
-        let stagedMP4URL = stageDir.appendingPathComponent("staged_final.mp4")
-
-        if !srtContent.isEmpty {
-            try? srtContent.write(to: tempSRTURL, atomically: true, encoding: .utf8)
-        }
-
-        let normalizedChapters: [M4BChapterMarker] = chapters.isEmpty
-            ? [M4BChapterMarker(id: 0, title: title, startSec: 0, endSec: max(1.0, Double(totalDurationMs) / 1000.0))]
-            : chapters
-        let ffMetaContent = M4BAudiobookExporter.buildFFMetadataContent(
-            title: title,
-            author: "Codecaine MLX Audio Studio",
-            voiceName: voiceName,
-            genre: "Read-Along Audiobook",
-            mediaType: 9,
-            chapters: normalizedChapters,
-            totalDurationSec: Double(totalDurationMs) / 1000.0
-        )
-        try? ffMetaContent.write(to: tempMetaURL, atomically: true, encoding: .utf8)
-
-        // Encode WAV -> AAC (.m4a) concurrently on a separate core using Apple Silicon AudioToolbox while video renders
-        let audioGroup = DispatchGroup()
-        nonisolated(unsafe) var audioEncodeSucceeded = false
-        audioGroup.enter()
-        DispatchQueue.global(qos: .userInitiated).async {
-            defer { audioGroup.leave() }
-            do {
-                try AudioFormatExporter.convert(sourceWAV: sourceWAV, to: tempAudioURL, format: .m4a)
-                if let sz = (try? tempAudioURL.resourceValues(forKeys: [.fileSizeKey]).fileSize), sz > 128 {
-                    audioEncodeSucceeded = true
-                }
-            } catch {
-                audioEncodeSucceeded = false
-            }
-        }
-
+        videoFPS: Int,
+        targetBitRate: Int,
+        totalShards: Int,
+        ffmpegPath: String?,
+        onShardSlidesDone: (@Sendable (Int) -> Void)?
+    ) -> Bool {
         let width = aspect.width
         let height = aspect.height
         let stride = width * 4
@@ -7286,7 +7358,6 @@ enum ReadAlongVideoExporter {
             space: colorSpace,
             bitmapInfo: bitmapInfo
         ) else {
-            audioGroup.wait()
             return false
         }
 
@@ -7400,7 +7471,6 @@ enum ReadAlongVideoExporter {
             ctx.restoreGState()
         }
 
-        // Level 0: Render static radial vignette background + top header pill + center cinema card + HUD track ONCE
         let gradColors = [
             CGColor(srgbRed: pal.bgInner.0, green: pal.bgInner.1, blue: pal.bgInner.2, alpha: 1.0),
             CGColor(srgbRed: pal.bgOuter.0, green: pal.bgOuter.1, blue: pal.bgOuter.2, alpha: 1.0)
@@ -7433,7 +7503,6 @@ enum ReadAlongVideoExporter {
             headerCleanBand.deallocate()
         }
 
-        // Center Cinema Read-Along Card
         fillAndStrokeRoundedRect(
             x: cardMarginX,
             topY: cardTopY,
@@ -7447,7 +7516,6 @@ enum ReadAlongVideoExporter {
             lineWidth: 2.0
         )
 
-        // Bottom HUD Progress Track
         fillAndStrokeRoundedRect(
             x: barX,
             topY: barTopY,
@@ -7467,10 +7535,90 @@ enum ReadAlongVideoExporter {
 
         let cardBandY0 = max(0, Int(cardTopY) - 6)
         let cardBandY1 = min(height, Int(cardTopY + cardH) + 6)
-        let midBandY0 = max(0, Int(cyTop) - Int(round(Double(aspect.fontSize) * 1.08)))
-        let midBandY1 = min(height, Int(cyTop) + Int(round(Double(aspect.fontSize) * 1.08)))
+        let midBandY0 = max(0, Int(cyTop) - Int(round(Double(aspect.fontSize) * 1.16)))
+        let midBandY1 = min(height, Int(cyTop) + Int(round(Double(aspect.fontSize) * 1.16)))
         let hudBandY0 = max(0, Int(barTopY) - 44)
         let hudBandY1 = min(height, Int(barTopY) + 68)
+
+        let yPlaneBytes = width * height
+        let uvStride = width / 2
+        let uvPlaneBytes = uvStride * (height / 2)
+        let totalYUVBytes = yPlaneBytes + 2 * uvPlaneBytes
+        let useFFmpegYUVPipe = (ffmpegPath != nil) && (width % 2 == 0) && (height % 2 == 0)
+
+        let yuvBgBuf = UnsafeMutableRawPointer.allocate(byteCount: useFFmpegYUVPipe ? totalYUVBytes : 64, alignment: 64)
+        let yuvCardBuf = UnsafeMutableRawPointer.allocate(byteCount: useFFmpegYUVPipe ? totalYUVBytes : 64, alignment: 64)
+        let yuvWorkBuf = UnsafeMutableRawPointer.allocate(byteCount: useFFmpegYUVPipe ? totalYUVBytes : 64, alignment: 64)
+        defer {
+            yuvBgBuf.deallocate()
+            yuvCardBuf.deallocate()
+            yuvWorkBuf.deallocate()
+        }
+
+        func convertBGRABandToYUV420p(from srcBGRA: UnsafeRawPointer, to dstYUV: UnsafeMutableRawPointer, y0: Int, y1: Int) {
+            let ey0 = max(0, y0 & ~1)
+            let ey1 = min(height, (y1 + 1) & ~1)
+            guard ey1 > ey0 else { return }
+            let bgraPtr = srcBGRA.assumingMemoryBound(to: UInt8.self)
+            let yPtr = dstYUV.assumingMemoryBound(to: UInt8.self)
+            let uPtr = yPtr + yPlaneBytes
+            let vPtr = uPtr + uvPlaneBytes
+
+            var row = ey0
+            while row < ey1 {
+                let srcRow0 = bgraPtr + row * stride
+                let srcRow1 = srcRow0 + stride
+                let dstY0 = yPtr + row * width
+                let dstY1 = dstY0 + width
+                let uvRowOffset = (row >> 1) * uvStride
+                let dstU = uPtr + uvRowOffset
+                let dstV = vPtr + uvRowOffset
+
+                var col = 0
+                var uvCol = 0
+                while col < width {
+                    let p00 = srcRow0 + (col << 2)
+                    let p01 = p00 + 4
+                    let p10 = srcRow1 + (col << 2)
+                    let p11 = p10 + 4
+
+                    let b00 = Int(p00[0]), g00 = Int(p00[1]), r00 = Int(p00[2])
+                    let b01 = Int(p01[0]), g01 = Int(p01[1]), r01 = Int(p01[2])
+                    let b10 = Int(p10[0]), g10 = Int(p10[1]), r10 = Int(p10[2])
+                    let b11 = Int(p11[0]), g11 = Int(p11[1]), r11 = Int(p11[2])
+
+                    dstY0[col]     = UInt8(truncatingIfNeeded: 16 + ((47 * r00 + 157 * g00 + 16 * b00 + 128) >> 8))
+                    dstY0[col + 1] = UInt8(truncatingIfNeeded: 16 + ((47 * r01 + 157 * g01 + 16 * b01 + 128) >> 8))
+                    dstY1[col]     = UInt8(truncatingIfNeeded: 16 + ((47 * r10 + 157 * g10 + 16 * b10 + 128) >> 8))
+                    dstY1[col + 1] = UInt8(truncatingIfNeeded: 16 + ((47 * r11 + 157 * g11 + 16 * b11 + 128) >> 8))
+
+                    let rSum = r00 + r01 + r10 + r11
+                    let gSum = g00 + g01 + g10 + g11
+                    let bSum = b00 + b01 + b10 + b11
+
+                    let cb = 128 + ((-26 * rSum - 87 * gSum + 113 * bSum + 512) >> 10)
+                    let cr = 128 + ((113 * rSum - 103 * gSum - 10 * bSum + 512) >> 10)
+                    dstU[uvCol] = UInt8(min(240, max(16, cb)))
+                    dstV[uvCol] = UInt8(min(240, max(16, cr)))
+
+                    col += 2
+                    uvCol += 1
+                }
+                row += 2
+            }
+        }
+
+        func copyYUV420pBand(from srcYUV: UnsafeRawPointer, to dstYUV: UnsafeMutableRawPointer, y0: Int, y1: Int) {
+            let ey0 = max(0, y0 & ~1)
+            let ey1 = min(height, (y1 + 1) & ~1)
+            guard ey1 > ey0 else { return }
+            let rows = ey1 - ey0
+            memcpy(dstYUV + ey0 * width, srcYUV + ey0 * width, rows * width)
+            let uvStart = (ey0 >> 1) * uvStride
+            let uvCount = (rows >> 1) * uvStride
+            memcpy(dstYUV + yPlaneBytes + uvStart, srcYUV + yPlaneBytes + uvStart, uvCount)
+            memcpy(dstYUV + yPlaneBytes + uvPlaneBytes + uvStart, srcYUV + yPlaneBytes + uvPlaneBytes + uvStart, uvCount)
+        }
 
         func copyRows(from src: UnsafeRawPointer, to dst: UnsafeMutableRawPointer, y0: Int, y1: Int) {
             guard y1 > y0 else { return }
@@ -7479,6 +7627,7 @@ enum ReadAlongVideoExporter {
             memcpy(dst + startByte, src + startByte, byteCount)
         }
 
+        var yuvInitialized = false
         func renderHeaderPill(chapterIdx: Int) {
             if headerBandY1 > headerBandY0 {
                 memcpy(rawBuf + headerBandY0 * stride, headerCleanBand, (headerBandY1 - headerBandY0) * stride)
@@ -7524,54 +7673,137 @@ enum ReadAlongVideoExporter {
             ctx.flush()
             copyRows(from: rawBuf, to: bgCopy, y0: headerBandY0, y1: headerBandY1)
             copyRows(from: rawBuf, to: cueCardCopy, y0: headerBandY0, y1: headerBandY1)
+            if useFFmpegYUVPipe && yuvInitialized {
+                convertBGRABandToYUV420p(from: rawBuf, to: yuvBgBuf, y0: headerBandY0, y1: headerBandY1)
+                copyYUV420pBand(from: yuvBgBuf, to: yuvCardBuf, y0: headerBandY0, y1: headerBandY1)
+                copyYUV420pBand(from: yuvBgBuf, to: yuvWorkBuf, y0: headerBandY0, y1: headerBandY1)
+            }
         }
 
-        renderHeaderPill(chapterIdx: 0)
+        var renderedChapterIdx = 0
+        if spec.startSlideIdx < slides.count && normalizedChapters.count > 1 {
+            let firstSlide = slides[spec.startSlideIdx]
+            let firstCueIdx = max(0, min(max(0, cues.count - 1), firstSlide.cueIndex))
+            let firstCue: ReadAlongCue? = cues.isEmpty ? nil : cues[firstCueIdx]
+            let cueSec = Double(firstCue?.startMs ?? firstSlide.startMs) / 1000.0
+            renderedChapterIdx = normalizedChapters.lastIndex(where: { cueSec + 0.04 >= $0.startSec }) ?? 0
+        }
+        renderHeaderPill(chapterIdx: renderedChapterIdx)
+        if useFFmpegYUVPipe {
+            convertBGRABandToYUV420p(from: rawBuf, to: yuvBgBuf, y0: 0, y1: height)
+            memcpy(yuvCardBuf, yuvBgBuf, totalYUVBytes)
+            memcpy(yuvWorkBuf, yuvBgBuf, totalYUVBytes)
+            yuvInitialized = true
+        }
 
-        // Prepare Hardware VideoToolbox H.264 AVAssetWriter (B-frame reordering disabled -> `has_b_frames=0` for QuickTime VFR & 2.5x speed)
-        let videoFPS = 25
-        let writer = try AVAssetWriter(outputURL: tempVideoURL, fileType: .mp4)
-        writer.shouldOptimizeForNetworkUse = true
-        let videoSettings: [String: Any] = [
-            AVVideoCodecKey: AVVideoCodecType.h264,
-            AVVideoWidthKey: width,
-            AVVideoHeightKey: height,
-            AVVideoColorPropertiesKey: [
-                AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2,
-                AVVideoTransferFunctionKey: AVVideoTransferFunction_ITU_R_709_2,
-                AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2
-            ],
-            AVVideoCompressionPropertiesKey: [
-                AVVideoAverageBitRateKey: width >= 1920 ? 2_800_000 : 2_000_000,
-                AVVideoProfileLevelKey: AVVideoProfileLevelH264MainAutoLevel,
-                AVVideoAllowFrameReorderingKey: false,
-                AVVideoExpectedSourceFrameRateKey: videoFPS,
-                AVVideoMaxKeyFrameIntervalKey: videoFPS * 2
-            ]
-        ]
-        let videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
-        videoInput.expectsMediaDataInRealTime = false
-
+        let rawCFRShardURL = spec.outputURL.deletingLastPathComponent()
+            .appendingPathComponent("raw_cfr_\(spec.shardIndex).mp4")
+        var pipeProc: Process? = nil
+        var pipeWriteFD: Int32 = -1
+        var writer: AVAssetWriter? = nil
+        var videoInput: AVAssetWriterInput? = nil
+        var adaptor: AVAssetWriterInputPixelBufferAdaptor? = nil
         let sourcePixelAttrs: [String: Any] = [
             kCVPixelBufferPixelFormatTypeKey as String: Int(kCVPixelFormatType_32BGRA),
             kCVPixelBufferWidthKey as String: width,
             kCVPixelBufferHeightKey as String: height
         ]
-        let adaptor = AVAssetWriterInputPixelBufferAdaptor(
-            assetWriterInput: videoInput,
-            sourcePixelBufferAttributes: sourcePixelAttrs
-        )
-        guard writer.canAdd(videoInput) else {
-            audioGroup.wait()
-            return false
-        }
-        writer.add(videoInput)
+        let hwTimescale: CMTimeScale = (1000 % max(1, videoFPS) == 0) ? 1000 : CMTimeScale(videoFPS * 100)
+        let hwMult: Int64 = (1000 % max(1, videoFPS) == 0) ? Int64(1000 / max(1, videoFPS)) : 100
 
-        guard writer.startWriting() else {
-            audioGroup.wait()
-            return false
+        if useFFmpegYUVPipe, let ffExe = ffmpegPath {
+            try? FileManager.default.removeItem(at: rawCFRShardURL)
+            var fds: [Int32] = [-1, -1]
+            if Darwin.pipe(&fds) == 0 {
+                let readFD = fds[0]
+                let writeFD = fds[1]
+                _ = fcntl(writeFD, F_SETNOSIGPIPE, 1)
+                let proc = Process()
+                proc.executableURL = URL(fileURLWithPath: ffExe)
+                let isLongBook = totalDurationMs > 180_000
+                let x264Threads = totalShards >= 6 ? "1" : "2"
+                proc.arguments = [
+                    "-hide_banner", "-nostdin", "-loglevel", "error", "-y",
+                    "-f", "rawvideo",
+                    "-pix_fmt", "yuv420p",
+                    "-s", "\(width)x\(height)",
+                    "-color_range", "tv",
+                    "-colorspace", "bt709",
+                    "-color_primaries", "bt709",
+                    "-color_trc", "bt709",
+                    "-r", "\(videoFPS)",
+                    "-i", "pipe:0",
+                    "-c:v", "libx264",
+                    "-preset", "ultrafast",
+                    "-tune", "stillimage",
+                    "-crf", isLongBook ? "24" : "21",
+                    "-bf", "0",
+                    "-g", "\(videoFPS * 10)",
+                    "-sc_threshold", "0",
+                    "-pix_fmt", "yuv420p",
+                    "-colorspace", "bt709",
+                    "-color_primaries", "bt709",
+                    "-color_trc", "bt709",
+                    "-color_range", "tv",
+                    "-threads", x264Threads,
+                    "-video_track_timescale", "1000",
+                    "-an",
+                    rawCFRShardURL.path
+                ]
+                let readHandle = FileHandle(fileDescriptor: readFD, closeOnDealloc: false)
+                proc.standardInput = readHandle
+                proc.standardOutput = FileHandle.nullDevice
+                proc.standardError = FileHandle.nullDevice
+                do {
+                    try proc.run()
+                    Darwin.close(readFD)
+                    pipeProc = proc
+                    pipeWriteFD = writeFD
+                } catch {
+                    Darwin.close(readFD)
+                    Darwin.close(writeFD)
+                }
+            }
         }
-        writer.startSession(atSourceTime: .zero)
+
+        if pipeProc == nil {
+            guard let hwWriter = try? AVAssetWriter(outputURL: spec.outputURL, fileType: .mp4) else {
+                return false
+            }
+            hwWriter.movieTimeScale = hwTimescale
+            hwWriter.shouldOptimizeForNetworkUse = false
+            let videoSettings: [String: Any] = [
+                AVVideoCodecKey: AVVideoCodecType.h264,
+                AVVideoWidthKey: width,
+                AVVideoHeightKey: height,
+                AVVideoColorPropertiesKey: [
+                    AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2,
+                    AVVideoTransferFunctionKey: AVVideoTransferFunction_ITU_R_709_2,
+                    AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2
+                ],
+                AVVideoCompressionPropertiesKey: [
+                    AVVideoAverageBitRateKey: targetBitRate,
+                    AVVideoProfileLevelKey: AVVideoProfileLevelH264MainAutoLevel,
+                    AVVideoAllowFrameReorderingKey: false,
+                    AVVideoExpectedSourceFrameRateKey: videoFPS,
+                    AVVideoMaxKeyFrameIntervalKey: videoFPS * 2
+                ]
+            ]
+            let vIn = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
+            vIn.expectsMediaDataInRealTime = false
+            vIn.mediaTimeScale = hwTimescale
+            let adp = AVAssetWriterInputPixelBufferAdaptor(
+                assetWriterInput: vIn,
+                sourcePixelBufferAttributes: sourcePixelAttrs
+            )
+            guard hwWriter.canAdd(vIn) else { return false }
+            hwWriter.add(vIn)
+            guard hwWriter.startWriting() else { return false }
+            hwWriter.startSession(atSourceTime: .zero)
+            writer = hwWriter
+            videoInput = vIn
+            adaptor = adp
+        }
 
         let totalCues = max(1, cues.count)
         let totClock = formatSecClock(Double(totalDurationMs) / 1000.0)
@@ -7585,11 +7817,10 @@ enum ReadAlongVideoExporter {
         ]
         hudAttrs[NSAttributedString.Key(kCTForegroundColorAttributeName as String)] = hudCGColor
 
-        let waveBarCount = 24
-        let waveBins = WaveformEnvelopeCache.envelope(for: sourceWAV, barCount: waveBarCount)
+        let waveBarCount = waveBins.count
         let waveBarW: CGFloat = 6.0
         let waveBarGap: CGFloat = 5.0
-        let waveTotalW = CGFloat(waveBarCount) * waveBarW + CGFloat(waveBarCount - 1) * waveBarGap
+        let waveTotalW = CGFloat(waveBarCount) * waveBarW + CGFloat(max(0, waveBarCount - 1)) * waveBarGap
         let waveStartX = round(cx - waveTotalW * 0.5)
         let waveCenterTopY = barTopY - 22.0
         let qyCenter = CGFloat(height) - cyTop
@@ -7605,10 +7836,33 @@ enum ReadAlongVideoExporter {
         var cueWordSpokenLines: [CTLine] = []
         var cueWordUpcomingLines: [CTLine] = []
 
-        func appendCurrentFrame(atFrameIdx frameIdx: Int) -> Bool {
+        var localStartFrames: [Int] = []
+        localStartFrames.reserveCapacity(max(4, spec.endSlideIdx - spec.startSlideIdx + 2))
+
+        func appendCurrentFrame(atLocalFrameIdx localFrameIdx: Int) -> Bool {
+            if pipeProc != nil && pipeWriteFD >= 0 {
+                convertBGRABandToYUV420p(from: rawBuf, to: yuvWorkBuf, y0: midBandY0, y1: midBandY1)
+                convertBGRABandToYUV420p(from: rawBuf, to: yuvWorkBuf, y0: hudBandY0, y1: hudBandY1)
+                var written = 0
+                let basePtr = yuvWorkBuf.assumingMemoryBound(to: UInt8.self)
+                while written < totalYUVBytes {
+                    let n = Darwin.write(pipeWriteFD, basePtr + written, totalYUVBytes - written)
+                    if n <= 0 {
+                        if errno == EINTR { continue }
+                        return false
+                    }
+                    written += n
+                }
+                localStartFrames.append(max(0, localFrameIdx))
+                return true
+            }
+
+            guard let hwWriter = writer, let vIn = videoInput, let adp = adaptor else {
+                return false
+            }
             var waitTicks = 0
-            while !videoInput.isReadyForMoreMediaData {
-                if writer.status == .failed || writer.status == .cancelled {
+            while !vIn.isReadyForMoreMediaData {
+                if hwWriter.status == .failed || hwWriter.status == .cancelled {
                     return false
                 }
                 usleep(80)
@@ -7618,7 +7872,7 @@ enum ReadAlongVideoExporter {
                 }
             }
             var pixelBufferOut: CVPixelBuffer? = nil
-            if let pool = adaptor.pixelBufferPool {
+            if let pool = adp.pixelBufferPool {
                 CVPixelBufferPoolCreatePixelBuffer(nil, pool, &pixelBufferOut)
             }
             if pixelBufferOut == nil {
@@ -7644,16 +7898,15 @@ enum ReadAlongVideoExporter {
                 }
             }
             CVPixelBufferUnlockBaseAddress(pb, [])
-            let pts = CMTime(value: Int64(max(0, frameIdx)), timescale: CMTimeScale(videoFPS))
-            return adaptor.append(pb, withPresentationTime: pts)
+            let pts = CMTime(value: Int64(max(0, localFrameIdx)) * hwMult, timescale: hwTimescale)
+            return adp.append(pb, withPresentationTime: pts)
         }
 
-        var lastAppendedFrame = -1
-        var renderedChapterIdx = 0
+        var lastLocalFrame = -1
         var slideAppendFailed = false
-        let totalSlidesCount = max(1, slides.count)
+        var localBatchCount = 0
 
-        for idx in 0..<slides.count {
+        for idx in spec.startSlideIdx..<spec.endSlideIdx {
             autoreleasepool {
                 let slide = slides[idx]
                 let cueIdx = max(0, min(totalCues - 1, slide.cueIndex))
@@ -7665,282 +7918,547 @@ enum ReadAlongVideoExporter {
                     if activeCh != renderedChapterIdx {
                         renderedChapterIdx = activeCh
                         renderHeaderPill(chapterIdx: activeCh)
+                        renderedCueIdx = -1
                     }
                 }
 
-                // Level 1: Re-render context lines (`prevCue` & `nextCue`) and pre-build all 3 colored CTLines per word ONLY when `cueIdx` changes
                 if cueIdx != renderedCueIdx {
                     renderedCueIdx = cueIdx
                     copyRows(from: bgCopy, to: rawBuf, y0: cardBandY0, y1: cardBandY1)
 
-                let prevCue: ReadAlongCue? = (cueIdx > 0 && cueIdx - 1 < cues.count) ? cues[cueIdx - 1] : nil
-                let nextCue: ReadAlongCue? = (cueIdx + 1 < cues.count) ? cues[cueIdx + 1] : nil
+                    let prevCue: ReadAlongCue? = (cueIdx > 0 && cueIdx - 1 < cues.count) ? cues[cueIdx - 1] : nil
+                    let nextCue: ReadAlongCue? = (cueIdx + 1 < cues.count) ? cues[cueIdx + 1] : nil
 
-                func fitContextFontPx(_ txt: String) -> CGFloat {
-                    let basePx = CGFloat(aspect.contextFontSize) * 0.78
-                    let info = makeCTLine(txt, fontSize: basePx, weight: .medium, color: pal.contextText, alpha: 0.78)
-                    let maxW = cardW - 100.0
-                    let sc = min(1.0, maxW / max(1.0, info.width))
-                    return max(15.0, round(basePx * sc))
-                }
-
-                if let prevCue {
-                    let px = fitContextFontPx(prevCue.text)
-                    drawCenteredText(
-                        prevCue.text,
-                        centerX: cx,
-                        centerTopY: prevTopY,
-                        fontSize: px,
-                        weight: .medium,
-                        color: pal.contextText,
-                        alpha: 0.78
-                    )
-                }
-                if let nextCue {
-                    let px = fitContextFontPx(nextCue.text)
-                    drawCenteredText(
-                        nextCue.text,
-                        centerX: cx,
-                        centerTopY: nextTopY,
-                        fontSize: px,
-                        weight: .medium,
-                        color: pal.contextText,
-                        alpha: 0.78
-                    )
-                }
-                ctx.flush()
-                copyRows(from: rawBuf, to: cueCardCopy, y0: cardBandY0, y1: cardBandY1)
-
-                cueWordStrings.removeAll(keepingCapacity: true)
-                cueWordWidths.removeAll(keepingCapacity: true)
-                cueWordHeights.removeAll(keepingCapacity: true)
-                cueWordXs.removeAll(keepingCapacity: true)
-                cueWordBaselineYs.removeAll(keepingCapacity: true)
-                cueWordActiveLines.removeAll(keepingCapacity: true)
-                cueWordSpokenLines.removeAll(keepingCapacity: true)
-                cueWordUpcomingLines.removeAll(keepingCapacity: true)
-
-                if let cue, !cue.words.isEmpty {
-                    let maxLineW = cardW - CGFloat(aspect.fontSize) * 1.8
-                    cueFontPx = max(20.0, round(CGFloat(aspect.fontSize) * 0.78))
-                    var ascents: [CGFloat] = []
-                    var descents: [CGFloat] = []
-
-                    for wObj in cue.words {
-                        cueWordStrings.append(wObj.word)
-                        let info = makeCTLine(wObj.word, fontSize: cueFontPx, weight: .bold, color: pal.upcomingText)
-                        cueWordWidths.append(info.width)
-                        cueWordHeights.append(info.height)
-                        ascents.append(info.ascent)
-                        descents.append(info.descent)
+                    func fitContextFontPx(_ txt: String) -> CGFloat {
+                        let basePx = CGFloat(aspect.contextFontSize) * 0.78
+                        let info = makeCTLine(txt, fontSize: basePx, weight: .medium, color: pal.contextText, alpha: 0.78)
+                        let maxW = cardW - 100.0
+                        let sc = min(1.0, maxW / max(1.0, info.width))
+                        return max(15.0, round(basePx * sc))
                     }
-                    var gap = max(10.0, round(cueFontPx * 0.40))
-                    var totalW = cueWordWidths.reduce(0, +) + gap * CGFloat(max(0, cue.words.count - 1))
-                    if totalW > maxLineW {
-                        let shrink = maxLineW / max(1.0, totalW)
-                        cueFontPx = max(18.0, floor(cueFontPx * shrink))
-                        gap = max(8.0, round(cueFontPx * 0.38))
-                        cueWordWidths.removeAll(keepingCapacity: true)
-                        cueWordHeights.removeAll(keepingCapacity: true)
-                        ascents.removeAll(keepingCapacity: true)
-                        descents.removeAll(keepingCapacity: true)
-                        for wordStr in cueWordStrings {
-                            let info = makeCTLine(wordStr, fontSize: cueFontPx, weight: .bold, color: pal.upcomingText)
+
+                    if let prevCue {
+                        let px = fitContextFontPx(prevCue.text)
+                        drawCenteredText(
+                            prevCue.text,
+                            centerX: cx,
+                            centerTopY: prevTopY,
+                            fontSize: px,
+                            weight: .medium,
+                            color: pal.contextText,
+                            alpha: 0.78
+                        )
+                    }
+                    if let nextCue {
+                        let px = fitContextFontPx(nextCue.text)
+                        drawCenteredText(
+                            nextCue.text,
+                            centerX: cx,
+                            centerTopY: nextTopY,
+                            fontSize: px,
+                            weight: .medium,
+                            color: pal.contextText,
+                            alpha: 0.78
+                        )
+                    }
+                    ctx.flush()
+                    copyRows(from: rawBuf, to: cueCardCopy, y0: cardBandY0, y1: cardBandY1)
+                    if pipeProc != nil {
+                        convertBGRABandToYUV420p(from: rawBuf, to: yuvCardBuf, y0: cardBandY0, y1: cardBandY1)
+                        copyYUV420pBand(from: yuvCardBuf, to: yuvWorkBuf, y0: cardBandY0, y1: cardBandY1)
+                    }
+
+                    cueWordStrings.removeAll(keepingCapacity: true)
+                    cueWordWidths.removeAll(keepingCapacity: true)
+                    cueWordHeights.removeAll(keepingCapacity: true)
+                    cueWordXs.removeAll(keepingCapacity: true)
+                    cueWordBaselineYs.removeAll(keepingCapacity: true)
+                    cueWordActiveLines.removeAll(keepingCapacity: true)
+                    cueWordSpokenLines.removeAll(keepingCapacity: true)
+                    cueWordUpcomingLines.removeAll(keepingCapacity: true)
+
+                    if let cue, !cue.words.isEmpty {
+                        let maxLineW = cardW - CGFloat(aspect.fontSize) * 1.8
+                        cueFontPx = max(20.0, round(CGFloat(aspect.fontSize) * 0.78))
+                        var ascents: [CGFloat] = []
+                        var descents: [CGFloat] = []
+
+                        for wObj in cue.words {
+                            cueWordStrings.append(wObj.word)
+                            let info = makeCTLine(wObj.word, fontSize: cueFontPx, weight: .bold, color: pal.upcomingText)
                             cueWordWidths.append(info.width)
                             cueWordHeights.append(info.height)
                             ascents.append(info.ascent)
                             descents.append(info.descent)
                         }
-                        totalW = cueWordWidths.reduce(0, +) + gap * CGFloat(max(0, cue.words.count - 1))
+                        var gap = max(10.0, round(cueFontPx * 0.40))
+                        var totalW = cueWordWidths.reduce(0, +) + gap * CGFloat(max(0, cue.words.count - 1))
+                        if totalW > maxLineW {
+                            let shrink = maxLineW / max(1.0, totalW)
+                            cueFontPx = max(18.0, floor(cueFontPx * shrink))
+                            gap = max(8.0, round(cueFontPx * 0.38))
+                            cueWordWidths.removeAll(keepingCapacity: true)
+                            cueWordHeights.removeAll(keepingCapacity: true)
+                            ascents.removeAll(keepingCapacity: true)
+                            descents.removeAll(keepingCapacity: true)
+                            for wordStr in cueWordStrings {
+                                let info = makeCTLine(wordStr, fontSize: cueFontPx, weight: .bold, color: pal.upcomingText)
+                                cueWordWidths.append(info.width)
+                                cueWordHeights.append(info.height)
+                                ascents.append(info.ascent)
+                                descents.append(info.descent)
+                            }
+                            totalW = cueWordWidths.reduce(0, +) + gap * CGFloat(max(0, cue.words.count - 1))
+                        }
+                        var curX = round(cx - totalW * 0.5)
+                        for i in 0..<cueWordStrings.count {
+                            let wordStr = cueWordStrings[i]
+                            cueWordXs.append(curX)
+                            cueWordBaselineYs.append(round(qyCenter - (ascents[i] - descents[i]) * 0.5))
+                            cueWordActiveLines.append(makeCTLine(wordStr, fontSize: cueFontPx, weight: .bold, color: pal.accent, alpha: 1.0).line)
+                            cueWordSpokenLines.append(makeCTLine(wordStr, fontSize: cueFontPx, weight: .bold, color: pal.spokenText, alpha: 1.0).line)
+                            cueWordUpcomingLines.append(makeCTLine(wordStr, fontSize: cueFontPx, weight: .bold, color: pal.upcomingText, alpha: 1.0).line)
+                            curX += cueWordWidths[i] + gap
+                        }
                     }
-                    var curX = round(cx - totalW * 0.5)
-                    for i in 0..<cueWordStrings.count {
-                        let wordStr = cueWordStrings[i]
-                        cueWordXs.append(curX)
-                        cueWordBaselineYs.append(round(qyCenter - (ascents[i] - descents[i]) * 0.5))
-                        cueWordActiveLines.append(makeCTLine(wordStr, fontSize: cueFontPx, weight: .bold, color: pal.accent, alpha: 1.0).line)
-                        cueWordSpokenLines.append(makeCTLine(wordStr, fontSize: cueFontPx, weight: .bold, color: pal.spokenText, alpha: 1.0).line)
-                        cueWordUpcomingLines.append(makeCTLine(wordStr, fontSize: cueFontPx, weight: .bold, color: pal.upcomingText, alpha: 1.0).line)
-                        curX += cueWordWidths[i] + gap
-                    }
+                } else {
+                    copyRows(from: cueCardCopy, to: rawBuf, y0: midBandY0, y1: midBandY1)
                 }
-            } else {
-                // Level 2: Restore only the ~110px active word band from `cueCardCopy`
-                copyRows(from: cueCardCopy, to: rawBuf, y0: midBandY0, y1: midBandY1)
-            }
 
-            // Restore the ~68px HUD + waveform band from `bgCopy`
-            copyRows(from: bgCopy, to: rawBuf, y0: hudBandY0, y1: hudBandY1)
+                copyRows(from: bgCopy, to: rawBuf, y0: hudBandY0, y1: hudBandY1)
 
-            if !cueWordActiveLines.isEmpty {
-                let activeIdx = slide.activeWordInCue
-                let spokenLimit = slide.spokenWordsInCue
+                if !cueWordActiveLines.isEmpty {
+                    let activeIdx = slide.activeWordInCue
+                    let spokenLimit = slide.spokenWordsInCue
 
-                if activeIdx >= 0 && activeIdx < cueWordActiveLines.count {
-                    let wx = cueWordXs[activeIdx]
-                    let ww = cueWordWidths[activeIdx]
-                    let wh = cueWordHeights[activeIdx]
-                    let padX = max(8.0, round(cueFontPx * 0.28))
-                    let pillW = ww + padX * 2.0
-                    let pillH = round(wh * 1.28)
-                    fillAndStrokeRoundedRect(
-                        x: wx - padX,
-                        topY: round(cyTop - pillH * 0.5),
-                        w: pillW,
-                        h: pillH,
-                        radius: round(pillH * 0.30),
-                        fill: pal.accent,
-                        fillAlpha: 0.24,
-                        stroke: pal.accent,
-                        strokeAlpha: 1.0,
-                        lineWidth: 2.5
-                    )
+                    if activeIdx >= 0 && activeIdx < cueWordActiveLines.count {
+                        let wx = cueWordXs[activeIdx]
+                        let ww = cueWordWidths[activeIdx]
+                        let wh = cueWordHeights[activeIdx]
+                        let padX = max(8.0, round(cueFontPx * 0.28))
+                        let pillW = ww + padX * 2.0
+                        let pillH = round(wh * 1.28)
+                        fillAndStrokeRoundedRect(
+                            x: wx - padX,
+                            topY: round(cyTop - pillH * 0.5),
+                            w: pillW,
+                            h: pillH,
+                            radius: round(pillH * 0.30),
+                            fill: pal.accent,
+                            fillAlpha: 0.24,
+                            stroke: pal.accent,
+                            strokeAlpha: 1.0,
+                            lineWidth: 2.5
+                        )
+                    }
+
+                    ctx.saveGState()
+                    ctx.textMatrix = .identity
+                    for i in 0..<cueWordActiveLines.count {
+                        let line: CTLine
+                        if i == activeIdx {
+                            line = cueWordActiveLines[i]
+                        } else if i < spokenLimit {
+                            line = cueWordSpokenLines[i]
+                        } else {
+                            line = cueWordUpcomingLines[i]
+                        }
+                        ctx.textPosition = CGPoint(x: cueWordXs[i], y: cueWordBaselineYs[i])
+                        CTLineDraw(line, ctx)
+                    }
+                    ctx.restoreGState()
+                }
+
+                let progressRatio = min(1.0, max(0.0, Double(slide.endMs) / Double(max(1, totalDurationMs))))
+                let isSpeakingSlide = slide.activeWordInCue >= 0
+                let activeWavePath = CGMutablePath()
+                let upcomingWavePath = CGMutablePath()
+
+                for b in 0..<waveBarCount {
+                    let barRatio = Double(b) / Double(max(1, waveBarCount - 1))
+                    let centerBell = 0.58 + 0.42 * sin(barRatio * .pi)
+                    let normH: Double
+                    if isSpeakingSlide {
+                        let phase = Double(slide.slideIndex) * 0.68 + Double(b) * 0.46 + Double(slide.activeWordInCue) * 0.37
+                        let pulse = 0.52 + 0.48 * abs(sin(phase))
+                        let harmonic = 0.78 + 0.22 * cos(Double(slide.slideIndex) * 0.31 - Double(b) * 0.62)
+                        normH = min(1.0, max(0.18, Double(waveBins[b]) * pulse * harmonic * centerBell))
+                    } else {
+                        normH = 0.16 + 0.10 * centerBell
+                    }
+                    let bh = round(4.0 + CGFloat(normH) * 22.0)
+                    let bx = waveStartX + CGFloat(b) * (waveBarW + waveBarGap)
+                    let bTopY = round(waveCenterTopY - bh * 0.5)
+                    let qRect = quartzRect(x: bx, topY: bTopY, w: waveBarW, h: bh)
+                    let radius = min(3.0, waveBarW * 0.5, bh * 0.5)
+                    if barRatio <= progressRatio || (isSpeakingSlide && abs(barRatio - progressRatio) <= 0.08) {
+                        activeWavePath.addRoundedRect(in: qRect, cornerWidth: radius, cornerHeight: radius)
+                    } else {
+                        upcomingWavePath.addRoundedRect(in: qRect, cornerWidth: radius, cornerHeight: radius)
+                    }
                 }
 
                 ctx.saveGState()
-                ctx.textMatrix = .identity
-                for i in 0..<cueWordActiveLines.count {
-                    let line: CTLine
-                    if i == activeIdx {
-                        line = cueWordActiveLines[i]
-                    } else if i < spokenLimit {
-                        line = cueWordSpokenLines[i]
-                    } else {
-                        line = cueWordUpcomingLines[i]
-                    }
-                    ctx.textPosition = CGPoint(x: cueWordXs[i], y: cueWordBaselineYs[i])
-                    CTLineDraw(line, ctx)
+                if !activeWavePath.isEmpty {
+                    ctx.addPath(activeWavePath)
+                    ctx.setFillColor(
+                        red: pal.accent.0,
+                        green: pal.accent.1,
+                        blue: pal.accent.2,
+                        alpha: isSpeakingSlide ? 0.92 : 0.55
+                    )
+                    ctx.fillPath()
+                }
+                if !upcomingWavePath.isEmpty {
+                    ctx.addPath(upcomingWavePath)
+                    ctx.setFillColor(
+                        red: pal.spokenText.0,
+                        green: pal.spokenText.1,
+                        blue: pal.spokenText.2,
+                        alpha: 0.28
+                    )
+                    ctx.fillPath()
                 }
                 ctx.restoreGState()
-            }
 
-            let progressRatio = min(1.0, max(0.0, Double(slide.endMs) / Double(max(1, totalDurationMs))))
-            let isSpeakingSlide = slide.activeWordInCue >= 0
-            let activeWavePath = CGMutablePath()
-            let upcomingWavePath = CGMutablePath()
-
-            for b in 0..<waveBarCount {
-                let barRatio = Double(b) / Double(max(1, waveBarCount - 1))
-                let centerBell = 0.58 + 0.42 * sin(barRatio * .pi)
-                let normH: Double
-                if isSpeakingSlide {
-                    let phase = Double(slide.slideIndex) * 0.68 + Double(b) * 0.46 + Double(slide.activeWordInCue) * 0.37
-                    let pulse = 0.52 + 0.48 * abs(sin(phase))
-                    let harmonic = 0.78 + 0.22 * cos(Double(slide.slideIndex) * 0.31 - Double(b) * 0.62)
-                    normH = min(1.0, max(0.18, Double(waveBins[b]) * pulse * harmonic * centerBell))
-                } else {
-                    normH = 0.16 + 0.10 * centerBell
-                }
-                let bh = round(4.0 + CGFloat(normH) * 22.0)
-                let bx = waveStartX + CGFloat(b) * (waveBarW + waveBarGap)
-                let bTopY = round(waveCenterTopY - bh * 0.5)
-                let qRect = quartzRect(x: bx, topY: bTopY, w: waveBarW, h: bh)
-                let radius = min(3.0, waveBarW * 0.5, bh * 0.5)
-                if barRatio <= progressRatio || (isSpeakingSlide && abs(barRatio - progressRatio) <= 0.08) {
-                    activeWavePath.addRoundedRect(in: qRect, cornerWidth: radius, cornerHeight: radius)
-                } else {
-                    upcomingWavePath.addRoundedRect(in: qRect, cornerWidth: radius, cornerHeight: radius)
-                }
-            }
-
-            ctx.saveGState()
-            if !activeWavePath.isEmpty {
-                ctx.addPath(activeWavePath)
-                ctx.setFillColor(
-                    red: pal.accent.0,
-                    green: pal.accent.1,
-                    blue: pal.accent.2,
-                    alpha: isSpeakingSlide ? 0.92 : 0.55
+                let pct = Int(round(progressRatio * 100.0))
+                let fillW = max(8.0, round(barW * CGFloat(progressRatio)))
+                fillAndStrokeRoundedRect(
+                    x: barX,
+                    topY: barTopY,
+                    w: fillW,
+                    h: 12.0,
+                    radius: 6.0,
+                    fill: pal.accent,
+                    fillAlpha: 1.0
                 )
-                ctx.fillPath()
+
+                let curClock = formatSecClock(Double(slide.endMs) / 1000.0)
+                let hudLabel = normalizedChapters.count > 1
+                    ? "Ch \(renderedChapterIdx + 1)/\(normalizedChapters.count)   •   \(pct)%   •   Line \(cueIdx + 1)/\(totalCues)   •   \(curClock) / \(totClock)"
+                    : "\(pct)%   •   Line \(cueIdx + 1) of \(totalCues)   •   \(curClock) / \(totClock)"
+                let hudLine = CTLineCreateWithAttributedString(NSAttributedString(string: hudLabel, attributes: hudAttrs))
+                var hudAsc: CGFloat = 0
+                var hudDesc: CGFloat = 0
+                var hudLead: CGFloat = 0
+                let hudW = CGFloat(CTLineGetTypographicBounds(hudLine, &hudAsc, &hudDesc, &hudLead))
+                let hudBaselineY = (CGFloat(height) - (barTopY + 38.0)) - (hudAsc - hudDesc) * 0.5
+                ctx.saveGState()
+                ctx.textMatrix = .identity
+                ctx.textPosition = CGPoint(x: round(cx - hudW * 0.5), y: round(hudBaselineY))
+                CTLineDraw(hudLine, ctx)
+                ctx.restoreGState()
+
+                ctx.flush()
+
+                let globalFrame = idx < globalSlideStartFrames.count ? globalSlideStartFrames[idx] : spec.shardStartFrame
+                let localFrame = (idx == spec.startSlideIdx)
+                    ? 0
+                    : max(lastLocalFrame + 1, globalFrame - spec.shardStartFrame)
+                if !appendCurrentFrame(atLocalFrameIdx: localFrame) {
+                    slideAppendFailed = true
+                    return
+                }
+                lastLocalFrame = localFrame
+                localBatchCount += 1
+                if localBatchCount >= 48 {
+                    onShardSlidesDone?(localBatchCount)
+                    localBatchCount = 0
+                }
             }
-            if !upcomingWavePath.isEmpty {
-                ctx.addPath(upcomingWavePath)
-                ctx.setFillColor(
-                    red: pal.spokenText.0,
-                    green: pal.spokenText.1,
-                    blue: pal.spokenText.2,
-                    alpha: 0.28
-                )
-                ctx.fillPath()
-            }
-            ctx.restoreGState()
-
-            let pct = Int(round(progressRatio * 100.0))
-            let fillW = max(8.0, round(barW * CGFloat(progressRatio)))
-            fillAndStrokeRoundedRect(
-                x: barX,
-                topY: barTopY,
-                w: fillW,
-                h: 12.0,
-                radius: 6.0,
-                fill: pal.accent,
-                fillAlpha: 1.0
-            )
-
-            let curClock = formatSecClock(Double(slide.endMs) / 1000.0)
-            let hudLabel = normalizedChapters.count > 1
-                ? "Ch \(renderedChapterIdx + 1)/\(normalizedChapters.count)   •   \(pct)%   •   Line \(cueIdx + 1)/\(totalCues)   •   \(curClock) / \(totClock)"
-                : "\(pct)%   •   Line \(cueIdx + 1) of \(totalCues)   •   \(curClock) / \(totClock)"
-            let hudLine = CTLineCreateWithAttributedString(NSAttributedString(string: hudLabel, attributes: hudAttrs))
-            var hudAsc: CGFloat = 0
-            var hudDesc: CGFloat = 0
-            var hudLead: CGFloat = 0
-            let hudW = CGFloat(CTLineGetTypographicBounds(hudLine, &hudAsc, &hudDesc, &hudLead))
-            let hudBaselineY = (CGFloat(height) - (barTopY + 38.0)) - (hudAsc - hudDesc) * 0.5
-            ctx.saveGState()
-            ctx.textMatrix = .identity
-            ctx.textPosition = CGPoint(x: round(cx - hudW * 0.5), y: round(hudBaselineY))
-            CTLineDraw(hudLine, ctx)
-            ctx.restoreGState()
-
-            ctx.flush()
-
-            // Snap slide start onto clean 25fps frame grid (1 frame per slide -> 50% fewer frames & clean 25/1 header)
-            let idealStartFrame = Int(round((Double(slide.startMs) / 1000.0) * Double(videoFPS)))
-            let frameIdx = (idx == 0) ? 0 : max(lastAppendedFrame + 1, idealStartFrame)
-            if !appendCurrentFrame(atFrameIdx: frameIdx) {
-                slideAppendFailed = true
-                return
-            }
-            lastAppendedFrame = frameIdx
-
-            if let onProgress, (idx % 32 == 0 || idx + 1 == totalSlidesCount) {
-                onProgress(idx + 1, totalSlidesCount)
-            }
-            } // end autoreleasepool
             if slideAppendFailed {
-                writer.cancelWriting()
-                audioGroup.wait()
+                if pipeWriteFD >= 0 {
+                    Darwin.close(pipeWriteFD)
+                    pipeWriteFD = -1
+                }
+                if let proc = pipeProc {
+                    proc.terminate()
+                    proc.waitUntilExit()
+                    try? FileManager.default.removeItem(at: rawCFRShardURL)
+                    return renderSingleVideoShard(
+                        spec: spec,
+                        cues: cues,
+                        slides: slides,
+                        globalSlideStartFrames: globalSlideStartFrames,
+                        normalizedChapters: normalizedChapters,
+                        waveBins: waveBins,
+                        theme: theme,
+                        aspect: aspect,
+                        title: title,
+                        voiceName: voiceName,
+                        totalDurationMs: totalDurationMs,
+                        videoFPS: videoFPS,
+                        targetBitRate: targetBitRate,
+                        totalShards: totalShards,
+                        ffmpegPath: nil,
+                        onShardSlidesDone: nil
+                    )
+                }
+                writer?.cancelWriting()
                 return false
             }
         }
 
-        // Append 1 final end-of-video frame at `totalDurationMs` so the final slide holds cleanly through the end of audio
-        let totalFrames = max(lastAppendedFrame + 1, Int(round((Double(totalDurationMs) / 1000.0) * Double(videoFPS))))
-        _ = appendCurrentFrame(atFrameIdx: totalFrames)
-        writer.endSession(atSourceTime: CMTime(value: Int64(totalFrames + 1), timescale: CMTimeScale(videoFPS)))
+        if localBatchCount > 0 {
+            onShardSlidesDone?(localBatchCount)
+        }
 
-        videoInput.markAsFinished()
+        let shardSpanFrames = max(lastLocalFrame + 1, spec.shardEndFrame - spec.shardStartFrame)
+
+        if let proc = pipeProc {
+            if pipeWriteFD >= 0 {
+                Darwin.close(pipeWriteFD)
+                pipeWriteFD = -1
+            }
+            proc.waitUntilExit()
+            defer { try? FileManager.default.removeItem(at: rawCFRShardURL) }
+            if proc.terminationStatus == 0,
+               restampCFRShardToVFR(
+                   rawCFRURL: rawCFRShardURL,
+                   localStartFrames: localStartFrames,
+                   shardSpanFrames: shardSpanFrames,
+                   videoFPS: videoFPS,
+                   to: spec.outputURL
+               ) {
+                return true
+            }
+            return renderSingleVideoShard(
+                spec: spec,
+                cues: cues,
+                slides: slides,
+                globalSlideStartFrames: globalSlideStartFrames,
+                normalizedChapters: normalizedChapters,
+                waveBins: waveBins,
+                theme: theme,
+                aspect: aspect,
+                title: title,
+                voiceName: voiceName,
+                totalDurationMs: totalDurationMs,
+                videoFPS: videoFPS,
+                targetBitRate: targetBitRate,
+                totalShards: totalShards,
+                ffmpegPath: nil,
+                onShardSlidesDone: nil
+            )
+        }
+
+        guard let hwWriter = writer, let vIn = videoInput else { return false }
+        if spec.isLastShard {
+            let finalHoldFrame = max(lastLocalFrame + 1, shardSpanFrames - 1)
+            _ = appendCurrentFrame(atLocalFrameIdx: finalHoldFrame)
+            hwWriter.endSession(atSourceTime: CMTime(value: Int64(finalHoldFrame + 1) * hwMult, timescale: hwTimescale))
+        } else {
+            hwWriter.endSession(atSourceTime: CMTime(value: Int64(shardSpanFrames) * hwMult, timescale: hwTimescale))
+        }
+
+        vIn.markAsFinished()
         let videoSema = DispatchSemaphore(value: 0)
-        writer.finishWriting {
+        hwWriter.finishWriting {
             videoSema.signal()
         }
         videoSema.wait()
-        audioGroup.wait()
 
-        guard writer.status == .completed,
-              FileManager.default.fileExists(atPath: tempVideoURL.path) else {
+        return hwWriter.status == .completed && FileManager.default.fileExists(atPath: spec.outputURL.path)
+    }
+
+    /// Ported from `bun_rad_studio` `fmPhonon.ts` (`renderBurnedInReadAlongVideoParallel` + 3-Level Delta-Band Renderer + lossless `+faststart` muxer):
+    /// Multi-Shard Parallel Hardware VideoToolbox H.264 Encoding (`up to 8 concurrent shards` across Apple Silicon P-cores + Media Engine)
+    /// paired with concurrent `AudioToolbox` AAC encoding and single-pass lossless `ffmpeg` concat + QuickTime `[CHAPTER]` + `+faststart` muxing.
+    private static func renderNative3LevelDeltaBandMP4(
+        sourceWAV: URL,
+        cues: [ReadAlongCue],
+        slides: [ReadAlongVisualSlide],
+        chapters: [M4BChapterMarker] = [],
+        theme: ReadAlongTheme,
+        aspect: ReadAlongVideoAspect,
+        title: String,
+        voiceName: String,
+        totalDurationMs: Int,
+        videoFPS: Int = 25,
+        srtContent: String = "",
+        onProgress: (@Sendable (Int, Int) -> Void)? = nil,
+        to destinationURL: URL
+    ) throws -> Bool {
+        guard !slides.isEmpty else { return false }
+
+        let stageDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("mp4_stage_\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: stageDir, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: stageDir)
+        }
+
+        let tempAudioURL = stageDir.appendingPathComponent("audio_track.m4a")
+        let tempSRTURL = stageDir.appendingPathComponent("subtitles.srt")
+        let tempMetaURL = stageDir.appendingPathComponent("chapters.ffmetadata")
+        let concatListURL = stageDir.appendingPathComponent("video_shards.txt")
+        let stagedMP4URL = stageDir.appendingPathComponent("staged_final.mp4")
+
+        if !srtContent.isEmpty {
+            try? srtContent.write(to: tempSRTURL, atomically: true, encoding: .utf8)
+        }
+
+        let normalizedChapters: [M4BChapterMarker] = chapters.isEmpty
+            ? [M4BChapterMarker(id: 0, title: title, startSec: 0, endSec: max(1.0, Double(totalDurationMs) / 1000.0))]
+            : chapters
+        let ffMetaContent = M4BAudiobookExporter.buildFFMetadataContent(
+            title: title,
+            author: "Codecaine MLX Audio Studio",
+            voiceName: voiceName,
+            genre: "Read-Along Audiobook",
+            mediaType: 9,
+            chapters: normalizedChapters,
+            totalDurationSec: Double(totalDurationMs) / 1000.0
+        )
+        try? ffMetaContent.write(to: tempMetaURL, atomically: true, encoding: .utf8)
+
+        // Encode WAV -> AAC (.m4a) concurrently on a separate core using Apple Silicon AudioToolbox while parallel video shards render
+        let audioGroup = DispatchGroup()
+        nonisolated(unsafe) var audioEncodeSucceeded = false
+        audioGroup.enter()
+        DispatchQueue.global(qos: .userInitiated).async {
+            defer { audioGroup.leave() }
+            do {
+                try AudioFormatExporter.convert(sourceWAV: sourceWAV, to: tempAudioURL, format: .m4a)
+                if let sz = (try? tempAudioURL.resourceValues(forKeys: [.fileSizeKey]).fileSize), sz > 128 {
+                    audioEncodeSucceeded = true
+                }
+            } catch {
+                audioEncodeSucceeded = false
+            }
+        }
+
+        // Precompute exact monotonic global frame index for every slide so N parallel shards join with zero PTS drift
+        var globalSlideStartFrames = Array(repeating: 0, count: slides.count)
+        var prevFrame = -1
+        for i in 0..<slides.count {
+            let ideal = Int(round((Double(slides[i].startMs) / 1000.0) * Double(videoFPS)))
+            let f = (i == 0) ? 0 : max(prevFrame + 1, ideal)
+            globalSlideStartFrames[i] = f
+            prevFrame = f
+        }
+        let totalGlobalFrames = max(prevFrame + 1, Int(round((Double(totalDurationMs) / 1000.0) * Double(videoFPS))))
+
+        let detectedFFmpeg = StudioPackageManager.findExecutable(
+            names: ["ffmpeg"],
+            extraDirs: ["/opt/homebrew/opt/ffmpeg-full/bin", "/usr/local/opt/ffmpeg-full/bin"]
+        )
+        let cpuCores = max(2, ProcessInfo.processInfo.activeProcessorCount)
+        let maxShards = detectedFFmpeg != nil ? 10 : 8
+        let desiredShards = min(maxShards, min(cpuCores, max(1, slides.count / 120)))
+        var shardSpecs: [VideoRenderShardSpec] = []
+        shardSpecs.reserveCapacity(desiredShards)
+
+        for s in 0..<desiredShards {
+            let startIdx = (s * slides.count) / desiredShards
+            let endIdx = ((s + 1) * slides.count) / desiredShards
+            guard endIdx > startIdx else { continue }
+            let isLast = (endIdx == slides.count)
+            let sFrame = (shardSpecs.isEmpty) ? 0 : globalSlideStartFrames[startIdx]
+            let eFrame = isLast ? (totalGlobalFrames + 1) : globalSlideStartFrames[endIdx]
+            let outURL = stageDir.appendingPathComponent(String(format: "video_shard_%02d.mp4", shardSpecs.count))
+            shardSpecs.append(VideoRenderShardSpec(
+                shardIndex: shardSpecs.count,
+                startSlideIdx: startIdx,
+                endSlideIdx: endIdx,
+                shardStartFrame: sFrame,
+                shardEndFrame: max(sFrame + 1, eFrame),
+                isLastShard: isLast,
+                outputURL: outURL
+            ))
+        }
+
+        guard !shardSpecs.isEmpty else {
+            audioGroup.wait()
             return false
         }
 
-        // Losslessly mux H.264 video (`video_only.mp4`) + AudioToolbox AAC audio (`audio_track.m4a`) + QuickTime `[CHAPTER]` markers + `+faststart` (`moov` at byte 0)
+        let waveBins = WaveformEnvelopeCache.envelope(for: sourceWAV, barCount: 24)
+        let isLongForm = totalDurationMs > 180_000
+        let targetBitRate: Int
+        if isLongForm {
+            targetBitRate = aspect.width >= 1920 ? 900_000 : 750_000
+        } else {
+            targetBitRate = aspect.width >= 1920 ? 2_400_000 : 1_800_000
+        }
+
+        let totalSlidesCount = max(1, slides.count)
+        let progressLock = NSLock()
+        nonisolated(unsafe) var completedSlides = 0
+        nonisolated(unsafe) var shardResults = Array(repeating: false, count: shardSpecs.count)
+
+        let reportShardSlides: @Sendable (Int) -> Void = { delta in
+            guard let onProgress else { return }
+            progressLock.lock()
+            completedSlides = min(totalSlidesCount, completedSlides + delta)
+            let snap = completedSlides
+            progressLock.unlock()
+            onProgress(snap, totalSlidesCount)
+        }
+
+        let totalShardCount = shardSpecs.count
+        if shardSpecs.count == 1 {
+            shardResults[0] = renderSingleVideoShard(
+                spec: shardSpecs[0],
+                cues: cues,
+                slides: slides,
+                globalSlideStartFrames: globalSlideStartFrames,
+                normalizedChapters: normalizedChapters,
+                waveBins: waveBins,
+                theme: theme,
+                aspect: aspect,
+                title: title,
+                voiceName: voiceName,
+                totalDurationMs: totalDurationMs,
+                videoFPS: videoFPS,
+                targetBitRate: targetBitRate,
+                totalShards: totalShardCount,
+                ffmpegPath: detectedFFmpeg,
+                onShardSlidesDone: reportShardSlides
+            )
+        } else {
+            DispatchQueue.concurrentPerform(iterations: shardSpecs.count) { sIdx in
+                let ok = renderSingleVideoShard(
+                    spec: shardSpecs[sIdx],
+                    cues: cues,
+                    slides: slides,
+                    globalSlideStartFrames: globalSlideStartFrames,
+                    normalizedChapters: normalizedChapters,
+                    waveBins: waveBins,
+                    theme: theme,
+                    aspect: aspect,
+                    title: title,
+                    voiceName: voiceName,
+                    totalDurationMs: totalDurationMs,
+                    videoFPS: videoFPS,
+                    targetBitRate: targetBitRate,
+                    totalShards: totalShardCount,
+                    ffmpegPath: detectedFFmpeg,
+                    onShardSlidesDone: reportShardSlides
+                )
+                progressLock.lock()
+                shardResults[sIdx] = ok
+                progressLock.unlock()
+            }
+        }
+
+        audioGroup.wait()
+        guard shardResults.allSatisfy({ $0 }) else {
+            return false
+        }
+
+        if shardSpecs.count > 1 {
+            var concatTxt = "ffconcat version 1.0\n"
+            for spec in shardSpecs {
+                let escaped = spec.outputURL.path.replacingOccurrences(of: "'", with: "'\\''")
+                concatTxt += "file '\(escaped)'\n"
+            }
+            try concatTxt.write(to: concatListURL, atomically: true, encoding: .utf8)
+        }
+
+        // Losslessly mux parallel H.264 shard(s) + AudioToolbox AAC audio + QuickTime `[CHAPTER]` markers + `+faststart` (`moov` at byte 32)
         var muxSucceeded = false
-        if audioEncodeSucceeded,
-           let ffmpeg = StudioPackageManager.findExecutable(
-               names: ["ffmpeg"],
-               extraDirs: ["/opt/homebrew/opt/ffmpeg-full/bin", "/usr/local/opt/ffmpeg-full/bin"]
-           ) {
+        if audioEncodeSucceeded, let ffmpeg = detectedFFmpeg {
             let hasSRT = FileManager.default.fileExists(atPath: tempSRTURL.path)
             let hasMeta = FileManager.default.fileExists(atPath: tempMetaURL.path)
 
@@ -7948,11 +8466,14 @@ enum ReadAlongVideoExporter {
                 try? FileManager.default.removeItem(at: stagedMP4URL)
                 let muxProc = Process()
                 muxProc.executableURL = URL(fileURLWithPath: ffmpeg)
-                var muxArgs = [
-                    "-hide_banner", "-nostdin", "-y",
-                    "-i", tempVideoURL.path,
-                    "-i", tempAudioURL.path
-                ]
+                var muxArgs = ["-hide_banner", "-nostdin", "-y"]
+                if shardSpecs.count > 1 {
+                    muxArgs += ["-f", "concat", "-safe", "0", "-i", concatListURL.path]
+                } else {
+                    muxArgs += ["-i", shardSpecs[0].outputURL.path]
+                }
+                muxArgs += ["-i", tempAudioURL.path]
+
                 var nextInputIdx = 2
                 var srtInputIdx: Int? = nil
                 var metaInputIdx: Int? = nil
@@ -7975,9 +8496,9 @@ enum ReadAlongVideoExporter {
                 }
                 muxArgs += ["-c:v", "copy", "-c:a", "copy"]
                 if srtInputIdx != nil {
-                    muxArgs += ["-c:s", "mov_text", "-metadata:s:s:0", "language=eng", "-disposition:s:0", "0"]
+                    muxArgs += ["-c:s", "mov_text", "-time_base:s:0", "1/1000", "-metadata:s:s:0", "language=eng", "-disposition:s:0", "0"]
                 }
-                muxArgs += ["-max_interleave_delta", "0"]
+                muxArgs += ["-video_track_timescale", "1000", "-max_interleave_delta", "0"]
                 if metaInputIdx != nil {
                     muxArgs += ["-brand", "mp42", "-movflags", "+faststart+disable_chpl", stagedMP4URL.path]
                 } else {
@@ -8004,41 +8525,50 @@ enum ReadAlongVideoExporter {
         if !muxSucceeded && audioEncodeSucceeded {
             try? FileManager.default.removeItem(at: stagedMP4URL)
             let comp = AVMutableComposition()
-            let vAsset = AVURLAsset(url: tempVideoURL)
             let aAsset = AVURLAsset(url: tempAudioURL)
-            if let srcVTrack = (try? vAsset.tracks(withMediaType: .video))?.first,
-               let dstVTrack = comp.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) {
-                try? dstVTrack.insertTimeRange(CMTimeRange(start: .zero, duration: vAsset.duration), of: srcVTrack, at: .zero)
-                if let srcATrack = (try? aAsset.tracks(withMediaType: .audio))?.first,
-                   let dstATrack = comp.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
-                    try? dstATrack.insertTimeRange(CMTimeRange(start: .zero, duration: aAsset.duration), of: srcATrack, at: .zero)
-                }
-                if let exportSession = AVAssetExportSession(asset: comp, presetName: AVAssetExportPresetPassthrough) {
-                    exportSession.outputURL = stagedMP4URL
-                    exportSession.outputFileType = .mp4
-                    exportSession.shouldOptimizeForNetworkUse = true
-                    let expSema = DispatchSemaphore(value: 0)
-                    exportSession.exportAsynchronously {
-                        expSema.signal()
+            if let dstVTrack = comp.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) {
+                var cursorTime: CMTime = .zero
+                var insertedAnyVideo = false
+                for spec in shardSpecs {
+                    let vAsset = AVURLAsset(url: spec.outputURL)
+                    if let srcVTrack = (try? vAsset.tracks(withMediaType: .video))?.first {
+                        let dur = vAsset.duration
+                        try? dstVTrack.insertTimeRange(CMTimeRange(start: .zero, duration: dur), of: srcVTrack, at: cursorTime)
+                        cursorTime = CMTimeAdd(cursorTime, dur)
+                        insertedAnyVideo = true
                     }
-                    expSema.wait()
-                    if exportSession.status == .completed,
-                       let sz = (try? stagedMP4URL.resourceValues(forKeys: [.fileSizeKey]).fileSize),
-                       sz > 1024 {
-                        muxSucceeded = true
+                }
+                if insertedAnyVideo {
+                    if let srcATrack = (try? aAsset.tracks(withMediaType: .audio))?.first,
+                       let dstATrack = comp.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) {
+                        try? dstATrack.insertTimeRange(CMTimeRange(start: .zero, duration: aAsset.duration), of: srcATrack, at: .zero)
+                    }
+                    if let exportSession = AVAssetExportSession(asset: comp, presetName: AVAssetExportPresetPassthrough) {
+                        exportSession.outputURL = stagedMP4URL
+                        exportSession.outputFileType = .mp4
+                        exportSession.shouldOptimizeForNetworkUse = true
+                        let expSema = DispatchSemaphore(value: 0)
+                        exportSession.exportAsynchronously {
+                            expSema.signal()
+                        }
+                        expSema.wait()
+                        if exportSession.status == .completed,
+                           let sz = (try? stagedMP4URL.resourceValues(forKeys: [.fileSizeKey]).fileSize),
+                           sz > 1024 {
+                            muxSucceeded = true
+                        }
                     }
                 }
             }
         }
 
-        let finalStagedSource = muxSucceeded ? stagedMP4URL : tempVideoURL
+        let finalStagedSource = muxSucceeded ? stagedMP4URL : shardSpecs[0].outputURL
         guard FileManager.default.fileExists(atPath: finalStagedSource.path),
               let finalSz = (try? finalStagedSource.resourceValues(forKeys: [.fileSizeKey]).fileSize),
               finalSz > 1024 else {
             return false
         }
 
-        // Atomic publish: `destinationURL` only appears on disk once 100% complete with valid `moov` + video + audio!
         if FileManager.default.fileExists(atPath: destinationURL.path) {
             try? FileManager.default.removeItem(at: destinationURL)
         }
@@ -8120,11 +8650,13 @@ enum ReadAlongVideoExporter {
             return [M4BChapterMarker(id: 0, title: title, startSec: 0, endSec: max(1.0, totalDurationSec))]
         }()
 
+        let videoFPS = totalDurationMs > 300_000 ? 20 : 25
+        let minSlideMs = max(40, 1000 / videoFPS)
         let cues = SubtitleExporter.buildReadAlongCues(timings: effectiveTimings, aspect: aspect)
-        let slides = buildReadAlongVisualSlides(cues: cues, totalDurationMs: totalDurationMs, minSlideMs: 40)
+        let slides = buildReadAlongVisualSlides(cues: cues, totalDurationMs: totalDurationMs, minSlideMs: minSlideMs)
 
         #if os(macOS)
-        // 1. Primary Ultra-Fast Path: In-process Native 3-Level Delta-Band CoreGraphics + CoreText + Hardware VideoToolbox H.264 + AudioToolbox AAC + QuickTime `[CHAPTER]` markers + `+faststart`
+        // 1. Primary Ultra-Fast Path: Multi-Shard Parallel Native 3-Level Delta-Band CoreGraphics + CoreText + Hardware VideoToolbox H.264 + AudioToolbox AAC + QuickTime `[CHAPTER]` markers + `+faststart`
         if (try? renderNative3LevelDeltaBandMP4(
             sourceWAV: sourceWAV,
             cues: cues,
@@ -8135,6 +8667,7 @@ enum ReadAlongVideoExporter {
             title: title,
             voiceName: voiceName,
             totalDurationMs: totalDurationMs,
+            videoFPS: videoFPS,
             srtContent: srtContent,
             onProgress: onProgress,
             to: destinationURL
@@ -10092,7 +10625,13 @@ final class SpeechPronunciationLexicon {
         rules = Self.defaultRules
     }
 
+    nonisolated private static let regexCacheLock = NSLock()
+    nonisolated(unsafe) private static var cachedCompiledRules: [(term: String, regex: NSRegularExpression, template: String)]?
+
     private func save() {
+        Self.regexCacheLock.lock()
+        Self.cachedCompiledRules = nil
+        Self.regexCacheLock.unlock()
         if let data = try? JSONEncoder().encode(rules) {
             UserDefaults.standard.set(data, forKey: Self.storageKey)
         }
@@ -10101,28 +10640,46 @@ final class SpeechPronunciationLexicon {
     /// Applies enabled phonetic replacements at word boundaries so TTS speaks technical terms and character names naturally
     /// without altering the user's visible script or Read-Along display text.
     nonisolated func apply(to text: String) -> String {
+        guard !text.isEmpty else { return text }
         guard UserDefaults.standard.object(forKey: Self.enabledKey) == nil || UserDefaults.standard.bool(forKey: Self.enabledKey) else {
             return text
         }
-        let activeRules: [PronunciationRule]
-        if let data = UserDefaults.standard.data(forKey: Self.storageKey),
-           let decoded = try? JSONDecoder().decode([PronunciationRule].self, from: data) {
-            activeRules = decoded.filter { $0.isEnabled && !$0.term.isEmpty }
-        } else {
-            activeRules = Self.defaultRules.filter { $0.isEnabled }
-        }
-        guard !activeRules.isEmpty, !text.isEmpty else { return text }
 
-        var output = text
-        for rule in activeRules {
-            let escaped = NSRegularExpression.escapedPattern(for: rule.term)
-            let pattern = "(?<![\\p{L}\\p{N}_])\(escaped)(?![\\p{L}\\p{N}_])"
-            let options: NSRegularExpression.Options = rule.caseSensitive ? [] : [.caseInsensitive]
-            if let regex = try? NSRegularExpression(pattern: pattern, options: options) {
-                let range = NSRange(output.startIndex..., in: output)
-                let template = NSRegularExpression.escapedTemplate(for: rule.phonetic)
-                output = regex.stringByReplacingMatches(in: output, options: [], range: range, withTemplate: template)
+        Self.regexCacheLock.lock()
+        var compiled = Self.cachedCompiledRules
+        Self.regexCacheLock.unlock()
+
+        if compiled == nil {
+            let activeRules: [PronunciationRule]
+            if let data = UserDefaults.standard.data(forKey: Self.storageKey),
+               let decoded = try? JSONDecoder().decode([PronunciationRule].self, from: data) {
+                activeRules = decoded.filter { $0.isEnabled && !$0.term.isEmpty }
+            } else {
+                activeRules = Self.defaultRules.filter { $0.isEnabled }
             }
+            var built: [(term: String, regex: NSRegularExpression, template: String)] = []
+            built.reserveCapacity(activeRules.count)
+            for rule in activeRules {
+                let escaped = NSRegularExpression.escapedPattern(for: rule.term)
+                let pattern = "(?<![\\p{L}\\p{N}_])\(escaped)(?![\\p{L}\\p{N}_])"
+                let options: NSRegularExpression.Options = rule.caseSensitive ? [] : [.caseInsensitive]
+                if let regex = try? NSRegularExpression(pattern: pattern, options: options) {
+                    let template = NSRegularExpression.escapedTemplate(for: rule.phonetic)
+                    built.append((rule.term, regex, template))
+                }
+            }
+            Self.regexCacheLock.lock()
+            Self.cachedCompiledRules = built
+            Self.regexCacheLock.unlock()
+            compiled = built
+        }
+
+        guard let entries = compiled, !entries.isEmpty else { return text }
+        var output = text
+        for entry in entries {
+            guard output.localizedCaseInsensitiveContains(entry.term) else { continue }
+            let range = NSRange(output.startIndex..., in: output)
+            output = entry.regex.stringByReplacingMatches(in: output, options: [], range: range, withTemplate: entry.template)
         }
         return output
     }
@@ -10791,7 +11348,13 @@ final class CharacterCastingManager {
         return addedCount
     }
 
+    nonisolated private static let castCacheLock = NSLock()
+    nonisolated(unsafe) private static var cachedActiveCast: [CharacterVoiceCast]?
+
     private func save() {
+        Self.castCacheLock.lock()
+        Self.cachedActiveCast = nil
+        Self.castCacheLock.unlock()
         if let data = try? JSONEncoder().encode(cast) {
             UserDefaults.standard.set(data, forKey: Self.storageKey)
         }
@@ -10809,14 +11372,25 @@ final class CharacterCastingManager {
             return (chunk, defaultVoiceParam, defaultPitch, nil)
         }
 
-        let activeCast: [CharacterVoiceCast]
-        if let data = UserDefaults.standard.data(forKey: Self.storageKey),
-           let decoded = try? JSONDecoder().decode([CharacterVoiceCast].self, from: data) {
-            activeCast = decoded.filter(\.isEnabled)
-        } else {
-            activeCast = Self.defaultCast.filter(\.isEnabled)
+        Self.castCacheLock.lock()
+        var activeCastOpt = Self.cachedActiveCast
+        Self.castCacheLock.unlock()
+
+        if activeCastOpt == nil {
+            let loaded: [CharacterVoiceCast]
+            if let data = UserDefaults.standard.data(forKey: Self.storageKey),
+               let decoded = try? JSONDecoder().decode([CharacterVoiceCast].self, from: data) {
+                loaded = decoded.filter(\.isEnabled)
+            } else {
+                loaded = Self.defaultCast.filter(\.isEnabled)
+            }
+            Self.castCacheLock.lock()
+            Self.cachedActiveCast = loaded
+            Self.castCacheLock.unlock()
+            activeCastOpt = loaded
         }
-        guard !activeCast.isEmpty else {
+
+        guard let activeCast = activeCastOpt, !activeCast.isEmpty else {
             return (chunk, defaultVoiceParam, defaultPitch, nil)
         }
 

@@ -139,6 +139,19 @@ public final class SeanetResnetBlock: Module {
         return x
     }
 
+    public func callNLC(_ xsNLC: MLXArray) -> MLXArray {
+        var x = xsNLC
+        for b in block {
+            x = b.callNLC(elu(x, alpha: 1.0))
+        }
+        if let sc = shortcut {
+            x = x + sc.callNLC(xsNLC)
+        } else {
+            x = x + xsNLC
+        }
+        return x
+    }
+
     public func step(_ xs: MLXArray) -> MLXArray {
         var x = xs
         for b in block {
@@ -196,6 +209,12 @@ public final class EncoderLayer: Module {
         return downsample(elu(x, alpha: 1.0))
     }
 
+    public func callNLC(_ xsNLC: MLXArray) -> MLXArray {
+        var x = xsNLC
+        for r in residuals { x = r.callNLC(x) }
+        return downsample.callNLC(elu(x, alpha: 1.0))
+    }
+
     public func step(_ xs: MLXArray) -> MLXArray {
         var x = xs
         for r in residuals { x = r.step(x) }
@@ -244,6 +263,13 @@ public final class SeanetEncoder: Module {
         for l in layers { x = l(x) }
         x = elu(x, alpha: 1.0)
         return final_conv1d(x)
+    }
+
+    public func callNLC(_ xsNLC: MLXArray) -> MLXArray {
+        var x = init_conv1d.callNLC(xsNLC)
+        for l in layers { x = l.callNLC(x) }
+        x = elu(x, alpha: 1.0)
+        return final_conv1d.callNLC(x)
     }
 
     public func step(_ xs: MLXArray) -> MLXArray {
@@ -295,6 +321,12 @@ public final class DecoderLayer: Module {
         return x
     }
 
+    public func callNLC(_ xsNLC: MLXArray) -> MLXArray {
+        var x = upsample.callNLC(elu(xsNLC, alpha: 1.0))
+        for r in residuals { x = r.callNLC(x) }
+        return x
+    }
+
     public func step(_ xs: MLXArray) -> MLXArray {
         var x = upsample.step(elu(xs, alpha: 1.0))
         for r in residuals { x = r.step(x) }
@@ -343,6 +375,13 @@ public final class SeanetDecoder: Module {
         for l in layers { x = l(x) }
         x = elu(x, alpha: 1.0)
         return final_conv1d(x)
+    }
+
+    public func callNLC(_ xsNLC: MLXArray) -> MLXArray {
+        var x = init_conv1d.callNLC(xsNLC)
+        for l in layers { x = l.callNLC(x) }
+        x = elu(x, alpha: 1.0)
+        return final_conv1d.callNLC(x)
     }
 
     public func step(_ xs: MLXArray) -> MLXArray {
