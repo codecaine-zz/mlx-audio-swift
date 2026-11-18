@@ -287,6 +287,7 @@ class TTSViewModel {
         ("OmniVoice", "mlx-community/OmniVoice"),
         ("TADA 1B", "HumeAI/mlx-tada-1b"),
         ("TADA 3B", "HumeAI/mlx-tada-3b"),
+        ("ZONOS3-Mini (27 Voices + Cloning · 44.1kHz)", "mlx-community/ZONOS3-Mini"),
         ("ZONOS2 (4-bit)", "amal-david/Zyphra-ZONOS2-4bit"),
         ("VyvoTTS EN Beta (4-bit)", "mlx-community/VyvoTTS-EN-Beta-4bit"),
         ("LongCat-AudioDiT 1B (4-bit)", "mlx-community/LongCat-AudioDiT-1B-4bit"),
@@ -302,12 +303,16 @@ class TTSViewModel {
         ("Spark-TTS 0.5B (BF16)", "mlx-community/Spark-TTS-0.5B-bf16"),
         ("Rumik OSS 1 (8-bit)", "rumik-ai/rumik-oss-1-mlx-8bit"),
         ("Dia 1.6B", "mlx-community/Dia-1.6B"),
+        ("Stable Audio 3 Small SFX (Text-to-SFX · 44.1kHz)", "mlx-community/stable-audio-3-small-sfx"),
+        ("Stable Audio 3 Small Music (Text-to-Music · 44.1kHz)", "mlx-community/stable-audio-3-small-music"),
+        ("Stable Audio 3 Medium (Text-to-Audio · 44.1kHz)", "mlx-community/stable-audio-3-medium"),
     ]
 
     static var categorizedPresetModels: [(category: String, icon: String, models: [(name: String, id: String)])] {
         var fastDefault: [(name: String, id: String)] = []
         var voiceCloning: [(name: String, id: String)] = []
         var expressive: [(name: String, id: String)] = []
+        var textToAudio: [(name: String, id: String)] = []
         var multilingual: [(name: String, id: String)] = []
         var lightweight: [(name: String, id: String)] = []
 
@@ -315,8 +320,10 @@ class TTSViewModel {
             let l = item.id.lowercased()
             if l.contains("phonon") {
                 fastDefault.append(item)
-            } else if l.contains("maya") || l.contains("audio8") || l.contains("fish-audio") || l.contains("chatterbox") || l.contains("echo-tts") || l.contains("voxcpm") || l.contains("indextts") || l.contains("spark-tts") || l.contains("pocket-tts") || l.contains("outetts") {
+            } else if l.contains("zonos3") || l.contains("maya") || l.contains("audio8") || l.contains("fish-audio") || l.contains("chatterbox") || l.contains("echo-tts") || l.contains("voxcpm") || l.contains("indextts") || l.contains("spark-tts") || l.contains("pocket-tts") || l.contains("outetts") {
                 voiceCloning.append(item)
+            } else if l.contains("stable-audio-3") {
+                textToAudio.append(item)
             } else if l.contains("qwen3-tts") || l.contains("orpheus") || l.contains("dia-") || l.contains("moss-tts") || l.contains("irodori") || l.contains("higgs") || l.contains("tada") || l.contains("zonos") || l.contains("bark") || l.contains("kugelaudio") {
                 expressive.append(item)
             } else if l.contains("voxtral") || l.contains("ming") || l.contains("omnivoice") || l.contains("breeze") || l.contains("confucius") || l.contains("melotts") {
@@ -330,6 +337,7 @@ class TTSViewModel {
             ("Fast Default & Phonon (31M–40M)", "bolt.fill", fastDefault),
             ("Zero-Shot Voice Cloning & Realistic", "person.wave.2.fill", voiceCloning),
             ("Expressive, VoiceDesign & Dialogue", "theatermasks.fill", expressive),
+            ("Text-to-SFX & Music (Stable Audio 3)", "guitars.fill", textToAudio),
             ("Multilingual & Omni TTS", "globe", multilingual),
             ("Ultra-Lightweight & Realtime", "hare.fill", lightweight),
         ]
@@ -706,6 +714,21 @@ class TTSViewModel {
             .store(in: &cancellables)
     }
 
+    /// Downmixes stereo `[frames, 2]` waveforms (e.g. Stable Audio 3) to mono `[Float]` for 1-channel WAV writers.
+    nonisolated static func extractMonoSamples(from audioData: MLXArray) -> [Float] {
+        let values = audioData.asArray(Float.self)
+        if audioData.ndim == 2 && audioData.shape[1] == 2 {
+            let frameCount = values.count / 2
+            var mono = [Float]()
+            mono.reserveCapacity(frameCount)
+            for i in stride(from: 0, to: frameCount * 2, by: 2) {
+                mono.append((values[i] + values[i + 1]) * 0.5)
+            }
+            return mono
+        }
+        return values
+    }
+
     func refreshVoicesForCurrentModel(forceSelectFirst: Bool = false) {
         var dynamicNames: [String] = []
         if let loadedModel = model {
@@ -719,6 +742,8 @@ class TTSViewModel {
                 dynamicNames = rumik.voices
             } else if let maya2 = loadedModel as? Maya2Model {
                 dynamicNames = maya2.voices
+            } else if let zonos3 = loadedModel as? Zonos3Model {
+                dynamicNames = zonos3.voices
             }
         }
         let voices = Voice.builtInVoices(for: modelId, dynamicVoiceNames: dynamicNames)
@@ -1046,12 +1071,12 @@ class TTSViewModel {
 
             if let voice, voice.isClonedVoice,
                Voice.supportsReferenceCloning(for: modelId),
-               let audioURL = voice.audioFileURL,
-               let transcription = voice.transcription {
+               let audioURL = voice.audioFileURL {
                 generationProgress = "Loading reference audio..."
                 let (_, audioData) = try loadAudioArray(from: audioURL, sampleRate: model.sampleRate)
                 referenceAudio = audioData
-                refText = transcription
+                let rawTranscript = voice.transcription?.trimmingCharacters(in: .whitespacesAndNewlines)
+                refText = (rawTranscript?.isEmpty == false) ? voice.transcription : nil
             } else if isFishModel, let voice,
                       let preset = Voice.fishS2Preset(for: voice.voiceId ?? voice.name) {
                 fishPreset = preset
@@ -1438,6 +1463,7 @@ class TTSViewModel {
                     nonisolated(unsafe) let genModel = model
                     nonisolated(unsafe) let refAudioBox = referenceAudio
                     let refTextSnapshot = refText
+                    let isStableAudio3 = activeModelId.lowercased().contains("stable-audio-3")
                     let runNeuralChunk: @Sendable (String) async throws -> (samples: [Float], tps: Double) = { promptText in
                         try await Task.detached(priority: .userInitiated) {
                             var collected: [Float] = []
@@ -1459,7 +1485,7 @@ class TTSViewModel {
                                     latestTPS = info.tokensPerSecond
                                 case .audio(let audioData):
                                     autoreleasepool {
-                                        let samples = audioData.asArray(Float.self)
+                                        let samples = Self.extractMonoSamples(from: audioData)
                                         collected.append(contentsOf: samples)
                                     }
                                 }
@@ -1468,7 +1494,9 @@ class TTSViewModel {
                                 if abs(chunkPitchShift) > 0.05 {
                                     collected = Voice.applyPitchShift(collected, semitones: chunkPitchShift, sampleRate: sampleRate)
                                 }
-                                collected = SpeechAudioTrimmer.trimSilence(collected, sampleRate: sampleRate)
+                                if !isStableAudio3 {
+                                    collected = SpeechAudioTrimmer.trimSilence(collected, sampleRate: sampleRate)
+                                }
                             }
                             return (collected, latestTPS)
                         }.value
@@ -1815,11 +1843,11 @@ class TTSViewModel {
 
                 if let voice, voice.isClonedVoice,
                    Voice.supportsReferenceCloning(for: modelId),
-                   let audioURL = voice.audioFileURL,
-                   let transcription = voice.transcription {
+                   let audioURL = voice.audioFileURL {
                     let (_, audioData) = try loadAudioArray(from: audioURL, sampleRate: model.sampleRate)
                     referenceAudio = audioData
-                    refText = transcription
+                    let rawTranscript = voice.transcription?.trimmingCharacters(in: .whitespacesAndNewlines)
+                    refText = (rawTranscript?.isEmpty == false) ? voice.transcription : nil
                 } else if isFishModel, let voice,
                           let preset = Voice.fishS2Preset(for: voice.voiceId ?? voice.name) {
                     fishPreset = preset
@@ -1870,7 +1898,7 @@ class TTSViewModel {
                     try Task.checkCancellation()
                     if case .audio(let audioData) = event {
                         autoreleasepool {
-                            rawSamples.append(contentsOf: audioData.asArray(Float.self))
+                            rawSamples.append(contentsOf: Self.extractMonoSamples(from: audioData))
                         }
                     }
                 }
@@ -1881,12 +1909,15 @@ class TTSViewModel {
 
                 let masterSnap = StudioMasteringManager.shared.snapshot
                 let chunkPitch = castResolved.pitch
+                let isStableAudio3 = modelId.lowercased().contains("stable-audio-3")
                 let newChunkSamples: [Float] = await Task.detached(priority: .userInitiated) {
                     var p = rawSamples
                     if abs(chunkPitch) > 0.05 {
                         p = Voice.applyPitchShift(p, semitones: chunkPitch, sampleRate: sampleRate)
                     }
-                    p = SpeechAudioTrimmer.trimSilence(p, sampleRate: sampleRate)
+                    if !isStableAudio3 {
+                        p = SpeechAudioTrimmer.trimSilence(p, sampleRate: sampleRate)
+                    }
                     p = StudioMasteringManager.processSamples(p, sampleRate: sampleRate, config: masterSnap, preserveExactLength: true)
                     return p
                 }.value
@@ -2222,7 +2253,14 @@ class TTSViewModel {
                     var refAudio: MaterializedArray? = nil
                     var refText: String? = nil
                     var fishPreset: Voice.FishS2VoicePreset? = nil
-                    if isFishModel, let preset = Voice.fishS2Preset(for: targetVoice.voiceId ?? targetVoice.name) {
+                    if targetVoice.isClonedVoice,
+                       Voice.supportsReferenceCloning(for: self.modelId),
+                       let audioURL = targetVoice.audioFileURL,
+                       let (_, audioData) = try? loadAudioArray(from: audioURL, sampleRate: ttsModel.sampleRate) {
+                        refAudio = audioData
+                        let rawTranscript = targetVoice.transcription?.trimmingCharacters(in: .whitespacesAndNewlines)
+                        refText = (rawTranscript?.isEmpty == false) ? targetVoice.transcription : nil
+                    } else if isFishModel, let preset = Voice.fishS2Preset(for: targetVoice.voiceId ?? targetVoice.name) {
                         fishPreset = preset
                         if let resName = preset.resourceName,
                            let refURL = Bundle.main.url(forResource: resName, withExtension: "wav"),
@@ -2233,6 +2271,13 @@ class TTSViewModel {
                     }
 
                     let voiceParam: String? = {
+                        if targetVoice.isClonedVoice && Voice.supportsReferenceCloning(for: self.modelId) {
+                            return nil
+                        }
+                        if targetVoice.isBuiltIn {
+                            let trimmedId = targetVoice.voiceId?.trimmingCharacters(in: .whitespacesAndNewlines)
+                            return (trimmedId?.isEmpty == false) ? trimmedId : nil
+                        }
                         guard let raw = (targetVoice.voiceId ?? targetVoice.name).trimmingCharacters(in: .whitespacesAndNewlines) as String?,
                               !raw.isEmpty else { return nil }
                         let lowerModel = self.modelId.lowercased()
@@ -2256,7 +2301,7 @@ class TTSViewModel {
                     ) {
                         if Task.isCancelled { break }
                         if case .audio(let audioData) = event {
-                            rawSamples.append(contentsOf: audioData.asArray(Float.self))
+                            rawSamples.append(contentsOf: Self.extractMonoSamples(from: audioData))
                         }
                     }
 
@@ -2271,12 +2316,13 @@ class TTSViewModel {
                     }
 
                     let totalShift = self.pitchSemitones + (fishPreset?.pitchSemitones ?? 0)
+                    let isStableAudio3 = self.modelId.lowercased().contains("stable-audio-3")
                     let processed: [Float] = await Task.detached(priority: .userInitiated) {
                         var s = rawSamples
                         if abs(totalShift) > 0.05 {
                             s = Voice.applyPitchShift(s, semitones: totalShift, sampleRate: sr)
                         }
-                        return SpeechAudioTrimmer.trimSilence(s, sampleRate: sr)
+                        return isStableAudio3 ? s : SpeechAudioTrimmer.trimSilence(s, sampleRate: sr)
                     }.value
 
                     if let writer = try? StreamingWAVWriter(url: neuralURL, sampleRate: sr) {

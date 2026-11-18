@@ -93,7 +93,7 @@ struct ContentView: View {
     @State private var viewModel = TTSViewModel()
     @State private var textInput: String = Voice.deadOrbitNovelText
     @State private var showVoices = ProcessInfo.processInfo.arguments.contains("--open-voices")
-    @State private var showSettings = ProcessInfo.processInfo.arguments.contains("--open-settings")
+    @State private var showSettings = false
     @State private var showDownloadedModelsSheet = ProcessInfo.processInfo.arguments.contains("--open-models")
     @State private var pendingDeleteModel: (name: String, id: String, size: String)? = nil
     @State private var modelsManager = DownloadedModelsManager.shared
@@ -3251,6 +3251,11 @@ struct ContentView: View {
                     .replacingOccurrences(of: "\\\"", with: "\"")
             }
             syncMiniReaderState()
+            if ProcessInfo.processInfo.arguments.contains("--open-settings") && !showSettings {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                    showSettings = true
+                }
+            }
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {

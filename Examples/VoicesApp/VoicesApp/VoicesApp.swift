@@ -267,8 +267,39 @@ struct FuturisticIconShowcaseSheet: View {
     }
 }
 
+#if os(macOS)
+@MainActor
+final class VoicesAppDelegate: NSObject, NSApplicationDelegate {
+    var openMainWindow: (() -> Void)?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApplication.shared.setActivationPolicy(.regular)
+        StudioBrandIconLoader.applyDockIcon()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            if NSApplication.shared.windows.filter({ $0.frame.width > 400 }).isEmpty {
+                self.openMainWindow?()
+            }
+        }
+    }
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        if ProcessInfo.processInfo.arguments.contains("--snapshot-out") {
+            DispatchQueue.main.async {
+                if NSApplication.shared.windows.filter({ $0.frame.width > 400 }).isEmpty {
+                    self.openMainWindow?()
+                }
+            }
+        }
+    }
+}
+#endif
+
 @main
 struct VoicesApp: App {
+    #if os(macOS)
+    @NSApplicationDelegateAdaptor(VoicesAppDelegate.self) private var appDelegate
+    @Environment(\.openWindow) private var openWindow
+    #endif
     @State private var selectedTab: Int = {
         let args = ProcessInfo.processInfo.arguments
         if let idx = args.firstIndex(of: "--tab"), idx + 1 < args.count, let t = Int(args[idx + 1]) {
@@ -686,12 +717,19 @@ struct VoicesApp: App {
             QAEverythingRunner.runAndExit(outDir: outDir)
         }
         #endif
+        if args.contains("--snapshot-out") {
+            UserDefaults.standard.register(defaults: ["ApplePersistenceIgnoreState": true])
+        }
         if let idx = args.firstIndex(of: "--theme"), idx + 1 < args.count {
             let requested = args[idx + 1].lowercased()
             if ReadAlongTheme(rawValue: requested) != nil {
                 UserDefaults.standard.set(requested, forKey: "VoicesApp.TTSViewModel.readAlongTheme")
             }
         }
+        #if os(macOS)
+        let openStudioWindow = openWindow
+        appDelegate.openMainWindow = { openStudioWindow(id: "studio") }
+        #endif
         Task { @MainActor in
             #if os(macOS)
             NSApplication.shared.setActivationPolicy(.regular)
@@ -702,7 +740,7 @@ struct VoicesApp: App {
     }
 
     var body: some Scene {
-        WindowGroup {
+        WindowGroup(id: "studio") {
             AppleStudioShellView(selectedTab: $selectedTab)
                 #if os(macOS)
                 .frame(minWidth: 960, minHeight: 720)

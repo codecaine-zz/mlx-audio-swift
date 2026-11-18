@@ -1467,22 +1467,22 @@ public class Qwen3ASRModel: Module {
 
                     var totalPromptTokens = 0
                     var totalGenerationTokens = 0
-                    var allTexts: [String] = []
+                    var chunkTexts: [String] = []
+                    var chunkLanguages: [String?] = []
                     var segments: [[String: Any]] = []
                     let forcedLanguage = model.normalizeLanguageName(language)
-                    var resolvedLanguage = forcedLanguage
 
                     for (chunkIndex, (chunkAudio, offsetSec)) in chunks.enumerated() {
                         try Task.checkCancellation()
                         let actualChunkDuration = Float(chunkAudio.dim(0)) / Float(model.sampleRate)
-                        var chunkLanguage = forcedLanguage ?? resolvedLanguage
+                        var chunkLanguage = forcedLanguage
 
                         // Preprocess this chunk
                         let (inputFeatures, featureAttentionMask, numAudioTokens) = model.preprocessAudio(chunkAudio)
                         let inputIds = model.buildPrompt(
                             numAudioTokens: numAudioTokens,
                             context: context,
-                            language: chunkLanguage
+                            language: forcedLanguage
                         )
                         let promptTokenCount = inputIds.dim(1)
                         totalPromptTokens += promptTokenCount
@@ -1510,7 +1510,6 @@ public class Qwen3ASRModel: Module {
 
                         var chunkTokens: [Int] = []
                         var languagePrefixBuffer = ""
-                        var streamedAnyTokenInChunk = false
 
                         for _ in 0..<maxTokens {
                             try Task.checkCancellation()
@@ -1558,29 +1557,13 @@ public class Qwen3ASRModel: Module {
                                 languagePrefixBuffer += tokenText
                                 let parsed = model.extractLanguage(from: languagePrefixBuffer)
                                 if let detectedLanguage = parsed.language {
-                                    // Never lock "None" (instrumental/non-speech chunk) across subsequent chunks of a song
-                                    if detectedLanguage.lowercased() != "none" {
-                                        chunkLanguage = model.normalizeLanguageName(detectedLanguage) ?? detectedLanguage
-                                        if resolvedLanguage == nil {
-                                            resolvedLanguage = chunkLanguage
-                                        }
-                                    } else {
-                                        chunkLanguage = "None"
-                                    }
+                                    chunkLanguage = model.normalizeLanguageName(detectedLanguage) ?? detectedLanguage
                                     if !parsed.text.isEmpty {
-                                        if chunkIndex > 0 && !streamedAnyTokenInChunk && !allTexts.isEmpty {
-                                            continuation.yield(.token("\n"))
-                                        }
                                         continuation.yield(.token(parsed.text))
-                                        streamedAnyTokenInChunk = true
                                     }
                                 }
                             } else {
-                                if chunkIndex > 0 && !streamedAnyTokenInChunk && !allTexts.isEmpty && !tokenText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                    continuation.yield(.token("\n"))
-                                }
                                 continuation.yield(.token(tokenText))
-                                streamedAnyTokenInChunk = true
                             }
 
                             let nextTokenArray = MLXArray([Int32(nextToken)]).expandedDimensions(axis: 0)
@@ -1594,11 +1577,15 @@ public class Qwen3ASRModel: Module {
                             continuation.yield(.token(languagePrefixBuffer))
                         }
 
-                        let chunkDecoded = tokenizer.decode(tokens: chunkTokens)
-                        let parsedChunk = model.parseGeneratedChunk(chunkDecoded, forcedLanguage: forcedLanguage ?? (chunkLanguage == "None" ? nil : chunkLanguage))
+                        let parsedChunk = model.parseGeneratedChunk(
+                            tokenizer.decode(tokens: chunkTokens),
+                            forcedLanguage: forcedLanguage
+                        )
+                        chunkTexts.append(parsedChunk.text)
+                        chunkLanguages.append(parsedChunk.language)
+
                         let cleanChunkText = parsedChunk.text.trimmingCharacters(in: .whitespacesAndNewlines)
                         if !cleanChunkText.isEmpty {
-                            allTexts.append(cleanChunkText)
                             var seg: [String: Any] = [
                                 "text": cleanChunkText,
                                 "start": Double(offsetSec),
@@ -1608,6 +1595,10 @@ public class Qwen3ASRModel: Module {
                                 seg["language"] = lang
                             }
                             segments.append(seg)
+                        }
+
+                        if !parsedChunk.text.isEmpty && chunkIndex < chunks.count - 1 {
+                            continuation.yield(.token(" "))
                         }
 
                         Memory.clearCache()
@@ -1630,8 +1621,8 @@ public class Qwen3ASRModel: Module {
                     continuation.yield(.info(info))
 
                     // Emit final result with all chunks and segments intact
-                    let text = allTexts.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-                    let outputLanguage = resolvedLanguage ?? forcedLanguage
+                    let outputLanguage = Qwen3ASRModel.mergeLanguages(chunkLanguages)
+                    let text = chunkTexts.filter { !$0.isEmpty }.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
                     let output = STTOutput(
                         text: text,
                         segments: segments.isEmpty ? nil : segments,

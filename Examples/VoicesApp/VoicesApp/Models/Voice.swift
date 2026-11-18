@@ -638,9 +638,9 @@ struct Voice: Identifiable, Hashable {
     var audioFileURL: URL?
     var transcription: String?
 
-    /// Whether this voice uses audio cloning (has both audio file and transcription)
+    /// Whether this voice uses audio cloning (has a reference audio file; transcription is optional for ZONOS3-Mini)
     var isClonedVoice: Bool {
-        audioFileURL != nil && transcription != nil && !transcription!.isEmpty
+        audioFileURL != nil
     }
 
     /// Stable canonical identifier used for persisting favorite/recent/selected voices across launches
@@ -736,7 +736,8 @@ extension Voice {
         if lower.contains("kokoro") || lower.contains("kitten") || lower.contains("orpheus")
             || lower.contains("vibevoice-realtime") || lower.contains("voxtral")
             || lower.contains("melotts") || lower.contains("rumik") || lower.contains("soprano")
-            || lower.contains("vyvotts") || lower.contains("kugelaudio") || lower.contains("bark") {
+            || lower.contains("vyvotts") || lower.contains("kugelaudio") || lower.contains("bark")
+            || lower.contains("stable-audio-3") {
             return false
         }
         return true
@@ -991,6 +992,41 @@ extension Voice {
             specs = [
                 ("Female (moderate/moderate)", "female", "Spark-TTS Controllable Female", "Multilingual"),
                 ("Male (moderate/moderate)", "male", "Spark-TTS Controllable Male", "Multilingual"),
+            ]
+        } else if lower.contains("zonos3") {
+            specs = [
+                ("Jett", "jett", "English Energetic Male · Default", "English"),
+                ("Imogen", "imogen", "British English Female", "English"),
+                ("Savannah", "savannah", "American English Female", "English"),
+                ("Wyatt", "wyatt", "American English Male", "English"),
+                ("Cillian", "cillian", "Irish English Male", "English"),
+                ("Rupert", "rupert", "British English Male", "English"),
+                ("Thaddeus", "thaddeus", "Announcer Male", "English"),
+                ("Willow", "willow", "ASMR Female", "English"),
+                ("Morgana", "morgana", "Character Witch Female", "English"),
+                ("Sakura", "sakura", "Anime Style Female", "English"),
+                ("Gaspard", "gaspard", "French Male", "French"),
+                ("Liesel", "liesel", "German Female", "German"),
+                ("Wolfgang", "wolfgang", "German Male", "German"),
+                ("Rodrigo", "rodrigo", "Spanish Male", "Spanish"),
+                ("Ximena", "ximena", "Spanish Female", "Spanish"),
+                ("Ginevra", "ginevra", "Italian Female", "Italian"),
+                ("Lorenzo", "lorenzo", "Italian Male", "Italian"),
+                ("Leonor", "leonor", "Portuguese Female", "Portuguese"),
+                ("Thiago", "thiago", "Portuguese Male", "Portuguese"),
+                ("Haoran", "haoran", "Chinese Male", "Chinese"),
+                ("Meilin", "meilin", "Chinese Female", "Chinese"),
+                ("Minjun", "minjun", "Korean Male", "Korean"),
+                ("Seoyeon", "seoyeon", "Korean Female", "Korean"),
+                ("Ananya", "ananya", "Hindi Female", "Hindi"),
+                ("Arjun", "arjun", "Hindi Male", "Hindi"),
+                ("Chaitanya", "chaitanya", "Telugu Male", "Telugu"),
+                ("Sravya", "sravya", "Telugu Female", "Telugu"),
+                ("None (Unconditioned)", "none", "No speaker prompt", "Multilingual"),
+            ]
+        } else if lower.contains("stable-audio-3") {
+            specs = [
+                ("Text Prompt (SFX / Music)", nil, "44.1 kHz Text-to-Audio prompt (no speaker voice)", "Audio"),
             ]
         } else if lower.contains("bark") {
             specs = [
@@ -9564,7 +9600,7 @@ final class LocalhostServerManager {
                         generationParameters: ttsModel.defaultGenerationParameters
                     ) {
                         if case .audio(let audioData) = event {
-                            var chunkSamples = audioData.asArray(Float.self)
+                            var chunkSamples = TTSViewModel.extractMonoSamples(from: audioData)
                             if let shift = fishPreset?.pitchSemitones, abs(shift) > 0.05 {
                                 chunkSamples = Voice.applyPitchShift(chunkSamples, semitones: shift, sampleRate: sr)
                             }
@@ -9988,6 +10024,18 @@ final class LocalhostServerManager {
         if lower.contains("phonon-40m-multilingual") {
             return "gradium/phonon-40m-multilingual"
         }
+        if lower == "zonos3" || lower == "zonos3-mini" {
+            return "mlx-community/ZONOS3-Mini"
+        }
+        if lower == "stable-audio-3" || lower == "stable-audio-3-sfx" || lower == "stable-audio-3-small-sfx" {
+            return "mlx-community/stable-audio-3-small-sfx"
+        }
+        if lower == "stable-audio-3-music" || lower == "stable-audio-3-small-music" {
+            return "mlx-community/stable-audio-3-small-music"
+        }
+        if lower == "stable-audio-3-medium" {
+            return "mlx-community/stable-audio-3-medium"
+        }
         if requested.contains("/") {
             return requested
         }
@@ -9999,7 +10047,18 @@ final class LocalhostServerManager {
 
     private func resolveVoiceId(for repoId: String, requestedVoice: String) -> String? {
         let lowerRepo = repoId.lowercased()
-        let lowerVoice = requestedVoice.lowercased()
+        let lowerVoice = requestedVoice.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        if lowerRepo.contains("stable-audio-3") {
+            return nil
+        }
+        if lowerRepo.contains("zonos3") {
+            switch lowerVoice {
+            case "", "zoey", "default":
+                return "jett"
+            default:
+                return lowerVoice
+            }
+        }
         if lowerRepo.contains("nativ-community/phonon") {
             switch lowerVoice {
             case "harper": return "harper"
@@ -10024,6 +10083,9 @@ final class LocalhostServerManager {
         }
         if lower == "phonon-2.5" || lower == "phonon-2.5-multilingual" || lower == "phonon-multilingual" {
             return "FermionResearch/Phonon-2.5"
+        }
+        if lower == "sov-transcribe" || lower == "sov-transcribe-1" {
+            return "nativ-community/SOV-Transcribe-1-4bit"
         }
         if requested.contains("/") {
             return requested
